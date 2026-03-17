@@ -1,67 +1,73 @@
 /**
- * Funciones para enviar datos a Google Sheets
- * Soporta Google Sheets API v4 y Google Apps Script como proxy
+ * Funciones para enviar datos al backend.
+ * Soporta: FastAPI (recomendado), Google Apps Script, Google Sheets API
  */
 import { sheetsConfig } from '../config/googleSheets.js'
 
 /**
- * Envía datos usando Google Apps Script como proxy (Opción B - recomendada)
+ * Envía datos al backend FastAPI (Opción A - recomendada)
  */
-async function sendViaAppsScript(data) {
-  const url = sheetsConfig.script.url
-
-  if (!url) {
-    throw new Error('URL de Apps Script no configurada. Configure VITE_APPS_SCRIPT_URL en .env')
-  }
+async function sendViaApi(data) {
+  const url = `${sheetsConfig.api.baseUrl}/api/registro`
 
   const response = await fetch(url, {
     method: 'POST',
-    mode: 'no-cors',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
 
-  // Con mode: 'no-cors' no podemos leer la respuesta, pero el envío se realizó
-  // Apps Script responderá 200 si todo está bien
-  return { success: true, message: 'Datos enviados correctamente' }
-}
-
-/**
- * Envía datos usando Google Sheets API v4 directa (Opción A)
- * Requiere Service Account con acceso al Sheet
- */
-async function sendViaSheetsApi(data) {
-  const { spreadsheetId, apiKey, sheetName } = sheetsConfig.api
-
-  if (!spreadsheetId || !apiKey) {
-    throw new Error('Configuración de Google Sheets API incompleta. Verifique VITE_GOOGLE_SHEETS_ID y VITE_GOOGLE_API_KEY.')
-  }
-
-  const values = [Object.values(data)]
-  const range = `${sheetName}!A1`
-
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS&key=${apiKey}`
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ values }),
-  })
-
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.error?.message || `Error ${response.status} al enviar datos`)
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.detail || `Error ${response.status}`)
   }
 
   return await response.json()
 }
 
 /**
- * Envía datos al Google Sheet con reintentos
+ * Envía datos usando Google Apps Script como proxy (Opción B)
+ */
+async function sendViaAppsScript(data) {
+  const url = sheetsConfig.script.url
+  if (!url) throw new Error('URL de Apps Script no configurada')
+
+  await fetch(url, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+
+  return { success: true }
+}
+
+/**
+ * Envía datos usando Google Sheets API v4 (Opción C)
+ */
+async function sendViaSheetsApi(data) {
+  const { spreadsheetId, apiKey, sheetName } = sheetsConfig.sheets
+  if (!spreadsheetId || !apiKey) throw new Error('Config Sheets API incompleta')
+
+  const values = [Object.values(data)]
+  const range = `${sheetName}!A1`
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS&key=${apiKey}`
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.error?.message || `Error ${response.status}`)
+  }
+
+  return await response.json()
+}
+
+/**
+ * Envía datos con reintentos automáticos
  */
 export async function submitToSheets(data) {
   const { method, retryAttempts, retryDelay } = sheetsConfig
@@ -69,17 +75,20 @@ export async function submitToSheets(data) {
 
   for (let attempt = 1; attempt <= retryAttempts; attempt++) {
     try {
-      if (method === 'api') {
-        return await sendViaSheetsApi(data)
-      } else {
-        return await sendViaAppsScript(data)
+      switch (method) {
+        case 'api':
+          return await sendViaApi(data)
+        case 'script':
+          return await sendViaAppsScript(data)
+        case 'sheets':
+          return await sendViaSheetsApi(data)
+        default:
+          return await sendViaApi(data)
       }
     } catch (error) {
       lastError = error
-      console.warn(`Intento ${attempt} fallido:`, error.message)
-
       if (attempt < retryAttempts) {
-        await new Promise(resolve => setTimeout(resolve, retryDelay * attempt))
+        await new Promise(r => setTimeout(r, retryDelay * attempt))
       }
     }
   }
@@ -88,21 +97,14 @@ export async function submitToSheets(data) {
 }
 
 /**
- * Guarda datos pendientes en localStorage para modo offline
+ * Modo offline: guardar envíos pendientes en localStorage
  */
 export function savePendingSubmission(data) {
   const pending = getPendingSubmissions()
-  pending.push({
-    data,
-    timestamp: new Date().toISOString(),
-    id: data.registro_id,
-  })
+  pending.push({ data, timestamp: new Date().toISOString(), id: data.registro_id })
   localStorage.setItem('sarampion_pending', JSON.stringify(pending))
 }
 
-/**
- * Obtiene envíos pendientes
- */
 export function getPendingSubmissions() {
   try {
     return JSON.parse(localStorage.getItem('sarampion_pending') || '[]')
@@ -111,30 +113,19 @@ export function getPendingSubmissions() {
   }
 }
 
-/**
- * Elimina un envío pendiente
- */
 export function removePendingSubmission(id) {
   const pending = getPendingSubmissions().filter(p => p.id !== id)
   localStorage.setItem('sarampion_pending', JSON.stringify(pending))
 }
 
-/**
- * Intenta reenviar todos los envíos pendientes
- */
 export async function retryPendingSubmissions() {
   const pending = getPendingSubmissions()
-  const results = []
-
   for (const item of pending) {
     try {
       await submitToSheets(item.data)
       removePendingSubmission(item.id)
-      results.push({ id: item.id, success: true })
-    } catch (error) {
-      results.push({ id: item.id, success: false, error: error.message })
+    } catch {
+      // Se reintentará después
     }
   }
-
-  return results
 }
