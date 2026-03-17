@@ -1,5 +1,6 @@
 import TextField from './fields/TextField.jsx'
 import SelectField from './fields/SelectField.jsx'
+import SearchableSelect from './fields/SearchableSelect.jsx'
 import DateField from './fields/DateField.jsx'
 import RadioField from './fields/RadioField.jsx'
 import CheckboxField from './fields/CheckboxField.jsx'
@@ -21,6 +22,11 @@ const fieldComponents = {
   file: FileField,
 }
 
+function getFieldComponent(field) {
+  if (field.searchable && field.type === 'select') return SearchableSelect
+  return fieldComponents[field.type]
+}
+
 export default function FormPage({ fields, formData, onFieldChange, errors, pageLabel }) {
   let currentSection = null
 
@@ -36,7 +42,7 @@ export default function FormPage({ fields, formData, onFieldChange, errors, page
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-5">
         {fields.map((field) => {
-          const FieldComponent = fieldComponents[field.type]
+          const FieldComponent = getFieldComponent(field)
           if (!FieldComponent) return null
 
           const fieldErrors = errors[field.id] || []

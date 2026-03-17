@@ -21,31 +21,7 @@ export const pageLabels = {
   8: 'Contactos y Clasificación',
 }
 
-export const unidadesMedicas = [
-  'HOSPITAL GENERAL DE ENFERMEDADES',
-  'HOSPITAL JUAN JOSE AREVALO BERMEJO',
-  'HOSPITAL DE GINECO-OBSTETRICIA',
-  'HOSPITAL DE REHABILITACIÓN',
-  'HOSPITAL DE ACCIDENTES',
-  'HOSPITAL DE ESCUINTLA',
-  'HOSPITAL DE PUERTO BARRIOS',
-  'HOSPITAL DE COATEPEQUE',
-  'HOSPITAL DE HUEHUETENANGO',
-  'HOSPITAL DE RETALHULEU',
-  'HOSPITAL GENERAL DE QUETZALTENANGO',
-  'HOSPITAL TIQUISATE',
-  'CONSULTORIO DE ANTIGUA GUATEMALA',
-  'CONSULTORIO DE GUAZACAPAN/SANTA ROSA',
-  'CONSULTORIO DE JUTIAPA',
-  'CONSULTORIO DE JALAPA',
-  'CONSULTORIO SOLOLÁ Y SALA ANEXA HOSPITAL NACIONAL',
-  'CONSULTORIO VILLA NUEVA',
-  'CONSULTORIO LA GOMERA/ESCUINTLA',
-  'POLICLINICA',
-  'UNIDAD PERIFÉRICA ZONA CINCO',
-  'CAMIP 3 ZUNIL',
-  'OTRA',
-]
+import { unidadesMedicasNombres } from './unidadesMedicas.js'
 
 export const departamentosGuatemala = [
   'ALTA VERAPAZ',
@@ -125,7 +101,8 @@ export const formFields = [
     type: 'select',
     page: 1,
     required: true,
-    options: unidadesMedicas,
+    options: unidadesMedicasNombres,
+    searchable: true,
     helpText: 'Unidad médica del IGSS que reporta',
     colSpan: 'half',
   },
