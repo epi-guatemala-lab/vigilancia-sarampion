@@ -13,13 +13,13 @@ export default function NumberField({ field, value, onChange, error }) {
       max={field.validation?.max}
       readOnly={isReadOnly}
       tabIndex={isReadOnly ? -1 : undefined}
-      className={`w-full px-4 py-3 rounded-lg border ${
+      className={`w-full px-4 py-3 rounded-xl border-2 transition-all duration-200 ${
         isReadOnly
-          ? 'border-igss-accent/30 bg-igss-light text-igss-primary font-bold cursor-default'
+          ? 'border-igss-gold/40 bg-igss-gold-50 text-igss-800 font-bold cursor-default'
           : error
-            ? 'border-red-400 focus:ring-red-300 focus:border-red-400 bg-white'
-            : 'border-gray-300 focus:ring-igss-accent focus:border-igss-accent bg-white'
-      } shadow-sm focus:outline-none focus:ring-2 transition-colors`}
+            ? 'border-igss-red/50 bg-red-50/50 focus:border-igss-red focus:ring-igss-red/20'
+            : 'border-gray-200 bg-white hover:border-igss-300 focus:border-igss-600 focus:ring-igss-600/10'
+      } shadow-sm focus:outline-none focus:ring-4`}
       inputMode="numeric"
     />
   )

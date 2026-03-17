@@ -11,13 +11,14 @@
   body {
     @apply text-gray-800 antialiased;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: linear-gradient(135deg, #F1F8F1 0%, #f8f9fa 50%, #FDF8E8 100%);
+    min-height: 100vh;
   }
 
   input, select, textarea {
     @apply text-base;
   }
 
-  /* Prevent zoom on iOS inputs */
   @media screen and (-webkit-min-device-pixel-ratio: 0) {
     input[type="text"],
     input[type="number"],
@@ -37,11 +38,7 @@
   }
 
   .page-enter {
-    animation: pageEnter 0.3s ease-out;
-  }
-
-  .page-exit {
-    animation: pageExit 0.2s ease-in;
+    animation: pageEnter 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .fade-in {
@@ -51,39 +48,18 @@
   .slide-up {
     animation: slideUp 0.3s ease-out;
   }
+
+  .glass-card {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
 }
 
 @keyframes pageEnter {
   from {
     opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes pageExit {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -91,13 +67,34 @@
   }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(191, 160, 51, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(191, 160, 51, 0); }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-gray-100;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -112,5 +109,8 @@
 @media print {
   .no-print {
     display: none !important;
+  }
+  body {
+    background: white !important;
   }
 }

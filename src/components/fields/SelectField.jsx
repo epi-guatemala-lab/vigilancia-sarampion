@@ -1,28 +1,29 @@
 export default function SelectField({ field, value, onChange, error }) {
   return (
-    <select
-      id={field.id}
-      name={field.id}
-      value={value || ''}
-      onChange={(e) => onChange(field.id, e.target.value)}
-      className={`w-full px-4 py-3 rounded-lg border ${
-        error
-          ? 'border-red-400 focus:ring-red-300 focus:border-red-400'
-          : 'border-gray-300 focus:ring-igss-accent focus:border-igss-accent'
-      } bg-white shadow-sm focus:outline-none focus:ring-2 transition-colors appearance-none`}
-      style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'right 12px center',
-        paddingRight: '36px',
-      }}
-    >
-      <option value="">— Seleccione —</option>
-      {(field.options || []).map((opt) => (
-        <option key={opt} value={opt}>
-          {opt}
-        </option>
-      ))}
-    </select>
+    <div className="relative">
+      <select
+        id={field.id}
+        name={field.id}
+        value={value || ''}
+        onChange={(e) => onChange(field.id, e.target.value)}
+        className={`w-full px-4 py-3 rounded-xl border-2 transition-all duration-200 appearance-none pr-10 ${
+          error
+            ? 'border-igss-red/50 bg-red-50/50 focus:border-igss-red focus:ring-igss-red/20'
+            : 'border-gray-200 bg-white hover:border-igss-300 focus:border-igss-600 focus:ring-igss-600/10'
+        } shadow-sm focus:outline-none focus:ring-4`}
+      >
+        <option value="">— Seleccione —</option>
+        {(field.options || []).map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+        <svg className="w-5 h-5 text-igss-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+    </div>
   )
 }

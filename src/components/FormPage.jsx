@@ -26,11 +26,15 @@ export default function FormPage({ fields, formData, onFieldChange, errors, page
 
   return (
     <div className="page-enter">
-      <h2 className="text-lg font-bold text-igss-primary mb-5 pb-2 border-b-2 border-igss-light">
-        {pageLabel}
-      </h2>
+      {/* Page title with decorative accent */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-1 h-8 rounded-full bg-gradient-to-b from-igss-700 to-igss-500" />
+        <h2 className="text-lg font-extrabold text-igss-900 tracking-tight">
+          {pageLabel}
+        </h2>
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-5">
         {fields.map((field) => {
           const FieldComponent = fieldComponents[field.type]
           if (!FieldComponent) return null
@@ -39,15 +43,19 @@ export default function FormPage({ fields, formData, onFieldChange, errors, page
           const hasError = fieldErrors.length > 0
           const isFullWidth = field.colSpan === 'full'
 
-          // Section title rendering
+          // Section title
           let sectionEl = null
           if (field.sectionTitle && field.sectionTitle !== currentSection) {
             currentSection = field.sectionTitle
             sectionEl = (
-              <div className="col-span-1 md:col-span-2 mt-3 mb-1">
-                <h3 className="text-sm font-bold text-igss-secondary uppercase tracking-wider border-b border-igss-light pb-1">
-                  {field.sectionTitle}
-                </h3>
+              <div className="col-span-1 md:col-span-2 mt-4 mb-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-[2px] bg-igss-gold rounded-full" />
+                  <h3 className="text-xs font-bold text-igss-brown uppercase tracking-[0.1em]">
+                    {field.sectionTitle}
+                  </h3>
+                  <div className="flex-1 h-[1px] bg-gray-200" />
+                </div>
               </div>
             )
           }
@@ -60,10 +68,12 @@ export default function FormPage({ fields, formData, onFieldChange, errors, page
               {sectionEl}
               <label
                 htmlFor={field.id}
-                className="block text-sm font-semibold text-gray-700 mb-1.5"
+                className="block text-sm font-semibold text-gray-700 mb-2"
               >
                 {field.label}
-                {field.required && <span className="text-red-500 ml-1">*</span>}
+                {field.required && (
+                  <span className="text-igss-red ml-0.5 text-xs">*</span>
+                )}
               </label>
 
               <FieldComponent
@@ -74,13 +84,18 @@ export default function FormPage({ fields, formData, onFieldChange, errors, page
               />
 
               {field.helpText && !hasError && (
-                <p className="mt-1 text-xs text-gray-400">{field.helpText}</p>
+                <p className="mt-1.5 text-[11px] text-gray-400 leading-snug">{field.helpText}</p>
               )}
 
               {hasError && (
-                <div className="mt-1 slide-up">
+                <div className="mt-1.5 slide-up">
                   {fieldErrors.map((err, i) => (
-                    <p key={i} className="text-xs text-red-500 font-medium">{err}</p>
+                    <p key={i} className="text-[11px] text-igss-red font-semibold flex items-center gap-1">
+                      <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                      {err}
+                    </p>
                   ))}
                 </div>
               )}

@@ -8,20 +8,37 @@ export default {
     extend: {
       colors: {
         igss: {
-          primary: '#1B5E20',     // Verde oscuro (hojas del árbol, vestido)
-          secondary: '#2E7D32',   // Verde medio
-          accent: '#388E3C',      // Verde claro para hover/focus
-          light: '#E8F5E9',       // Verde muy claro (fondos)
-          dark: '#0D3B0F',        // Verde muy oscuro
-          red: '#C62828',         // Rojo IGSS (texto del logo)
-          gold: '#B8960C',        // Dorado (banner del logo)
-          golddark: '#8B6F00',    // Dorado oscuro
-          brown: '#5D4037',       // Café (tronco del árbol)
-          green: '#2E7D32',       // Verde éxito
+          // Verdes del logo (árbol, hojas, vestido)
+          900: '#0A3D0C',
+          800: '#1B5E20',
+          700: '#2E7D32',
+          600: '#388E3C',
+          500: '#43A047',
+          400: '#66BB6A',
+          300: '#A5D6A7',
+          200: '#C8E6C9',
+          100: '#E8F5E9',
+          50:  '#F1F8F1',
+          // Rojo del logo (letras IGSS)
+          red: '#C41E24',
+          'red-dark': '#8E1519',
+          'red-light': '#EF5350',
+          // Dorado del banner
+          gold: '#BFA033',
+          'gold-dark': '#8B7424',
+          'gold-light': '#D4B94E',
+          'gold-50': '#FDF8E8',
+          // Café del tronco
+          brown: '#5D4037',
+          'brown-light': '#795548',
         },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+      },
+      boxShadow: {
+        'igss': '0 4px 20px rgba(27, 94, 32, 0.15)',
+        'igss-lg': '0 8px 30px rgba(27, 94, 32, 0.2)',
       },
     },
   },

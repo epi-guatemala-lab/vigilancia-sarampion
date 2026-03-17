@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import FormPage from './FormPage.jsx'
 import ProgressBar from './ui/ProgressBar.jsx'
 import SuccessScreen from './ui/SuccessScreen.jsx'
@@ -21,9 +21,8 @@ export default function FormWizard() {
     updateField,
     updateMultipleFields,
     resetForm,
-    hasBeenSubmitted,
+    isDuplicate,
     markAsSubmitted,
-    clearSubmitted,
   } = useFormState()
 
   const {
@@ -62,7 +61,6 @@ export default function FormWizard() {
       }
     }
 
-    // Clear error for this field when changed
     setErrors(prev => {
       const next = { ...prev }
       delete next[fieldId]
@@ -103,31 +101,35 @@ export default function FormWizard() {
       return
     }
 
-    if (hasBeenSubmitted()) {
-      setSubmitError('Este formulario ya fue enviado recientemente. Espere antes de enviar otro.')
+    // Verificar duplicado por afiliación + fecha (no bloqueo total)
+    const afiliacion = formData.afiliacion || ''
+    const fecha = formData.fecha_notificacion || ''
+    if (afiliacion && fecha && isDuplicate(afiliacion, fecha)) {
+      setSubmitError(
+        `Ya se envió un registro para la afiliación ${afiliacion} con fecha ${fecha}. ` +
+        'Si necesita enviar otro registro para este paciente, cambie la fecha de notificación.'
+      )
       return
     }
 
     const success = await submit(formData)
     if (success) {
-      // Generar y guardar el ID de registro para mostrar en constancia
       const id = generateRegistroId()
       setRegistroId(id)
-      markAsSubmitted()
+      markAsSubmitted(afiliacion, fecha)
       setShowSuccess(true)
     }
-  }, [currentFields, formData, submit, hasBeenSubmitted, markAsSubmitted, setSubmitError])
+  }, [currentFields, formData, submit, isDuplicate, markAsSubmitted, setSubmitError])
 
   const handleNewForm = useCallback(() => {
     resetForm()
-    clearSubmitted()
     setCurrentStep(1)
     setErrors({})
     setShowSuccess(false)
     setRegistroId(null)
     setSubmitError(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [resetForm, clearSubmitted, setSubmitError])
+  }, [resetForm, setSubmitError])
 
   if (showSuccess) {
     return (
@@ -156,12 +158,14 @@ export default function FormWizard() {
       />
 
       {!isOnline && (
-        <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center gap-2 text-sm text-yellow-800">
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728M5.636 5.636a9 9 0 000 12.728M12 12h.01" />
-          </svg>
+        <div className="mb-5 bg-amber-50 border border-amber-200/60 rounded-xl p-4 flex items-center gap-3 text-sm text-amber-800 shadow-sm">
+          <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
           <span>
-            <strong>Sin conexion.</strong> Los datos se guardarán localmente y se enviarán al reconectarse.
+            <strong>Sin conexión.</strong> Los datos se guardarán y se enviarán al reconectarse.
           </span>
         </div>
       )}
@@ -174,20 +178,20 @@ export default function FormWizard() {
         pageLabel={getPageLabel(currentPageNum)}
       />
 
-      {/* Navigation buttons */}
-      <div className="flex justify-between items-center mt-8 pt-4 border-t border-gray-200">
+      {/* Navigation */}
+      <div className="flex justify-between items-center mt-10 pt-5 border-t border-gray-100">
         <button
           type="button"
           onClick={handlePrev}
           disabled={currentStep === 1}
-          className={`inline-flex items-center px-5 py-2.5 rounded-lg font-medium transition-all ${
+          className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 ${
             currentStep === 1
-              ? 'text-gray-400 cursor-not-allowed'
-              : 'text-igss-primary hover:bg-igss-light'
+              ? 'text-gray-300 cursor-not-allowed'
+              : 'text-igss-700 hover:bg-igss-100 hover:text-igss-900 active:scale-95'
           }`}
         >
-          <svg className="w-5 h-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
           </svg>
           Anterior
         </button>
@@ -197,11 +201,11 @@ export default function FormWizard() {
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="inline-flex items-center px-8 py-3 bg-igss-green text-white font-bold rounded-lg hover:bg-green-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-igss-800 to-igss-700 text-white font-bold text-sm rounded-xl hover:from-igss-900 hover:to-igss-800 transition-all duration-200 shadow-igss hover:shadow-igss-lg active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
           >
             {isSubmitting ? (
               <>
-                <svg className="animate-spin w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24">
+                <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
@@ -210,8 +214,8 @@ export default function FormWizard() {
             ) : (
               <>
                 Enviar Registro
-                <svg className="w-5 h-5 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                 </svg>
               </>
             )}
@@ -220,18 +224,18 @@ export default function FormWizard() {
           <button
             type="button"
             onClick={handleNext}
-            className="inline-flex items-center px-6 py-2.5 bg-igss-primary text-white font-semibold rounded-lg hover:bg-igss-dark transition-all shadow-md hover:shadow-lg"
+            className="inline-flex items-center gap-1.5 px-6 py-3 bg-gradient-to-r from-igss-800 to-igss-700 text-white font-bold text-sm rounded-xl hover:from-igss-900 hover:to-igss-800 transition-all duration-200 shadow-igss hover:shadow-igss-lg active:scale-[0.97]"
           >
             Siguiente
-            <svg className="w-5 h-5 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
             </svg>
           </button>
         )}
       </div>
 
       {pendingCount > 0 && (
-        <p className="text-center text-xs text-amber-600 mt-3">
+        <p className="text-center text-[11px] text-igss-gold-dark mt-3 font-medium">
           {pendingCount} registro(s) pendiente(s) de envío
         </p>
       )}

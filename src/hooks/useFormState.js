@@ -1,14 +1,13 @@
 import { useState, useCallback, useEffect } from 'react'
 
 const STORAGE_KEY = 'sarampion_form_data'
-const SUBMITTED_KEY = 'sarampion_submitted'
+const SUBMITTED_KEY = 'sarampion_submitted_records'
 
 /**
  * Hook para manejar el estado global del formulario
  * con persistencia en localStorage
  */
 export function useFormState(initialData = {}) {
-  // Cargar datos guardados de localStorage
   const [formData, setFormData] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
@@ -18,7 +17,6 @@ export function useFormState(initialData = {}) {
     }
   })
 
-  // Guardar en localStorage cuando cambien los datos
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(formData))
@@ -46,26 +44,38 @@ export function useFormState(initialData = {}) {
     localStorage.removeItem(STORAGE_KEY)
   }, [])
 
-  const hasBeenSubmitted = useCallback(() => {
+  /**
+   * Verifica si un registro con la misma afiliación + fecha de notificación
+   * ya fue enviado recientemente (últimas 24 horas).
+   * Esto permite re-enviar para un mismo paciente en otra fecha.
+   */
+  const isDuplicate = useCallback((afiliacion, fechaNotificacion) => {
     try {
-      const submitted = localStorage.getItem(SUBMITTED_KEY)
-      if (!submitted) return false
-      // El flag expira después de 1 hora
-      const { timestamp } = JSON.parse(submitted)
-      return Date.now() - timestamp < 3600000
+      const records = JSON.parse(localStorage.getItem(SUBMITTED_KEY) || '[]')
+      const key = `${afiliacion}_${fechaNotificacion}`
+      // Limpiar registros mayores a 24 horas
+      const recent = records.filter(r => Date.now() - r.timestamp < 86400000)
+      localStorage.setItem(SUBMITTED_KEY, JSON.stringify(recent))
+      return recent.some(r => r.key === key)
     } catch {
       return false
     }
   }, [])
 
-  const markAsSubmitted = useCallback(() => {
-    localStorage.setItem(SUBMITTED_KEY, JSON.stringify({
-      timestamp: Date.now(),
-    }))
+  const markAsSubmitted = useCallback((afiliacion, fechaNotificacion) => {
+    try {
+      const records = JSON.parse(localStorage.getItem(SUBMITTED_KEY) || '[]')
+      const key = `${afiliacion}_${fechaNotificacion}`
+      records.push({ key, timestamp: Date.now() })
+      localStorage.setItem(SUBMITTED_KEY, JSON.stringify(records))
+    } catch {
+      // ignore
+    }
   }, [])
 
   const clearSubmitted = useCallback(() => {
-    localStorage.removeItem(SUBMITTED_KEY)
+    // No limpiar submitted records al crear nuevo formulario
+    // solo limpiar los datos del formulario actual
   }, [])
 
   return {
@@ -73,7 +83,7 @@ export function useFormState(initialData = {}) {
     updateField,
     updateMultipleFields,
     resetForm,
-    hasBeenSubmitted,
+    isDuplicate,
     markAsSubmitted,
     clearSubmitted,
   }
