@@ -246,6 +246,40 @@ def update_registro(registro_id: str, data: dict) -> bool:
         conn.close()
 
 
+def delete_registro(registro_id: str, usuario: str = "api", ip: str = "") -> bool:
+    """Elimina un registro por su registro_id.
+    Guarda snapshot completo en audit_log antes de borrar para posible restauración.
+    """
+    conn = get_connection()
+    try:
+        # Leer registro completo antes de borrar
+        row = conn.execute(
+            'SELECT * FROM registros WHERE registro_id = ?', (registro_id,),
+        ).fetchone()
+        if not row:
+            return False
+
+        reg = dict(row)
+
+        # Guardar snapshot completo en audit_log (campo = _DELETED, valor_anterior = JSON)
+        import json
+        snapshot = json.dumps({k: v for k, v in reg.items() if k != "id"}, ensure_ascii=False)
+        conn.execute(
+            'INSERT INTO audit_log (registro_id, campo, valor_anterior, valor_nuevo, usuario, ip_origen) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            (registro_id, "_DELETED", snapshot, "", usuario, ip),
+        )
+
+        # Borrar
+        cursor = conn.execute(
+            'DELETE FROM registros WHERE registro_id = ?', (registro_id,),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
 def bulk_insert_registros(rows: list[dict], ip: str = "") -> dict:
     """Inserta múltiples registros en una transacción.
     Retorna {inserted, duplicates, errors: [{row, error}]}.

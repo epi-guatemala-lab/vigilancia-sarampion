@@ -29,7 +29,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from config import ALLOWED_ORIGINS, API_SECRET_KEY, PORT, RATE_LIMIT_SECONDS, MAX_UPLOAD_SIZE_MB
 from database import (
     init_db, insert_registro, get_registros, get_count, check_duplicate,
-    get_registro_by_id, update_registro, bulk_insert_registros,
+    get_registro_by_id, update_registro, delete_registro, bulk_insert_registros,
     init_audit_table, log_changes, get_audit_trail,
     COLUMNS, EDITABLE_COLUMNS,
 )
@@ -49,7 +49,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -321,6 +321,23 @@ def obtener_audit_trail(registro_id: str, x_api_key: str = Header(None)):
 
     trail = get_audit_trail(registro_id)
     return {"registro_id": registro_id, "total": len(trail), "data": trail}
+
+
+@app.delete("/api/registro/{registro_id}")
+def eliminar_registro(registro_id: str, request: Request, x_api_key: str = Header(None)):
+    """Elimina un registro. Guarda snapshot en audit_log para restauración. Requiere API key."""
+    verify_api_key(x_api_key)
+
+    reg = get_registro_by_id(registro_id)
+    if not reg:
+        raise HTTPException(status_code=404, detail=f"Registro {registro_id} no encontrado")
+
+    ip = get_client_ip(request)
+    success = delete_registro(registro_id, usuario="portal", ip=ip)
+    if not success:
+        raise HTTPException(status_code=500, detail="Error eliminando registro")
+
+    return {"success": True, "registro_id": registro_id, "message": "Registro eliminado (snapshot guardado en auditoría)"}
 
 
 # ─── Nuevo endpoint: Carga masiva ─────────────────────────
