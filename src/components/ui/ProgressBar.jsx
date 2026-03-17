@@ -1,52 +1,36 @@
 export default function ProgressBar({ currentStep, totalSteps, pageLabels, visiblePages }) {
-  const progress = ((currentStep) / totalSteps) * 100
-  const currentPageNum = visiblePages[currentStep - 1]
-  const currentLabel = pageLabels[currentPageNum] || `Paso ${currentStep}`
+  const progress = (currentStep / totalSteps) * 100
 
   return (
     <div className="mb-8">
-      {/* Step indicator */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-igss-800 text-white text-xs font-bold">
-            {currentStep}
-          </span>
-          <span className="text-sm font-bold text-igss-800">
-            de {totalSteps}
-          </span>
-        </div>
-        <span className="text-sm text-igss-700 font-semibold">
-          {currentLabel}
-        </span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="w-full bg-igss-100 rounded-full h-2 overflow-hidden">
+      {/* Step dots with connecting line */}
+      <div className="relative flex justify-between items-start">
+        {/* Background line */}
+        <div className="absolute top-4 left-4 right-4 h-0.5 bg-gray-200" />
+        {/* Progress line */}
         <div
-          className="h-full rounded-full transition-all duration-700 ease-out"
+          className="absolute top-4 left-4 h-0.5 transition-all duration-700 ease-out"
           style={{
-            width: `${progress}%`,
-            background: 'linear-gradient(90deg, #1B5E20 0%, #2E7D32 50%, #43A047 100%)',
+            width: `calc(${((currentStep - 1) / (totalSteps - 1)) * 100}% - 32px + ${(currentStep - 1) / (totalSteps - 1) * 32}px)`,
+            background: 'linear-gradient(90deg, #1B5E20, #2E7D32)',
           }}
         />
-      </div>
 
-      {/* Step dots - compact */}
-      <div className="flex justify-between mt-4 px-1">
         {visiblePages.map((pageNum, idx) => {
           const stepNum = idx + 1
           const isCompleted = stepNum < currentStep
           const isCurrent = stepNum === currentStep
+          const label = pageLabels[pageNum] || ''
 
           return (
-            <div key={pageNum} className="flex flex-col items-center gap-1.5">
+            <div key={pageNum} className="relative flex flex-col items-center z-10" style={{ width: `${100 / totalSteps}%` }}>
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500 ${
                   isCompleted
                     ? 'bg-igss-700 text-white shadow-sm'
                     : isCurrent
-                      ? 'bg-igss-gold text-white shadow-md ring-[3px] ring-igss-gold/30'
-                      : 'bg-gray-200 text-gray-400'
+                      ? 'bg-igss-gold text-white shadow-md ring-[3px] ring-igss-gold/25'
+                      : 'bg-white text-gray-400 border-2 border-gray-200'
                 }`}
               >
                 {isCompleted ? (
@@ -57,14 +41,24 @@ export default function ProgressBar({ currentStep, totalSteps, pageLabels, visib
                   stepNum
                 )}
               </div>
-              <span className={`text-[9px] text-center max-w-[56px] leading-tight hidden sm:block ${
-                isCurrent ? 'text-igss-800 font-bold' : isCompleted ? 'text-igss-600' : 'text-gray-400'
+              <span className={`text-[9px] mt-1.5 text-center leading-tight hidden sm:block max-w-[64px] ${
+                isCurrent ? 'text-igss-800 font-bold' : isCompleted ? 'text-igss-600 font-medium' : 'text-gray-400'
               }`}>
-                {pageLabels[pageNum]?.split(' ').slice(0, 2).join(' ')}
+                {label.split(' ').slice(0, 2).join(' ')}
               </span>
             </div>
           )
         })}
+      </div>
+
+      {/* Current step label - mobile */}
+      <div className="flex items-center justify-between mt-4 sm:hidden">
+        <span className="text-xs font-bold text-igss-800">
+          Paso {currentStep}/{totalSteps}
+        </span>
+        <span className="text-xs font-semibold text-igss-gold-dark">
+          {pageLabels[visiblePages[currentStep - 1]]}
+        </span>
       </div>
     </div>
   )

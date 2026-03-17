@@ -36,7 +36,7 @@ export default function Header() {
       </div>
 
       {/* Gold accent bar */}
-      <div className="h-1 bg-gradient-to-r from-igss-gold-dark via-igss-gold to-igss-gold-light" />
+      <div className="h-1.5 bg-gradient-to-r from-igss-gold-dark via-igss-gold to-igss-gold-light shadow-sm" />
     </header>
   )
 }
