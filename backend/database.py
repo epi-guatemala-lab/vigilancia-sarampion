@@ -198,3 +198,169 @@ def check_duplicate(afiliacion: str, fecha_notificacion: str) -> bool:
         return row[0] > 0
     finally:
         conn.close()
+
+
+# ─── Nuevas funciones para visor/edición ─────────────────
+
+# Campos que NO se pueden editar desde la API
+_READONLY_FIELDS = {"id", "ip_origen", "created_at", "registro_id"}
+
+# Columnas editables
+EDITABLE_COLUMNS = [c for c in COLUMNS if c not in _READONLY_FIELDS]
+
+
+def get_registro_by_id(registro_id: str) -> dict | None:
+    """Obtiene un registro por su registro_id."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            'SELECT * FROM registros WHERE registro_id = ?',
+            (registro_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_registro(registro_id: str, data: dict) -> bool:
+    """Actualiza campos de un registro existente.
+    Solo actualiza campos en EDITABLE_COLUMNS que estén presentes en data.
+    Retorna True si se actualizó alguna fila.
+    """
+    # Filtrar solo columnas editables válidas
+    updates = {k: v for k, v in data.items() if k in EDITABLE_COLUMNS}
+    if not updates:
+        return False
+
+    conn = get_connection()
+    try:
+        set_clause = ", ".join(f'"{k}" = ?' for k in updates)
+        values = list(updates.values()) + [registro_id]
+        cursor = conn.execute(
+            f'UPDATE registros SET {set_clause} WHERE registro_id = ?',
+            values,
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def bulk_insert_registros(rows: list[dict], ip: str = "") -> dict:
+    """Inserta múltiples registros en una transacción.
+    Retorna {inserted, duplicates, errors: [{row, error}]}.
+    """
+    result = {"inserted": 0, "duplicates": 0, "errors": []}
+    conn = get_connection()
+    try:
+        for i, row_data in enumerate(rows):
+            try:
+                afiliacion = row_data.get("afiliacion", "")
+                fecha = row_data.get("fecha_notificacion", "")
+
+                # Check duplicate
+                if afiliacion and fecha:
+                    dup = conn.execute(
+                        'SELECT COUNT(*) FROM registros WHERE afiliacion = ? AND fecha_notificacion = ?',
+                        (afiliacion, fecha),
+                    ).fetchone()[0]
+                    if dup > 0:
+                        result["duplicates"] += 1
+                        continue
+
+                row_data["ip_origen"] = ip
+                row_data["created_at"] = datetime.now().isoformat()
+
+                cols = []
+                vals = []
+                for c in COLUMNS:
+                    cols.append(f'"{c}"')
+                    vals.append(row_data.get(c, ""))
+
+                placeholders = ", ".join(["?"] * len(cols))
+                col_str = ", ".join(cols)
+
+                conn.execute(
+                    f"INSERT INTO registros ({col_str}) VALUES ({placeholders})",
+                    vals,
+                )
+                result["inserted"] += 1
+            except sqlite3.IntegrityError:
+                result["duplicates"] += 1
+            except Exception as e:
+                result["errors"].append({"row": i + 2, "error": str(e)})
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        result["errors"].append({"row": 0, "error": f"Error general: {e}"})
+    finally:
+        conn.close()
+    return result
+
+
+# ─── Auditoría ────────────────────────────────────────────
+
+def init_audit_table():
+    """Crea la tabla de auditoría si no existe."""
+    conn = get_connection()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                registro_id TEXT NOT NULL,
+                campo TEXT NOT NULL,
+                valor_anterior TEXT,
+                valor_nuevo TEXT,
+                usuario TEXT DEFAULT 'api',
+                ip_origen TEXT,
+                timestamp TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_audit_registro
+            ON audit_log(registro_id)
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def log_changes(registro_id: str, old: dict, new: dict, usuario: str = "api", ip: str = ""):
+    """Registra cambios campo por campo en la tabla de auditoría."""
+    changes = []
+    for field, new_val in new.items():
+        if field in _READONLY_FIELDS:
+            continue
+        old_val = str(old.get(field, "") or "")
+        new_val_str = str(new_val or "")
+        if old_val != new_val_str:
+            changes.append((registro_id, field, old_val, new_val_str, usuario, ip))
+
+    if not changes:
+        return
+
+    conn = get_connection()
+    try:
+        conn.executemany(
+            'INSERT INTO audit_log (registro_id, campo, valor_anterior, valor_nuevo, usuario, ip_origen) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            changes,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_audit_trail(registro_id: str) -> list[dict]:
+    """Obtiene el historial de cambios de un registro."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            'SELECT campo, valor_anterior, valor_nuevo, usuario, ip_origen, timestamp '
+            'FROM audit_log WHERE registro_id = ? ORDER BY id DESC LIMIT 200',
+            (registro_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()

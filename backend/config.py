@@ -24,5 +24,8 @@ ALLOWED_ORIGINS = [
 # Server
 PORT = int(os.getenv("PORT", "8502"))
 
-# Rate limiting
-RATE_LIMIT_SECONDS = 5  # Mínimo entre envíos por IP (5 segundos)
+# Rate limiting (configurable via env para permitir carga masiva)
+RATE_LIMIT_SECONDS = int(os.getenv("RATE_LIMIT_SECONDS", "1"))
+
+# Upload limits
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
