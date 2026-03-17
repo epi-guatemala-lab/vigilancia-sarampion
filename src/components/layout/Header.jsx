@@ -15,16 +15,16 @@ export default function Header() {
           </div>
 
           <div className="flex-1 min-w-0">
-            <p className="text-xs sm:text-sm text-blue-200 font-medium uppercase tracking-wider">
+            <p className="text-xs sm:text-sm text-green-200 font-medium uppercase tracking-wider">
               {institutionName}
             </p>
             <h1 className="text-base sm:text-xl font-bold leading-tight mt-0.5">
               {formTitle}
             </h1>
-            <p className="text-xs sm:text-sm text-blue-200 mt-0.5">
+            <p className="text-xs sm:text-sm text-green-200 mt-0.5">
               {formSubtitle}
             </p>
-            <p className="text-[10px] sm:text-xs text-blue-300 mt-0.5">
+            <p className="text-[10px] sm:text-xs text-green-300 mt-0.5">
               Subgerencia de Prestaciones en Servicios de Salud
             </p>
           </div>
@@ -32,7 +32,7 @@ export default function Header() {
       </div>
 
       {/* Decorative gold bar */}
-      <div className="h-1 bg-gradient-to-r from-igss-gold via-yellow-500 to-igss-gold" />
+      <div className="h-1 bg-gradient-to-r from-igss-gold via-yellow-600 to-igss-gold" />
     </header>
   )
 }
