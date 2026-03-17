@@ -104,6 +104,11 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_registro_id
         ON registros(registro_id)
     """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_afiliacion_fecha
+        ON registros(afiliacion, fecha_notificacion)
+        WHERE afiliacion != '' AND fecha_notificacion != ''
+    """)
     conn.commit()
     conn.close()
 
