@@ -7,7 +7,7 @@ import { useFormState } from '../hooks/useFormState.js'
 import { useConditionalFields } from '../hooks/useConditionalFields.js'
 import { useGoogleSheets } from '../hooks/useGoogleSheets.js'
 import { validatePage } from '../utils/validation.js'
-import { getEpiWeek, generateRegistroId } from '../utils/formatters.js'
+import { getEpiWeek } from '../utils/formatters.js'
 import { pageLabels, formFields } from '../config/formSchema.js'
 
 export default function FormWizard() {
@@ -112,10 +112,9 @@ export default function FormWizard() {
       return
     }
 
-    const success = await submit(formData)
-    if (success) {
-      const id = generateRegistroId()
-      setRegistroId(id)
+    const result = await submit(formData)
+    if (result?.success) {
+      setRegistroId(result.registro_id)
       markAsSubmitted(afiliacion, fecha)
       setShowSuccess(true)
     }

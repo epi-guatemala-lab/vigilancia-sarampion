@@ -107,8 +107,24 @@ export function prepareSubmissionData(formData, fields) {
   prepared.timestamp_envio = getTimestamp()
 
   // Copiar y formatear datos del formulario
+  // Solo incluir datos de campos que son visibles (excluir condicionales ocultos)
   for (const field of fields) {
-    const value = formData[field.id]
+    // Si el campo es condicional, verificar si debe estar visible
+    let visible = true
+    if (field.conditional) {
+      const { dependsOn, showWhen } = field.conditional
+      const depValue = formData[dependsOn]
+      if (depValue === undefined || depValue === null || depValue === '') {
+        visible = false
+      } else if (Array.isArray(showWhen)) {
+        visible = showWhen.includes(depValue)
+      } else {
+        visible = String(depValue).trim() === String(showWhen).trim()
+      }
+    }
+
+    const value = visible ? formData[field.id] : undefined
+
     if (value !== undefined && value !== null && String(value).trim() !== '') {
       if (field.type === 'date') {
         prepared[field.id] = formatDate(value)

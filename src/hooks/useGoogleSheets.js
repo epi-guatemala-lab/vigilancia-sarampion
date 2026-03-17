@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { submitToSheets, savePendingSubmission, retryPendingSubmissions, getPendingSubmissions } from '../utils/sheetsApi.js'
 import { prepareSubmissionData } from '../utils/formatters.js'
 import { formFields } from '../config/formSchema.js'
 
 /**
- * Hook para enviar datos a Google Sheets
+ * Hook para enviar datos al backend
  * con manejo de errores, reintentos y modo offline
  */
 export function useGoogleSheets() {
@@ -12,20 +12,13 @@ export function useGoogleSheets() {
   const [submitError, setSubmitError] = useState(null)
   const [submitSuccess, setSubmitSuccess] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const lastRegistroId = useRef(null)
 
-  // Escuchar cambios de conectividad
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true)
-      // Reenviar pendientes cuando vuelva la conexión
-      retryPendingSubmissions().then(results => {
-        const failed = results.filter(r => !r.success)
-        if (failed.length > 0) {
-          console.warn('Algunos envíos pendientes fallaron:', failed)
-        }
-      })
+      retryPendingSubmissions()
     }
-
     const handleOffline = () => setIsOnline(false)
 
     window.addEventListener('online', handleOnline)
@@ -41,48 +34,34 @@ export function useGoogleSheets() {
     setIsSubmitting(true)
     setSubmitError(null)
     setSubmitSuccess(false)
+    lastRegistroId.current = null
 
-    // Rate limiting: máximo 1 envío por minuto
-    const lastSubmit = localStorage.getItem('sarampion_last_submit')
-    if (lastSubmit) {
-      const elapsed = Date.now() - parseInt(lastSubmit)
-      if (elapsed < 60000) {
-        setSubmitError('Debe esperar al menos 1 minuto entre envíos')
-        setIsSubmitting(false)
-        return false
-      }
-    }
+    // Preparar datos UNA sola vez (genera el registro_id)
+    const prepared = prepareSubmissionData(formData, formFields)
+    lastRegistroId.current = prepared.registro_id
 
     try {
-      const prepared = prepareSubmissionData(formData, formFields)
-
       if (!isOnline) {
-        // Guardar para envío posterior
         savePendingSubmission(prepared)
         setSubmitSuccess(true)
-        setIsSubmitting(false)
-        localStorage.setItem('sarampion_last_submit', String(Date.now()))
-        return true
+        return { success: true, registro_id: prepared.registro_id, offline: true }
       }
 
-      await submitToSheets(prepared)
+      const result = await submitToSheets(prepared)
       setSubmitSuccess(true)
-      localStorage.setItem('sarampion_last_submit', String(Date.now()))
-      return true
+      // Usar el registro_id del server si viene, si no el local
+      const finalId = result?.registro_id || prepared.registro_id
+      lastRegistroId.current = finalId
+      return { success: true, registro_id: finalId }
+
     } catch (error) {
       console.error('Error al enviar:', error)
 
-      // Si falla, guardar como pendiente
-      try {
-        const prepared = prepareSubmissionData(formData, formFields)
-        savePendingSubmission(prepared)
-        setSubmitSuccess(true)
-        localStorage.setItem('sarampion_last_submit', String(Date.now()))
-        return true
-      } catch {
-        setSubmitError('Error al enviar los datos. Por favor intente de nuevo.')
-        return false
-      }
+      // Si falla el envío online, guardar como pendiente
+      savePendingSubmission(prepared)
+      setSubmitSuccess(true)
+      return { success: true, registro_id: prepared.registro_id, offline: true }
+
     } finally {
       setIsSubmitting(false)
     }
@@ -99,5 +78,6 @@ export function useGoogleSheets() {
     pendingCount,
     setSubmitError,
     setSubmitSuccess,
+    lastRegistroId,
   }
 }

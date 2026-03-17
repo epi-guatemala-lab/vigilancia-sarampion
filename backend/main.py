@@ -12,7 +12,9 @@ Endpoints:
 """
 import io
 import csv
+import re
 import time
+import hmac
 from datetime import datetime
 from collections import defaultdict
 
@@ -28,6 +30,8 @@ app = FastAPI(
     title="Vigilancia Sarampión - IGSS API",
     description="API de registro de casos sospechosos de sarampión",
     version="1.0.0",
+    docs_url=None,   # Disable Swagger in production
+    redoc_url=None,
 )
 
 app.add_middleware(
@@ -38,8 +42,85 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rate limiting por IP (en memoria)
-_rate_limiter: dict[str, float] = defaultdict(float)
+# Rate limiting por IP (en memoria — single worker)
+_rate_limiter: dict[str, float] = {}
+_RATE_LIMIT_CLEANUP_INTERVAL = 300  # Limpiar cada 5 min
+_last_cleanup = time.time()
+
+
+def _cleanup_rate_limiter():
+    """Elimina entradas viejas del rate limiter para evitar memory leak."""
+    global _last_cleanup
+    now = time.time()
+    if now - _last_cleanup < _RATE_LIMIT_CLEANUP_INTERVAL:
+        return
+    _last_cleanup = now
+    cutoff = now - 60
+    keys_to_remove = [k for k, v in _rate_limiter.items() if v < cutoff]
+    for k in keys_to_remove:
+        del _rate_limiter[k]
+
+
+# ─── Validación de datos ──────────────────────────────────
+VALID_CLASIFICACIONES = {"SOSPECHOSO", "CONFIRMADO", "DESCARTADO", "CLÍNICO", "FALSO", "ERROR DIAGNÓSTICO"}
+VALID_SEXO = {"M", "F", ""}
+VALID_SI_NO = {"SI", "NO", "N/A", "N/S", ""}
+MAX_FIELD_LENGTH = 500
+
+
+def sanitize_value(val):
+    """Sanitiza un valor de entrada."""
+    if val is None:
+        return ""
+    s = str(val).strip()
+    # Eliminar null bytes y caracteres de control
+    s = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', s)
+    # Limitar longitud
+    if len(s) > MAX_FIELD_LENGTH:
+        s = s[:MAX_FIELD_LENGTH]
+    return s
+
+
+def validate_registro(data: dict) -> list[str]:
+    """Valida los datos del registro. Retorna lista de errores."""
+    errors = []
+
+    if not data.get("registro_id"):
+        errors.append("registro_id es requerido")
+
+    # Validar clasificación si se proporcionó
+    clasif = data.get("clasificacion_caso", "")
+    if clasif and clasif not in VALID_CLASIFICACIONES:
+        errors.append(f"clasificacion_caso inválida: {clasif}")
+
+    # Validar sexo
+    sexo = data.get("sexo", "")
+    if sexo and sexo not in VALID_SEXO:
+        errors.append(f"sexo inválido: {sexo}")
+
+    # Validar semana epidemiológica
+    semana = data.get("semana_epidemiologica", "")
+    if semana:
+        try:
+            s = int(semana)
+            if s < 1 or s > 53:
+                errors.append(f"semana_epidemiologica fuera de rango: {s}")
+        except ValueError:
+            errors.append(f"semana_epidemiologica no es número: {semana}")
+
+    # Validar edades
+    for field in ("edad_anios", "edad_meses"):
+        val = data.get(field, "")
+        if val:
+            try:
+                n = int(val)
+                if n < 0 or n > 150:
+                    errors.append(f"{field} fuera de rango: {n}")
+            except ValueError:
+                errors.append(f"{field} no es número: {val}")
+
+    return errors
+
 
 # ─── Init DB ──────────────────────────────────────────────
 @app.on_event("startup")
@@ -50,8 +131,8 @@ def startup():
 
 # ─── Helpers ──────────────────────────────────────────────
 def verify_api_key(x_api_key: str = Header(None)):
-    """Verifica la API key para endpoints protegidos."""
-    if not x_api_key or x_api_key != API_SECRET_KEY:
+    """Verifica la API key con comparación timing-safe."""
+    if not x_api_key or not hmac.compare_digest(x_api_key, API_SECRET_KEY):
         raise HTTPException(status_code=401, detail="API key inválida")
 
 
@@ -76,13 +157,11 @@ def health():
 
 @app.post("/api/registro")
 async def crear_registro(request: Request):
-    """
-    Recibe datos del formulario y los guarda en la DB.
-    Rate limited: máximo 1 envío cada 30 segundos por IP.
-    """
+    """Recibe datos del formulario y los guarda en la DB."""
     ip = get_client_ip(request)
 
-    # Rate limiting
+    # Rate limiting con cleanup
+    _cleanup_rate_limiter()
     now = time.time()
     last = _rate_limiter.get(ip, 0)
     if now - last < RATE_LIMIT_SECONDS:
@@ -96,28 +175,30 @@ async def crear_registro(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="JSON inválido")
 
-    if not data.get("registro_id"):
-        raise HTTPException(status_code=400, detail="registro_id es requerido")
+    # Validar
+    validation_errors = validate_registro(data)
+    if validation_errors:
+        raise HTTPException(status_code=400, detail="; ".join(validation_errors))
 
     # Verificar duplicado
-    afiliacion = data.get("afiliacion", "")
-    fecha = data.get("fecha_notificacion", "")
-    if check_duplicate(afiliacion, fecha):
+    afiliacion = sanitize_value(data.get("afiliacion", ""))
+    fecha = sanitize_value(data.get("fecha_notificacion", ""))
+    if afiliacion and fecha and check_duplicate(afiliacion, fecha):
         raise HTTPException(
             status_code=409,
             detail=f"Ya existe un registro para afiliación {afiliacion} con fecha {fecha}",
         )
 
-    # Sanitizar: solo aceptar campos conocidos
+    # Sanitizar todos los campos
     clean = {}
     for col in COLUMNS:
-        val = data.get(col, "")
-        if isinstance(val, str):
-            # Sanitizar caracteres peligrosos
-            val = val.replace("\x00", "").strip()
-        clean[col] = str(val) if val is not None else ""
+        clean[col] = sanitize_value(data.get(col, ""))
 
-    registro_id = insert_registro(clean, ip=ip)
+    try:
+        registro_id = insert_registro(clean, ip=ip)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error al guardar el registro")
+
     _rate_limiter[ip] = now
 
     return {
@@ -187,7 +268,6 @@ def export_excel(x_api_key: str = Header(None)):
     ws = wb.active
     ws.title = "SOSPECHOSOS"
 
-    # Headers con estilo IGSS
     header_fill = PatternFill(start_color="1B5E20", end_color="1B5E20", fill_type="solid")
     header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=10)
     header_border = Border(
@@ -195,7 +275,6 @@ def export_excel(x_api_key: str = Header(None)):
         right=Side(style="thin", color="E0E0E0"),
     )
 
-    # Nombres legibles para headers
     header_labels = {
         "registro_id": "No. Registro",
         "timestamp_envio": "Fecha/Hora Envío",
@@ -243,8 +322,12 @@ def export_excel(x_api_key: str = Header(None)):
         "observaciones": "Observaciones",
     }
 
-    # Columnas a exportar (excluir metadatos internos)
-    export_cols = [c for c in COLUMNS if c not in ("ip_origen", "created_at", "diagnostico_otro", "unidad_medica_otra", "complicaciones_otra", "semanas_embarazo", "fecha_probable_parto", "vacuna_embarazada", "fecha_vacunacion_embarazada", "resultado_igg_numerico", "resultado_igm_numerico")]
+    export_cols = [c for c in COLUMNS if c not in (
+        "ip_origen", "created_at", "diagnostico_otro", "unidad_medica_otra",
+        "complicaciones_otra", "semanas_embarazo", "fecha_probable_parto",
+        "vacuna_embarazada", "fecha_vacunacion_embarazada",
+        "resultado_igg_numerico", "resultado_igm_numerico",
+    )]
 
     for col_idx, col in enumerate(export_cols, 1):
         cell = ws.cell(row=1, column=col_idx, value=header_labels.get(col, col))
@@ -253,17 +336,14 @@ def export_excel(x_api_key: str = Header(None)):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = header_border
 
-    # Datos
     for row_idx, reg in enumerate(registros, 2):
         for col_idx, col in enumerate(export_cols, 1):
             ws.cell(row=row_idx, column=col_idx, value=reg.get(col, ""))
 
-    # Auto-width
     for col_idx, col in enumerate(export_cols, 1):
         max_len = max(len(str(header_labels.get(col, col))), 12)
         ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = min(max_len + 2, 30)
 
-    # Freeze header
     ws.freeze_panes = "A2"
 
     output = io.BytesIO()
@@ -301,7 +381,6 @@ def export_csv(x_api_key: str = Header(None)):
     )
 
 
-# ─── Run ──────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=True)

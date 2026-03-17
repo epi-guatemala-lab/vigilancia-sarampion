@@ -25,4 +25,4 @@ ALLOWED_ORIGINS = [
 PORT = int(os.getenv("PORT", "8502"))
 
 # Rate limiting
-RATE_LIMIT_SECONDS = 30  # Mínimo entre envíos por IP
+RATE_LIMIT_SECONDS = 5  # Mínimo entre envíos por IP (5 segundos)
