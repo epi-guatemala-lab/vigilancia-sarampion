@@ -532,101 +532,151 @@ def contar_registros(
 
 @app.get("/api/export/excel")
 def export_excel(x_api_key: str = Header(None)):
-    """Exporta todos los registros como archivo Excel. Requiere API key."""
+    """Exporta registros como Excel con formato IGSS oficial.
+    3 hojas (SOSPECHOSOS, CONFIRMADOS, SUSPENDIDOS), 2 filas header (categorías + columnas).
+    """
     verify_api_key(x_api_key)
 
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
 
     registros = get_registros(limit=50000)
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "SOSPECHOSOS"
+    # Separar por clasificación
+    sheets_data = {"SOSPECHOSOS": [], "CONFIRMADOS": [], "SUSPENDIDOS": []}
+    for r in registros:
+        clasif = (r.get("clasificacion_caso") or "").upper()
+        if clasif in ("CONFIRMADO",):
+            sheets_data["CONFIRMADOS"].append(r)
+        elif clasif in ("SUSPENDIDO",):
+            sheets_data["SUSPENDIDOS"].append(r)
+        else:
+            sheets_data["SOSPECHOSOS"].append(r)
 
-    header_fill = PatternFill(start_color="1B5E20", end_color="1B5E20", fill_type="solid")
-    header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=10)
-    header_border = Border(
-        bottom=Side(style="thin", color="000000"),
-        right=Side(style="thin", color="E0E0E0"),
+    # Columnas en orden del Excel original
+    EXPORT_COLS = [
+        "diagnostico_registrado", "codigo_cie10", "unidad_medica",
+        "fecha_registro_diagnostico", "fecha_notificacion", "semana_epidemiologica",
+        "servicio_reporta", "afiliacion", "nombre_apellido", "edad_anios", "edad_meses",
+        "sexo", "departamento_residencia", "municipio_residencia", "direccion_exacta",
+        "esta_embarazada", "semanas_embarazo", "fecha_probable_parto",
+        "vacuna_embarazada", "fecha_vacunacion_embarazada", "envio_ficha",
+        "motivo_consulta", "fecha_inicio_sintomas",
+        "signo_fiebre", "signo_exantema", "signo_manchas_koplik",
+        "signo_tos", "signo_conjuntivitis", "signo_artralgia",
+        "signo_coriza", "signo_adenopatias",
+        "numero_dosis_spr", "fecha_ultima_dosis",
+        "hospitalizado", "complicaciones", "condicion_egreso", "fecha_defuncion",
+        "fecha_laboratorios", "tipo_muestra",
+        "resultado_igg_numerico", "resultado_igg_cualitativo",
+        "resultado_igm_numerico", "resultado_igm_cualitativo",
+        "resultado_pcr_orina", "resultado_pcr_hisopado",
+        "contactos_directos", "clasificacion_caso",
+    ]
+
+    COL_HEADERS = [
+        "Diagnóstico Registrado", "Código CIE-10", "Unidad médica",
+        "Fecha de registro de diagnóstico", "Fecha Notificación", "Semana epidemiológica",
+        "Servicio que reporta", "Afiliación", "Nombre y Apellido", "Edad en años", "Edad en meses",
+        "Sexo", "Departamento de Residencia", "Municipio de Residencia", "Dirección exacta",
+        "Está Embarazada", "Semanas de embarazo", "Fecha probable de parto",
+        "Vacuna (en embarazada)", "Fecha de vacunación", "Enviaron Ficha Epidemiológica",
+        "Motivo de consulta", "Fecha de inicio de los síntomas",
+        "Signos: Fiebre", "Signos: Exantema", "Signos: Manchas de Koplik",
+        "Signos: Tos", "Signos: Conjuntivitis", "Signos: Artralgia o Artritis",
+        "Signos: coriza o catarro", "Signos: Adenopatías",
+        "Numero Dosis SPR/SR", "Fecha de última dosis",
+        "Hospitalizado", "Complicaciones", "Condición de egreso", "Fecha Defunción",
+        "Fecha que realiza laboratorios", "SUERO/HISOPADO/ORINA",
+        "Resultado de IgG numérico", "Resultado IgG cualitativo",
+        "Resultado IgM numérico", "Resultado IgM cualitativo",
+        "Resultado de RT-PCR ORINA", "Resultado de RT-PCR HISOPADO",
+        "No. de contactos directos", "Clasificación del caso",
+    ]
+
+    # Category headers (row 1) — (start_col, end_col, label)  1-indexed
+    CATEGORIES = [
+        (1, 7, "DATOS ADMINISTRATIVOS"),
+        (8, 21, "DATOS GENERALES DEL PACIENTE"),
+        (22, 31, "DATOS DE CONSULTA Y SINTOMATOLOGÍA CLÍNICA"),
+        (32, 33, "VACUNACIÓN"),
+        (34, 37, "COMPLICACIONES QUE REQUIRIERON HOSPITALIZACIÓN"),
+        (38, 45, "MUESTRAS Y RESULTADOS DE LABORATORIO"),
+        (46, 47, "CONTACTOS Y CLASIFICACIÓN"),
+    ]
+
+    # Styles
+    cat_fill = PatternFill(start_color="1B5E20", end_color="1B5E20", fill_type="solid")
+    cat_font = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+    hdr_fill = PatternFill(start_color="2E7D32", end_color="2E7D32", fill_type="solid")
+    hdr_font = Font(name="Calibri", bold=True, color="FFFFFF", size=9)
+    border_thin = Border(
+        bottom=Side(style="thin"), right=Side(style="thin", color="CCCCCC"),
     )
+    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    header_labels = {
-        "registro_id": "No. Registro",
-        "timestamp_envio": "Fecha/Hora Envío",
-        "diagnostico_registrado": "Diagnóstico Registrado",
-        "codigo_cie10": "Código CIE-10",
-        "unidad_medica": "Unidad Médica",
-        "fecha_registro_diagnostico": "Fecha Registro Diagnóstico",
-        "fecha_notificacion": "Fecha Notificación",
-        "semana_epidemiologica": "Semana Epidemiológica",
-        "servicio_reporta": "Servicio que Reporta",
-        "envio_ficha": "Enviaron Ficha",
-        "afiliacion": "Afiliación",
-        "nombre_apellido": "Nombre y Apellido",
-        "edad_anios": "Edad (años)",
-        "edad_meses": "Edad (meses)",
-        "sexo": "Sexo",
-        "departamento_residencia": "Departamento",
-        "municipio_residencia": "Municipio",
-        "direccion_exacta": "Dirección",
-        "esta_embarazada": "Embarazada",
-        "motivo_consulta": "Motivo de Consulta",
-        "fecha_inicio_sintomas": "Fecha Inicio Síntomas",
-        "signo_fiebre": "Fiebre",
-        "signo_exantema": "Exantema",
-        "signo_manchas_koplik": "Manchas Koplik",
-        "signo_tos": "Tos",
-        "signo_conjuntivitis": "Conjuntivitis",
-        "signo_artralgia": "Artralgia",
-        "signo_coriza": "Coriza",
-        "signo_adenopatias": "Adenopatías",
-        "numero_dosis_spr": "Dosis SPR/SR",
-        "fecha_ultima_dosis": "Fecha Última Dosis",
-        "hospitalizado": "Hospitalizado",
-        "complicaciones": "Complicaciones",
-        "condicion_egreso": "Condición Egreso",
-        "fecha_defuncion": "Fecha Defunción",
-        "fecha_laboratorios": "Fecha Laboratorios",
-        "tipo_muestra": "Tipo Muestra",
-        "resultado_igg_cualitativo": "IgG Cualitativo",
-        "resultado_igm_cualitativo": "IgM Cualitativo",
-        "resultado_pcr_orina": "RT-PCR Orina",
-        "resultado_pcr_hisopado": "RT-PCR Hisopado",
-        "contactos_directos": "Contactos Directos",
-        "clasificacion_caso": "Clasificación",
-        "observaciones": "Observaciones",
-    }
+    wb = openpyxl.Workbook()
+    first = True
 
-    export_cols = [c for c in COLUMNS if c not in (
-        "ip_origen", "created_at", "diagnostico_otro", "unidad_medica_otra",
-        "complicaciones_otra", "semanas_embarazo", "fecha_probable_parto",
-        "vacuna_embarazada", "fecha_vacunacion_embarazada",
-        "resultado_igg_numerico", "resultado_igm_numerico",
-    )]
+    for sheet_name, data in sheets_data.items():
+        if first:
+            ws = wb.active
+            ws.title = sheet_name
+            first = False
+        else:
+            ws = wb.create_sheet(sheet_name)
 
-    for col_idx, col in enumerate(export_cols, 1):
-        cell = ws.cell(row=1, column=col_idx, value=header_labels.get(col, col))
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = header_border
+        # Add "No. caso" as first column
+        total_cols = len(EXPORT_COLS) + 1  # +1 for No. caso
 
-    for row_idx, reg in enumerate(registros, 2):
-        for col_idx, col in enumerate(export_cols, 1):
-            ws.cell(row=row_idx, column=col_idx, value=reg.get(col, ""))
+        # Row 1: Category headers (merged)
+        ws.cell(row=1, column=1, value="No.").fill = cat_fill
+        ws.cell(row=1, column=1).font = cat_font
+        ws.cell(row=1, column=1).alignment = center_align
 
-    for col_idx, col in enumerate(export_cols, 1):
-        max_len = max(len(str(header_labels.get(col, col))), 12)
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = min(max_len + 2, 30)
+        for start, end, label in CATEGORIES:
+            s = start + 1  # offset for No. caso column
+            e = end + 1
+            cell = ws.cell(row=1, column=s, value=label)
+            cell.fill = cat_fill
+            cell.font = cat_font
+            cell.alignment = center_align
+            if s != e:
+                ws.merge_cells(start_row=1, start_column=s, end_row=1, end_column=e)
 
-    ws.freeze_panes = "A2"
+        # Row 2: Column headers
+        ws.cell(row=2, column=1, value="No. caso").fill = hdr_fill
+        ws.cell(row=2, column=1).font = hdr_font
+        ws.cell(row=2, column=1).alignment = center_align
+        ws.cell(row=2, column=1).border = border_thin
+
+        for i, header in enumerate(COL_HEADERS):
+            cell = ws.cell(row=2, column=i + 2, value=header)
+            cell.fill = hdr_fill
+            cell.font = hdr_font
+            cell.alignment = center_align
+            cell.border = border_thin
+
+        # Data rows
+        for row_idx, reg in enumerate(data, 3):
+            ws.cell(row=row_idx, column=1, value=row_idx - 2)  # No. caso
+            for col_idx, col_key in enumerate(EXPORT_COLS, 2):
+                ws.cell(row=row_idx, column=col_idx, value=reg.get(col_key, ""))
+
+        # Column widths
+        ws.column_dimensions["A"].width = 6
+        for i, col_key in enumerate(EXPORT_COLS, 2):
+            letter = get_column_letter(i)
+            ws.column_dimensions[letter].width = min(max(len(COL_HEADERS[i-2]), 10) + 2, 28)
+
+        ws.freeze_panes = "A3"  # Freeze first 2 rows
 
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
 
-    filename = f"vigilancia_sarampion_igss_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"BASE_DATOS_VIGILANCIA_SARAMPION_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
