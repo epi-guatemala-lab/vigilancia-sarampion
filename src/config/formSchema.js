@@ -23,6 +23,20 @@ export const pageLabels = {
 
 import { unidadesMedicasNombres } from './unidadesMedicas.js'
 
+export const diagnosticosMap = {
+  'B05 - Sarampión': 'B05',
+  'B050 - Sarampión complicado por encefalitis': 'B050',
+  'B051 - Sarampión complicado por meningitis': 'B051',
+  'B052 - Sarampión complicado por una neumonía': 'B052',
+  'B053 - Sarampión complicado por otitis media': 'B053',
+  'B054 - Sarampión con complicaciones intestinales': 'B054',
+  'B055 - Sarampión confirmado por laboratorio': 'B055',
+  'B056 - Sarampión confirmado por nexo epidemiológico': 'B056',
+  'B057 - Sarampión confirmado clínicamente': 'B057',
+  'B058 - Sarampión con otras complicaciones': 'B058',
+  'B059 - Sospechoso de Sarampión': 'B059',
+}
+
 export const departamentosGuatemala = [
   'ALTA VERAPAZ',
   'BAJA VERAPAZ',
@@ -58,30 +72,9 @@ export const formFields = [
     type: 'select',
     page: 1,
     required: true,
-    options: [
-      'SOSPECHOSO DE SARAMPIÓN',
-      'SARAMPIÓN',
-      'EXANTEMA A ESTUDIO',
-      'ERUPCIÓN CUTÁNEA',
-      'CONTACTO ASINTOMÁTICO',
-      'FIEBRE DE ORIGEN DESCONOCIDO',
-      'DERMATITIS ATÓPICA',
-      'ESCARLATINA',
-      'RINOFARINGITIS AGUDA',
-      'INFECCIÓN VIRAL NO ESPECIFICADA',
-      'OTRO',
-    ],
-    helpText: 'Seleccione el diagnóstico registrado en la consulta',
-    colSpan: 'half',
-  },
-  {
-    id: 'diagnostico_otro',
-    label: 'Especifique otro diagnóstico',
-    type: 'text',
-    page: 1,
-    required: true,
-    placeholder: 'Escriba el diagnóstico',
-    conditional: { dependsOn: 'diagnostico_registrado', showWhen: 'OTRO' },
+    options: Object.keys(diagnosticosMap),
+    autoMap: 'codigo_cie10',
+    helpText: 'Seleccione el diagnóstico CIE-10 registrado en la consulta',
     colSpan: 'half',
   },
   {
@@ -90,9 +83,11 @@ export const formFields = [
     type: 'text',
     page: 1,
     required: false,
-    placeholder: 'Ej: B05, B059, R21',
-    helpText: 'Código de clasificación internacional de enfermedades',
+    placeholder: 'Se asigna automáticamente',
+    helpText: 'Se asigna automáticamente según el diagnóstico seleccionado',
     colSpan: 'half',
+    readOnly: true,
+    autoFrom: 'diagnostico_registrado',
     validation: { maxLength: 10 },
   },
   {
@@ -157,7 +152,6 @@ export const formFields = [
     options: [
       'EMERGENCIA',
       'CONSULTA EXTERNA',
-      'COEX',
       'ENCAMAMIENTO',
       'OTRO',
     ],

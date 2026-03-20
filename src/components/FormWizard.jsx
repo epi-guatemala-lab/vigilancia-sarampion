@@ -8,7 +8,7 @@ import { useConditionalFields } from '../hooks/useConditionalFields.js'
 import { useGoogleSheets } from '../hooks/useGoogleSheets.js'
 import { validatePage } from '../utils/validation.js'
 import { getEpiWeek } from '../utils/formatters.js'
-import { pageLabels, formFields } from '../config/formSchema.js'
+import { pageLabels, formFields, diagnosticosMap } from '../config/formSchema.js'
 
 export default function FormWizard() {
   const [currentStep, setCurrentStep] = useState(1)
@@ -47,6 +47,11 @@ export default function FormWizard() {
 
   const handleFieldChange = useCallback((fieldId, value) => {
     updateField(fieldId, value)
+
+    // Auto-map diagnóstico → código CIE-10
+    if (fieldId === 'diagnostico_registrado' && diagnosticosMap[value]) {
+      updateField('codigo_cie10', diagnosticosMap[value])
+    }
 
     // Auto-calcular semana epidemiológica
     const autoFields = formFields.filter(f => f.autoCalculate === 'epiWeek' && f.dependsOnDate === fieldId)
