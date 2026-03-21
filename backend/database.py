@@ -36,6 +36,7 @@ COLUMNS = [
     "fecha_nacimiento",
     "edad_anios",
     "edad_meses",
+    "edad_dias",
     "pueblo_etnia",
     "ocupacion",
     "escolaridad",

@@ -63,16 +63,22 @@ export default function FormWizard() {
 
     // Auto-calculate age from fecha_nacimiento
     if (fieldId === 'fecha_nacimiento' && value) {
-      const birth = new Date(value)
+      const birth = new Date(value + 'T00:00:00')
       const today = new Date()
       if (!isNaN(birth.getTime())) {
         let years = today.getFullYear() - birth.getFullYear()
         let months = today.getMonth() - birth.getMonth()
-        if (today.getDate() < birth.getDate()) months--
+        let days = today.getDate() - birth.getDate()
+        if (days < 0) {
+          months--
+          const lastMonth = new Date(today.getFullYear(), today.getMonth(), 0)
+          days += lastMonth.getDate()
+        }
         if (months < 0) { years--; months += 12 }
         updateMultipleFields({
           edad_anios: String(Math.max(0, years)),
           edad_meses: String(Math.max(0, months)),
+          edad_dias: String(Math.max(0, days)),
         })
       }
     }

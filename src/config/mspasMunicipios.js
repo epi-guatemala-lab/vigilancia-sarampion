@@ -135,7 +135,7 @@ export const municipiosPorDepartamento = {
 }
 
 // Lista plana de todos los departamentos
-export const departamentos = Object.keys(municipiosPorDepartamento)
+export const departamentos = [...Object.keys(municipiosPorDepartamento), 'OTROS']
 
 // Obtener municipios de un departamento
 export const getMunicipios = (departamento) => {
