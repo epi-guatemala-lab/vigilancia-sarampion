@@ -73,7 +73,7 @@ def _cleanup_rate_limiter():
 
 
 # ─── Validación de datos ──────────────────────────────────
-VALID_CLASIFICACIONES = {"SOSPECHOSO", "CONFIRMADO", "DESCARTADO", "CLÍNICO", "FALSO", "ERROR DIAGNÓSTICO"}
+VALID_CLASIFICACIONES = {"SOSPECHOSO", "CONFIRMADO", "DESCARTADO", "SUSPENDIDO", "CLÍNICO", "FALSO", "ERROR DIAGNÓSTICO"}
 VALID_SEXO = {"M", "F", ""}
 VALID_SI_NO = {"SI", "NO", "N/A", "N/S", ""}
 MAX_FIELD_LENGTH = 500
@@ -554,56 +554,99 @@ def export_excel(x_api_key: str = Header(None)):
         else:
             sheets_data["SOSPECHOSOS"].append(r)
 
-    # Columnas en orden del Excel original
+    # Columnas en orden del Excel — compatible MSPAS + IGSS
     EXPORT_COLS = [
-        "diagnostico_registrado", "codigo_cie10", "unidad_medica",
+        # Datos Generales (1-11)
+        "diagnostico_registrado", "codigo_cie10", "unidad_medica", "centro_externo",
         "fecha_registro_diagnostico", "fecha_notificacion", "semana_epidemiologica",
-        "servicio_reporta", "afiliacion", "nombre_apellido", "edad_anios", "edad_meses",
-        "sexo", "departamento_residencia", "municipio_residencia", "direccion_exacta",
-        "esta_embarazada", "semanas_embarazo", "fecha_probable_parto",
-        "vacuna_embarazada", "fecha_vacunacion_embarazada", "envio_ficha",
-        "motivo_consulta", "fecha_inicio_sintomas",
+        "servicio_reporta", "nom_responsable", "cargo_responsable", "envio_ficha",
+        # Datos del Paciente (12-26)
+        "afiliacion", "nombres", "apellidos", "sexo", "fecha_nacimiento",
+        "edad_anios", "edad_meses", "pueblo_etnia", "ocupacion", "escolaridad",
+        "departamento_residencia", "municipio_residencia", "poblado",
+        "direccion_exacta", "nombre_encargado",
+        # Embarazo (27-32)
+        "esta_embarazada", "lactando", "semanas_embarazo", "fecha_probable_parto",
+        "vacuna_embarazada", "fecha_vacunacion_embarazada",
+        # Información Clínica (33-52)
+        "fecha_inicio_sintomas", "fecha_captacion", "fuente_notificacion",
+        "fecha_visita_domiciliaria", "fecha_inicio_investigacion", "busqueda_activa",
+        "fecha_inicio_erupcion", "sitio_inicio_erupcion",
+        "fecha_inicio_fiebre", "temperatura_celsius",
         "signo_fiebre", "signo_exantema", "signo_manchas_koplik",
         "signo_tos", "signo_conjuntivitis", "signo_artralgia",
         "signo_coriza", "signo_adenopatias",
-        "numero_dosis_spr", "fecha_ultima_dosis",
-        "hospitalizado", "complicaciones", "condicion_egreso", "fecha_defuncion",
-        "fecha_laboratorios", "tipo_muestra",
-        "resultado_igg_numerico", "resultado_igg_cualitativo",
-        "resultado_igm_numerico", "resultado_igm_cualitativo",
+        "vacunado", "tipo_vacuna", "numero_dosis_spr", "fecha_ultima_dosis",
+        # Hospitalización (53-59)
+        "hospitalizado", "hosp_nombre", "hosp_fecha", "no_registro_medico",
+        "condicion_egreso", "fecha_egreso", "fecha_defuncion",
+        # Factores de Riesgo (60-65)
+        "contacto_sospechoso_7_23", "caso_sospechoso_comunidad_3m",
+        "viajo_7_23_previo", "destino_viaje",
+        "contacto_enfermo_catarro", "contacto_embarazada",
+        # Laboratorio (66-79)
+        "recolecto_muestra", "muestra_suero", "muestra_hisopado", "muestra_orina",
+        "antigeno_prueba", "resultado_prueba",
+        "resultado_igg_cualitativo", "resultado_igm_cualitativo",
         "resultado_pcr_orina", "resultado_pcr_hisopado",
-        "contactos_directos", "clasificacion_caso",
+        "fecha_recepcion_laboratorio", "fecha_resultado_laboratorio",
+        "resultado_igg_numerico", "resultado_igm_numerico",
+        # Contactos y IGSS (80-85)
+        "contactos_directos", "clasificacion_caso", "observaciones",
+        "es_empleado_igss", "unidad_medica_trabaja", "puesto_desempena",
     ]
 
     COL_HEADERS = [
-        "Diagnóstico Registrado", "Código CIE-10", "Unidad médica",
-        "Fecha de registro de diagnóstico", "Fecha Notificación", "Semana epidemiológica",
-        "Servicio que reporta", "Afiliación", "Nombre y Apellido", "Edad en años", "Edad en meses",
-        "Sexo", "Departamento de Residencia", "Municipio de Residencia", "Dirección exacta",
-        "Está Embarazada", "Semanas de embarazo", "Fecha probable de parto",
-        "Vacuna (en embarazada)", "Fecha de vacunación", "Enviaron Ficha Epidemiológica",
-        "Motivo de consulta", "Fecha de inicio de los síntomas",
-        "Signos: Fiebre", "Signos: Exantema", "Signos: Manchas de Koplik",
-        "Signos: Tos", "Signos: Conjuntivitis", "Signos: Artralgia o Artritis",
-        "Signos: coriza o catarro", "Signos: Adenopatías",
-        "Numero Dosis SPR/SR", "Fecha de última dosis",
-        "Hospitalizado", "Complicaciones", "Condición de egreso", "Fecha Defunción",
-        "Fecha que realiza laboratorios", "SUERO/HISOPADO/ORINA",
-        "Resultado de IgG numérico", "Resultado IgG cualitativo",
-        "Resultado IgM numérico", "Resultado IgM cualitativo",
-        "Resultado de RT-PCR ORINA", "Resultado de RT-PCR HISOPADO",
-        "No. de contactos directos", "Clasificación del caso",
+        # Datos Generales
+        "Diagnóstico", "CIE-10", "Unidad Médica", "Centro Externo",
+        "Fecha Registro", "Fecha Notificación", "Semana Epi.",
+        "Servicio", "Responsable", "Cargo", "Enviaron Ficha",
+        # Datos del Paciente
+        "Afiliación", "Nombres", "Apellidos", "Sexo", "Fecha Nac.",
+        "Edad Años", "Edad Meses", "Pueblo/Etnia", "Ocupación", "Escolaridad",
+        "Departamento", "Municipio", "Poblado",
+        "Dirección", "Encargado",
+        # Embarazo
+        "Embarazada", "Lactando", "Sem. Embarazo", "Fecha Prob. Parto",
+        "Vacuna Emb.", "Fecha Vac. Emb.",
+        # Información Clínica
+        "Fecha Inicio Síntomas", "Fecha Captación", "Fuente Notif.",
+        "Fecha Visita Dom.", "Fecha Inicio Invest.", "Búsq. Activa",
+        "Fecha Inicio Erupción", "Sitio Erupción",
+        "Fecha Inicio Fiebre", "Temp. °C",
+        "Fiebre", "Exantema", "Koplik",
+        "Tos", "Conjuntivitis", "Artralgia",
+        "Coriza", "Adenopatías",
+        "Vacunado", "Tipo Vacuna", "No. Dosis", "Fecha Últ. Dosis",
+        # Hospitalización
+        "Hospitalizado", "Hospital", "Fecha Hosp.", "Reg. Médico",
+        "Condición Egreso", "Fecha Egreso", "Fecha Defunción",
+        # Factores de Riesgo
+        "Contacto Sosp. 7-23d", "Caso Sosp. Comunidad 3m",
+        "Viajó 7-23d", "Destino Viaje",
+        "Contacto Enfermo", "Contacto Embarazada",
+        # Laboratorio
+        "Recolectó Muestra", "Suero", "Hisopado", "Orina",
+        "Antígeno", "Resultado Prueba",
+        "IgG Cual.", "IgM Cual.",
+        "PCR Orina", "PCR Hisopado",
+        "Fecha Recep. Lab", "Fecha Result. Lab",
+        "IgG Num.", "IgM Num.",
+        # Contactos y IGSS
+        "Contactos Directos", "Clasificación", "Observaciones",
+        "Empleado IGSS", "Unidad Trabaja", "Puesto",
     ]
 
     # Category headers (row 1) — (start_col, end_col, label)  1-indexed
     CATEGORIES = [
-        (1, 7, "DATOS ADMINISTRATIVOS"),
-        (8, 21, "DATOS GENERALES DEL PACIENTE"),
-        (22, 31, "DATOS DE CONSULTA Y SINTOMATOLOGÍA CLÍNICA"),
-        (32, 33, "VACUNACIÓN"),
-        (34, 37, "COMPLICACIONES QUE REQUIRIERON HOSPITALIZACIÓN"),
-        (38, 45, "MUESTRAS Y RESULTADOS DE LABORATORIO"),
-        (46, 47, "CONTACTOS Y CLASIFICACIÓN"),
+        (1, 11, "DATOS GENERALES"),
+        (12, 26, "DATOS DEL PACIENTE"),
+        (27, 32, "EMBARAZO"),
+        (33, 52, "INFORMACIÓN CLÍNICA"),
+        (53, 59, "HOSPITALIZACIÓN"),
+        (60, 65, "FACTORES DE RIESGO"),
+        (66, 79, "LABORATORIO"),
+        (80, 85, "CONTACTOS Y DATOS IGSS"),
     ]
 
     # Styles

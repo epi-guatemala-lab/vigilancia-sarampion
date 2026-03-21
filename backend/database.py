@@ -8,34 +8,63 @@ from datetime import datetime
 from config import DB_PATH
 
 # Columnas del formulario en orden
+# Incluye campos MSPAS (Tabs 1-5) + campos IGSS adicionales
 COLUMNS = [
     "registro_id",
     "timestamp_envio",
+    # Tab 1: Datos Generales
     "diagnostico_registrado",
     "diagnostico_otro",
     "codigo_cie10",
     "unidad_medica",
     "unidad_medica_otra",
+    "centro_externo",
     "fecha_registro_diagnostico",
     "fecha_notificacion",
     "semana_epidemiologica",
     "servicio_reporta",
+    "nom_responsable",
+    "cargo_responsable",
+    "telefono_responsable",
     "envio_ficha",
+    # Tab 2: Datos del Paciente
     "afiliacion",
-    "nombre_apellido",
+    "nombres",
+    "apellidos",
+    "nombre_apellido",  # Backward-compat: computed from nombres + apellidos
+    "sexo",
+    "fecha_nacimiento",
     "edad_anios",
     "edad_meses",
-    "sexo",
+    "pueblo_etnia",
+    "ocupacion",
+    "escolaridad",
     "departamento_residencia",
     "municipio_residencia",
+    "poblado",
     "direccion_exacta",
+    "nombre_encargado",
+    # Tab 3: Embarazo
     "esta_embarazada",
+    "lactando",
     "semanas_embarazo",
     "fecha_probable_parto",
     "vacuna_embarazada",
     "fecha_vacunacion_embarazada",
-    "motivo_consulta",
+    # Tab 4: Información Clínica
     "fecha_inicio_sintomas",
+    "fecha_captacion",
+    "fuente_notificacion",
+    "fuente_notificacion_otra",
+    "fecha_visita_domiciliaria",
+    "fecha_inicio_investigacion",
+    "busqueda_activa",
+    "busqueda_activa_otra",
+    "fecha_inicio_erupcion",
+    "sitio_inicio_erupcion",
+    "sitio_inicio_erupcion_otro",
+    "fecha_inicio_fiebre",
+    "temperatura_celsius",
     "signo_fiebre",
     "signo_exantema",
     "signo_manchas_koplik",
@@ -44,24 +73,61 @@ COLUMNS = [
     "signo_artralgia",
     "signo_coriza",
     "signo_adenopatias",
+    "vacunado",
+    "fuente_info_vacuna",
+    "tipo_vacuna",
     "numero_dosis_spr",
     "fecha_ultima_dosis",
+    "observaciones_vacuna",
     "hospitalizado",
+    "hosp_nombre",
+    "hosp_fecha",
+    "no_registro_medico",
     "complicaciones",
     "complicaciones_otra",
     "condicion_egreso",
+    "fecha_egreso",
     "fecha_defuncion",
-    "fecha_laboratorios",
-    "tipo_muestra",
+    "medico_certifica_defuncion",
+    "motivo_consulta",
+    # Tab 5: Factores de Riesgo
+    "contacto_sospechoso_7_23",
+    "caso_sospechoso_comunidad_3m",
+    "viajo_7_23_previo",
+    "destino_viaje",
+    "contacto_enfermo_catarro",
+    "contacto_embarazada",
+    # Tab 6: Laboratorio
+    "recolecto_muestra",
+    "muestra_suero",
+    "muestra_suero_fecha",
+    "muestra_hisopado",
+    "muestra_hisopado_fecha",
+    "muestra_orina",
+    "muestra_orina_fecha",
+    "muestra_otra",
+    "muestra_otra_descripcion",
+    "muestra_otra_fecha",
+    "antigeno_prueba",
+    "antigeno_otro",
+    "resultado_prueba",
+    "fecha_recepcion_laboratorio",
+    "fecha_resultado_laboratorio",
+    "fecha_laboratorios",  # Backward-compat
+    "tipo_muestra",  # Backward-compat
     "resultado_igg_numerico",
     "resultado_igg_cualitativo",
     "resultado_igm_numerico",
     "resultado_igm_cualitativo",
     "resultado_pcr_orina",
     "resultado_pcr_hisopado",
+    # Tab 7: Contactos y Datos IGSS
     "contactos_directos",
     "clasificacion_caso",
     "observaciones",
+    "es_empleado_igss",
+    "unidad_medica_trabaja",
+    "puesto_desempena",
     # Metadatos
     "ip_origen",
     "created_at",
@@ -78,8 +144,22 @@ def get_connection():
     return conn
 
 
+def _migrate_columns(conn):
+    """Add any missing columns to existing table (non-destructive migration)."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(registros)").fetchall()}
+    added = 0
+    for col in COLUMNS:
+        if col not in existing:
+            conn.execute(f'ALTER TABLE registros ADD COLUMN "{col}" TEXT')
+            added += 1
+    if added > 0:
+        conn.commit()
+        import logging
+        logging.getLogger(__name__).info(f"Migrated {added} new columns to registros table")
+
+
 def init_db():
-    """Crea la tabla si no existe."""
+    """Crea la tabla si no existe y migra columnas faltantes."""
     conn = get_connection()
     cols = ", ".join(f'"{c}" TEXT' for c in COLUMNS)
     conn.execute(f"""
@@ -88,6 +168,8 @@ def init_db():
             {cols}
         )
     """)
+    # Migrate any new columns added since last deploy
+    _migrate_columns(conn)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_afiliacion
         ON registros(afiliacion)
@@ -119,6 +201,14 @@ def insert_registro(data: dict, ip: str = "") -> str:
     try:
         data["ip_origen"] = ip
         data["created_at"] = datetime.now().isoformat()
+
+        # Backward-compat: compute nombre_apellido from nombres + apellidos
+        if data.get("nombres") or data.get("apellidos"):
+            parts = [data.get("nombres", ""), data.get("apellidos", "")]
+            data["nombre_apellido"] = " ".join(p for p in parts if p).strip()
+        elif data.get("nombre_apellido") and not data.get("nombres"):
+            # Old-style submission with combined name
+            pass
 
         cols = []
         vals = []

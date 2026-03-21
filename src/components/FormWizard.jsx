@@ -8,7 +8,7 @@ import { useConditionalFields } from '../hooks/useConditionalFields.js'
 import { useGoogleSheets } from '../hooks/useGoogleSheets.js'
 import { validatePage } from '../utils/validation.js'
 import { getEpiWeek } from '../utils/formatters.js'
-import { pageLabels, formFields, diagnosticosMap } from '../config/formSchema.js'
+import { pageLabels, formFields, diagnosticosMap, getMunicipios } from '../config/formSchema.js'
 
 export default function FormWizard() {
   const [currentStep, setCurrentStep] = useState(1)
@@ -53,6 +53,35 @@ export default function FormWizard() {
       updateField('codigo_cie10', diagnosticosMap[value])
     }
 
+    // Auto-compute nombre_apellido from nombres + apellidos
+    if (fieldId === 'nombres' || fieldId === 'apellidos') {
+      const nombres = fieldId === 'nombres' ? value : (formData.nombres || '')
+      const apellidos = fieldId === 'apellidos' ? value : (formData.apellidos || '')
+      const full = [nombres, apellidos].filter(Boolean).join(' ').trim()
+      if (full) updateField('nombre_apellido', full)
+    }
+
+    // Auto-calculate age from fecha_nacimiento
+    if (fieldId === 'fecha_nacimiento' && value) {
+      const birth = new Date(value)
+      const today = new Date()
+      if (!isNaN(birth.getTime())) {
+        let years = today.getFullYear() - birth.getFullYear()
+        let months = today.getMonth() - birth.getMonth()
+        if (today.getDate() < birth.getDate()) months--
+        if (months < 0) { years--; months += 12 }
+        updateMultipleFields({
+          edad_anios: String(Math.max(0, years)),
+          edad_meses: String(Math.max(0, months)),
+        })
+      }
+    }
+
+    // Clear municipio when departamento changes (cascading reset)
+    if (fieldId === 'departamento_residencia') {
+      updateField('municipio_residencia', '')
+    }
+
     // Auto-calcular semana epidemiológica
     const autoFields = formFields.filter(f => f.autoCalculate === 'epiWeek' && f.dependsOnDate === fieldId)
     if (autoFields.length > 0) {
@@ -71,7 +100,7 @@ export default function FormWizard() {
       delete next[fieldId]
       return next
     })
-  }, [updateField, updateMultipleFields])
+  }, [updateField, updateMultipleFields, formData])
 
   const handleNext = useCallback(() => {
     const { isValid, errors: pageErrors } = validatePage(currentFields, formData)
@@ -141,7 +170,7 @@ export default function FormWizard() {
         onNewForm={handleNewForm}
         isOffline={!isOnline}
         registroId={registroId}
-        pacienteNombre={formData.nombre_apellido}
+        pacienteNombre={formData.nombre_apellido || `${formData.nombres || ''} ${formData.apellidos || ''}`.trim()}
         diagnostico={formData.diagnostico_registrado}
       />
     )

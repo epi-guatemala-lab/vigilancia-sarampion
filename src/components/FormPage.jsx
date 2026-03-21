@@ -8,6 +8,7 @@ import TextAreaField from './fields/TextAreaField.jsx'
 import NumberField from './fields/NumberField.jsx'
 import PhoneField from './fields/PhoneField.jsx'
 import FileField from './fields/FileField.jsx'
+import { getMunicipios } from '../config/mspasMunicipios.js'
 
 const fieldComponents = {
   text: TextField,
@@ -27,6 +28,21 @@ function getFieldComponent(field) {
   return fieldComponents[field.type]
 }
 
+/**
+ * Resolve cascading options for fields that depend on another field's value.
+ * Currently supports: municipio_residencia cascading from departamento_residencia.
+ */
+function resolveFieldOptions(field, formData) {
+  if (field.cascadeFrom && field.cascadeFrom === 'departamento_residencia') {
+    const depto = formData.departamento_residencia
+    if (depto) {
+      return getMunicipios(depto)
+    }
+    return []
+  }
+  return field.options
+}
+
 export default function FormPage({ fields, formData, onFieldChange, errors, pageLabel }) {
   let currentSection = null
 
@@ -42,7 +58,12 @@ export default function FormPage({ fields, formData, onFieldChange, errors, page
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-5">
         {fields.map((field) => {
-          const FieldComponent = getFieldComponent(field)
+          // Resolve cascading options if needed
+          const resolvedField = field.cascadeFrom
+            ? { ...field, options: resolveFieldOptions(field, formData) }
+            : field
+
+          const FieldComponent = getFieldComponent(resolvedField)
           if (!FieldComponent) return null
 
           const fieldErrors = errors[field.id] || []
@@ -83,7 +104,7 @@ export default function FormPage({ fields, formData, onFieldChange, errors, page
               </label>
 
               <FieldComponent
-                field={field}
+                field={resolvedField}
                 value={formData[field.id]}
                 onChange={onFieldChange}
                 error={hasError}
