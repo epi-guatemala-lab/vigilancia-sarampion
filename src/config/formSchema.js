@@ -13,7 +13,6 @@
  */
 
 import { unidadesMedicasNombres } from './unidadesMedicas.js'
-import { centrosExternosOptions } from './mspasCentrosExternos.js'
 import { etniasOptions } from './mspasEtnias.js'
 import { ocupacionesOptions } from './mspasOcupaciones.js'
 import { escolaridadOptions } from './mspasEscolaridad.js'
@@ -98,17 +97,6 @@ export const formFields = [
     required: true,
     placeholder: 'Nombre de la unidad médica',
     conditional: { dependsOn: 'unidad_medica', showWhen: 'OTRA' },
-    colSpan: 'half',
-  },
-  {
-    id: 'centro_externo',
-    label: 'Centro Externo',
-    type: 'select',
-    page: 1,
-    required: false,
-    options: centrosExternosOptions,
-    searchable: true,
-    helpText: 'Institución externa que refiere el caso (si aplica)',
     colSpan: 'half',
   },
   {
