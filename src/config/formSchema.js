@@ -17,6 +17,7 @@ import { etniasOptions } from './mspasEtnias.js'
 import { ocupacionesOptions } from './mspasOcupaciones.js'
 import { escolaridadOptions } from './mspasEscolaridad.js'
 import { departamentos, getMunicipios } from './mspasMunicipios.js'
+import { getPoblados } from './mspasPoblados.js'
 
 export const formTitle = 'Ficha de Investigación Epidemiológica'
 export const formSubtitle = 'Sarampión / Rubéola — IGSS Epidemiología'
@@ -48,8 +49,8 @@ export const diagnosticosMap = {
 
 export const departamentosGuatemala = departamentos
 
-// Re-export getMunicipios for cascading selects
-export { getMunicipios }
+// Re-export for cascading selects
+export { getMunicipios, getPoblados }
 
 export const formFields = [
   // ═══════════════════════════════════════════════════
@@ -320,10 +321,12 @@ export const formFields = [
   {
     id: 'poblado',
     label: 'Poblado / Localidad',
-    type: 'text',
+    type: 'select',
     page: 2,
     required: false,
-    placeholder: 'Nombre del poblado o localidad',
+    options: [], // Se llena dinámicamente según departamento + municipio
+    searchable: true,
+    cascadeFrom: 'municipio_residencia',
     colSpan: 'half',
   },
   {

@@ -83,9 +83,12 @@ export default function FormWizard() {
       }
     }
 
-    // Clear municipio when departamento changes (cascading reset)
+    // Cascading resets: departamento → municipio → poblado
     if (fieldId === 'departamento_residencia') {
-      updateField('municipio_residencia', '')
+      updateMultipleFields({ municipio_residencia: '', poblado: '' })
+    }
+    if (fieldId === 'municipio_residencia') {
+      updateField('poblado', '')
     }
 
     // Auto-calcular semana epidemiológica

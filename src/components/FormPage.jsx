@@ -9,6 +9,7 @@ import NumberField from './fields/NumberField.jsx'
 import PhoneField from './fields/PhoneField.jsx'
 import FileField from './fields/FileField.jsx'
 import { getMunicipios } from '../config/mspasMunicipios.js'
+import { getPoblados } from '../config/mspasPoblados.js'
 
 const fieldComponents = {
   text: TextField,
@@ -30,16 +31,22 @@ function getFieldComponent(field) {
 
 /**
  * Resolve cascading options for fields that depend on another field's value.
- * Currently supports: municipio_residencia cascading from departamento_residencia.
+ * Supports: departamento → municipio, departamento+municipio → poblado
  */
 function resolveFieldOptions(field, formData) {
-  if (field.cascadeFrom && field.cascadeFrom === 'departamento_residencia') {
+  if (!field.cascadeFrom) return field.options
+
+  if (field.cascadeFrom === 'departamento_residencia') {
     const depto = formData.departamento_residencia
-    if (depto) {
-      return getMunicipios(depto)
-    }
-    return []
+    return depto ? getMunicipios(depto) : []
   }
+
+  if (field.cascadeFrom === 'municipio_residencia') {
+    const depto = formData.departamento_residencia
+    const muni = formData.municipio_residencia
+    return (depto && muni) ? getPoblados(depto, muni) : []
+  }
+
   return field.options
 }
 
