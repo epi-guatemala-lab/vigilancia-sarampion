@@ -391,11 +391,36 @@ export const pobladosPorMunicipio = {
 }
 
 /**
- * Get poblados for a specific departamento + municipio
+ * Get poblados for a specific departamento + municipio.
+ * Handles case-insensitive matching since departamentos are UPPERCASE
+ * in our form but Title Case in the MSPAS data.
  */
 export function getPoblados(departamento, municipio) {
   if (!departamento || !municipio) return []
-  const dept = pobladosPorMunicipio[departamento]
+
+  // Try exact match first
+  let dept = pobladosPorMunicipio[departamento]
+
+  // If no exact match, try case-insensitive
+  if (!dept) {
+    const deptUpper = departamento.toUpperCase()
+    const deptKey = Object.keys(pobladosPorMunicipio).find(
+      k => k.toUpperCase() === deptUpper
+    )
+    if (deptKey) dept = pobladosPorMunicipio[deptKey]
+  }
   if (!dept) return []
-  return dept[municipio] || []
+
+  // Try exact match for municipio
+  let pobs = dept[municipio]
+
+  // If no exact match, try case-insensitive (strip accents too)
+  if (!pobs) {
+    const normalize = s => s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const muniNorm = normalize(municipio)
+    const muniKey = Object.keys(dept).find(k => normalize(k) === muniNorm)
+    if (muniKey) pobs = dept[muniKey]
+  }
+
+  return pobs || []
 }
