@@ -560,8 +560,8 @@ export const formFields = [
     required: false,
     placeholder: 'Ej: 38.5',
     colSpan: 'half',
-    validation: { pattern: '^\\d{2}(\\.\\d{1,2})?$' },
-    helpText: 'Temperatura en grados Celsius (ej: 38.5)',
+    validation: { pattern: '^\\d{2}([.,]\\d{1,2})?$' },
+    helpText: 'Temperatura en grados Celsius (ej: 38.5 o 38,5)',
   },
 
   // --- Signos y Síntomas ---

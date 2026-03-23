@@ -556,54 +556,65 @@ def export_excel(x_api_key: str = Header(None)):
 
     # Columnas en orden del Excel — compatible MSPAS + IGSS
     EXPORT_COLS = [
-        # Datos Generales (1-11)
-        "diagnostico_registrado", "codigo_cie10", "unidad_medica", "centro_externo",
+        # Datos Generales (1-13)
+        "diagnostico_registrado", "codigo_cie10", "unidad_medica", "unidad_medica_otra",
+        "centro_externo",
         "fecha_registro_diagnostico", "fecha_notificacion", "semana_epidemiologica",
-        "servicio_reporta", "nom_responsable", "cargo_responsable", "envio_ficha",
-        # Datos del Paciente (12-26)
+        "servicio_reporta", "nom_responsable", "cargo_responsable", "telefono_responsable",
+        "envio_ficha",
+        # Datos del Paciente (14-29)
         "afiliacion", "nombres", "apellidos", "sexo", "fecha_nacimiento",
-        "edad_anios", "edad_meses", "pueblo_etnia", "ocupacion", "escolaridad",
+        "edad_anios", "edad_meses", "edad_dias", "pueblo_etnia", "ocupacion", "escolaridad",
         "departamento_residencia", "municipio_residencia", "poblado",
         "direccion_exacta", "nombre_encargado",
-        # Embarazo (27-32)
+        # Embarazo (30-35)
         "esta_embarazada", "lactando", "semanas_embarazo", "fecha_probable_parto",
         "vacuna_embarazada", "fecha_vacunacion_embarazada",
-        # Información Clínica (33-52)
+        # Información Clínica (36-62)
         "fecha_inicio_sintomas", "fecha_captacion", "fuente_notificacion",
+        "fuente_notificacion_otra",
         "fecha_visita_domiciliaria", "fecha_inicio_investigacion", "busqueda_activa",
-        "fecha_inicio_erupcion", "sitio_inicio_erupcion",
+        "busqueda_activa_otra",
+        "fecha_inicio_erupcion", "sitio_inicio_erupcion", "sitio_inicio_erupcion_otro",
         "fecha_inicio_fiebre", "temperatura_celsius",
         "signo_fiebre", "signo_exantema", "signo_manchas_koplik",
         "signo_tos", "signo_conjuntivitis", "signo_artralgia",
         "signo_coriza", "signo_adenopatias",
-        "vacunado", "tipo_vacuna", "numero_dosis_spr", "fecha_ultima_dosis",
-        # Hospitalización (53-59)
+        "vacunado", "fuente_info_vacuna", "tipo_vacuna", "numero_dosis_spr",
+        "fecha_ultima_dosis", "observaciones_vacuna",
+        # Hospitalización (63-71)
         "hospitalizado", "hosp_nombre", "hosp_fecha", "no_registro_medico",
         "condicion_egreso", "fecha_egreso", "fecha_defuncion",
-        # Factores de Riesgo (60-65)
+        "medico_certifica_defuncion", "motivo_consulta",
+        # Factores de Riesgo (72-77)
         "contacto_sospechoso_7_23", "caso_sospechoso_comunidad_3m",
         "viajo_7_23_previo", "destino_viaje",
         "contacto_enfermo_catarro", "contacto_embarazada",
-        # Laboratorio (66-79)
-        "recolecto_muestra", "muestra_suero", "muestra_hisopado", "muestra_orina",
-        "antigeno_prueba", "resultado_prueba",
+        # Laboratorio (78-98)
+        "recolecto_muestra", "muestra_suero", "muestra_suero_fecha",
+        "muestra_hisopado", "muestra_hisopado_fecha",
+        "muestra_orina", "muestra_orina_fecha",
+        "muestra_otra", "muestra_otra_descripcion", "muestra_otra_fecha",
+        "antigeno_prueba", "antigeno_otro", "resultado_prueba",
         "resultado_igg_cualitativo", "resultado_igm_cualitativo",
         "resultado_pcr_orina", "resultado_pcr_hisopado",
         "fecha_recepcion_laboratorio", "fecha_resultado_laboratorio",
         "resultado_igg_numerico", "resultado_igm_numerico",
-        # Contactos y IGSS (80-85)
+        # Contactos y IGSS (99-104)
         "contactos_directos", "clasificacion_caso", "observaciones",
         "es_empleado_igss", "unidad_medica_trabaja", "puesto_desempena",
     ]
 
     COL_HEADERS = [
         # Datos Generales
-        "Diagnóstico", "CIE-10", "Unidad Médica", "Centro Externo",
+        "Diagnóstico", "CIE-10", "Unidad Médica", "Unidad Médica Otra",
+        "Centro Externo",
         "Fecha Registro", "Fecha Notificación", "Semana Epi.",
-        "Servicio", "Responsable", "Cargo", "Enviaron Ficha",
+        "Servicio", "Responsable", "Cargo", "Teléfono Resp.",
+        "Enviaron Ficha",
         # Datos del Paciente
         "Afiliación", "Nombres", "Apellidos", "Sexo", "Fecha Nac.",
-        "Edad Años", "Edad Meses", "Pueblo/Etnia", "Ocupación", "Escolaridad",
+        "Edad Años", "Edad Meses", "Edad Días", "Pueblo/Etnia", "Ocupación", "Escolaridad",
         "Departamento", "Municipio", "Poblado",
         "Dirección", "Encargado",
         # Embarazo
@@ -611,23 +622,30 @@ def export_excel(x_api_key: str = Header(None)):
         "Vacuna Emb.", "Fecha Vac. Emb.",
         # Información Clínica
         "Fecha Inicio Síntomas", "Fecha Captación", "Fuente Notif.",
+        "Fuente Notif. Otra",
         "Fecha Visita Dom.", "Fecha Inicio Invest.", "Búsq. Activa",
-        "Fecha Inicio Erupción", "Sitio Erupción",
+        "Búsq. Activa Otra",
+        "Fecha Inicio Erupción", "Sitio Erupción", "Otro Sitio Erupción",
         "Fecha Inicio Fiebre", "Temp. °C",
         "Fiebre", "Exantema", "Koplik",
         "Tos", "Conjuntivitis", "Artralgia",
         "Coriza", "Adenopatías",
-        "Vacunado", "Tipo Vacuna", "No. Dosis", "Fecha Últ. Dosis",
+        "Vacunado", "Fuente Info Vacuna", "Tipo Vacuna", "No. Dosis",
+        "Fecha Últ. Dosis", "Obs. Vacunación",
         # Hospitalización
         "Hospitalizado", "Hospital", "Fecha Hosp.", "Reg. Médico",
         "Condición Egreso", "Fecha Egreso", "Fecha Defunción",
+        "Médico Defunción", "Motivo Consulta",
         # Factores de Riesgo
         "Contacto Sosp. 7-23d", "Caso Sosp. Comunidad 3m",
         "Viajó 7-23d", "Destino Viaje",
         "Contacto Enfermo", "Contacto Embarazada",
         # Laboratorio
-        "Recolectó Muestra", "Suero", "Hisopado", "Orina",
-        "Antígeno", "Resultado Prueba",
+        "Recolectó Muestra", "Suero", "Fecha Suero",
+        "Hisopado", "Fecha Hisopado",
+        "Orina", "Fecha Orina",
+        "Otra Muestra", "Desc. Otra Muestra", "Fecha Otra Muestra",
+        "Antígeno", "Otro Antígeno", "Resultado Prueba",
         "IgG Cual.", "IgM Cual.",
         "PCR Orina", "PCR Hisopado",
         "Fecha Recep. Lab", "Fecha Result. Lab",
@@ -637,16 +655,16 @@ def export_excel(x_api_key: str = Header(None)):
         "Empleado IGSS", "Unidad Trabaja", "Puesto",
     ]
 
-    # Category headers (row 1) — (start_col, end_col, label)  1-indexed
+    # Category headers (row 1) — (start_col, end_col, label)  1-indexed within EXPORT_COLS
     CATEGORIES = [
-        (1, 11, "DATOS GENERALES"),
-        (12, 26, "DATOS DEL PACIENTE"),
-        (27, 32, "EMBARAZO"),
-        (33, 52, "INFORMACIÓN CLÍNICA"),
-        (53, 59, "HOSPITALIZACIÓN"),
-        (60, 65, "FACTORES DE RIESGO"),
-        (66, 79, "LABORATORIO"),
-        (80, 85, "CONTACTOS Y DATOS IGSS"),
+        (1, 13, "DATOS GENERALES"),
+        (14, 29, "DATOS DEL PACIENTE"),
+        (30, 35, "EMBARAZO"),
+        (36, 62, "INFORMACIÓN CLÍNICA"),
+        (63, 71, "HOSPITALIZACIÓN"),
+        (72, 77, "FACTORES DE RIESGO"),
+        (78, 98, "LABORATORIO"),
+        (99, 104, "CONTACTOS Y DATOS IGSS"),
     ]
 
     # Styles

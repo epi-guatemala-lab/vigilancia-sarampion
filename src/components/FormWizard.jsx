@@ -46,6 +46,11 @@ export default function FormWizard() {
   const isLastStep = currentStep === totalSteps
 
   const handleFieldChange = useCallback((fieldId, value) => {
+    // Normalize comma to dot for temperature
+    if (fieldId === 'temperatura_celsius' && value) {
+      value = value.replace(',', '.')
+    }
+
     updateField(fieldId, value)
 
     // Auto-map diagnóstico → código CIE-10
