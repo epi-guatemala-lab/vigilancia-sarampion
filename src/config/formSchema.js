@@ -280,6 +280,15 @@ export const formFields = [
     sectionTitle: 'Datos Sociodemográficos',
   },
   {
+    id: 'comunidad_linguistica',
+    label: 'Comunidad Lingüística',
+    type: 'text',
+    page: 2,
+    required: false,
+    placeholder: 'Comunidad lingüística del paciente',
+    colSpan: 'half',
+  },
+  {
     id: 'ocupacion',
     label: 'Ocupación',
     type: 'select',
@@ -347,8 +356,17 @@ export const formFields = [
     page: 2,
     required: true,
     placeholder: 'Nombre del encargado(a) del paciente',
-    colSpan: 'full',
+    colSpan: 'half',
     sectionTitle: 'Encargado',
+  },
+  {
+    id: 'telefono_encargado',
+    label: 'Teléfono del Encargado',
+    type: 'phone',
+    page: 2,
+    required: false,
+    placeholder: 'Teléfono del encargado',
+    colSpan: 'half',
   },
 
   // ═══════════════════════════════════════════════════
@@ -639,6 +657,15 @@ export const formFields = [
     options: ['SI', 'NO'],
     colSpan: 'half',
   },
+  {
+    id: 'asintomatico',
+    label: 'Asintomático',
+    type: 'radio',
+    page: 4,
+    required: false,
+    options: ['SI', 'NO'],
+    colSpan: 'half',
+  },
 
   // --- Antecedentes de Vacunación ---
   {
@@ -878,6 +905,16 @@ export const formFields = [
     sectionTitle: 'Muestras de Laboratorio',
   },
   {
+    id: 'motivo_no_recoleccion',
+    label: '¿Por qué no se recolectó la muestra?',
+    type: 'text',
+    page: 6,
+    required: false,
+    placeholder: '¿Por qué no se recolectó la muestra?',
+    conditional: { dependsOn: 'recolecto_muestra', showWhen: 'NO' },
+    colSpan: 'full',
+  },
+  {
     id: 'muestra_suero',
     label: 'Suero',
     type: 'radio',
@@ -1111,6 +1148,24 @@ export const formFields = [
       'ERROR DIAGNÓSTICO',
     ],
     helpText: 'Clasificación del caso según protocolo',
+    colSpan: 'half',
+  },
+  {
+    id: 'fecha_clasificacion_final',
+    label: 'Fecha de Clasificación Final',
+    type: 'date',
+    page: 7,
+    required: false,
+    colSpan: 'half',
+    validation: { noFuture: true },
+  },
+  {
+    id: 'responsable_clasificacion',
+    label: 'Responsable de Clasificación',
+    type: 'text',
+    page: 7,
+    required: false,
+    placeholder: 'Nombre del responsable de clasificación',
     colSpan: 'half',
   },
   {

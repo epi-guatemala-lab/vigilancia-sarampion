@@ -562,15 +562,16 @@ def export_excel(x_api_key: str = Header(None)):
         "fecha_registro_diagnostico", "fecha_notificacion", "semana_epidemiologica",
         "servicio_reporta", "nom_responsable", "cargo_responsable", "telefono_responsable",
         "envio_ficha",
-        # Datos del Paciente (14-29)
+        # Datos del Paciente (14-31)
         "afiliacion", "nombres", "apellidos", "sexo", "fecha_nacimiento",
-        "edad_anios", "edad_meses", "edad_dias", "pueblo_etnia", "ocupacion", "escolaridad",
+        "edad_anios", "edad_meses", "edad_dias", "pueblo_etnia", "comunidad_linguistica",
+        "ocupacion", "escolaridad",
         "departamento_residencia", "municipio_residencia", "poblado",
-        "direccion_exacta", "nombre_encargado",
-        # Embarazo (30-35)
+        "direccion_exacta", "nombre_encargado", "telefono_encargado",
+        # Embarazo (32-37)
         "esta_embarazada", "lactando", "semanas_embarazo", "fecha_probable_parto",
         "vacuna_embarazada", "fecha_vacunacion_embarazada",
-        # Información Clínica (36-62)
+        # Información Clínica (38-65)
         "fecha_inicio_sintomas", "fecha_captacion", "fuente_notificacion",
         "fuente_notificacion_otra",
         "fecha_visita_domiciliaria", "fecha_inicio_investigacion", "busqueda_activa",
@@ -579,19 +580,19 @@ def export_excel(x_api_key: str = Header(None)):
         "fecha_inicio_fiebre", "temperatura_celsius",
         "signo_fiebre", "signo_exantema", "signo_manchas_koplik",
         "signo_tos", "signo_conjuntivitis", "signo_artralgia",
-        "signo_coriza", "signo_adenopatias",
+        "signo_coriza", "signo_adenopatias", "asintomatico",
         "vacunado", "fuente_info_vacuna", "tipo_vacuna", "numero_dosis_spr",
         "fecha_ultima_dosis", "observaciones_vacuna",
-        # Hospitalización (63-71)
+        # Hospitalización (66-74)
         "hospitalizado", "hosp_nombre", "hosp_fecha", "no_registro_medico",
         "condicion_egreso", "fecha_egreso", "fecha_defuncion",
         "medico_certifica_defuncion", "motivo_consulta",
-        # Factores de Riesgo (72-77)
+        # Factores de Riesgo (75-80)
         "contacto_sospechoso_7_23", "caso_sospechoso_comunidad_3m",
         "viajo_7_23_previo", "destino_viaje",
         "contacto_enfermo_catarro", "contacto_embarazada",
-        # Laboratorio (78-98)
-        "recolecto_muestra", "muestra_suero", "muestra_suero_fecha",
+        # Laboratorio (81-102)
+        "recolecto_muestra", "motivo_no_recoleccion", "muestra_suero", "muestra_suero_fecha",
         "muestra_hisopado", "muestra_hisopado_fecha",
         "muestra_orina", "muestra_orina_fecha",
         "muestra_otra", "muestra_otra_descripcion", "muestra_otra_fecha",
@@ -600,8 +601,9 @@ def export_excel(x_api_key: str = Header(None)):
         "resultado_pcr_orina", "resultado_pcr_hisopado",
         "fecha_recepcion_laboratorio", "fecha_resultado_laboratorio",
         "resultado_igg_numerico", "resultado_igm_numerico",
-        # Contactos y IGSS (99-104)
-        "contactos_directos", "clasificacion_caso", "observaciones",
+        # Contactos y IGSS (103-110)
+        "contactos_directos", "clasificacion_caso", "fecha_clasificacion_final",
+        "responsable_clasificacion", "observaciones",
         "es_empleado_igss", "unidad_medica_trabaja", "puesto_desempena",
     ]
 
@@ -614,9 +616,10 @@ def export_excel(x_api_key: str = Header(None)):
         "Enviaron Ficha",
         # Datos del Paciente
         "Afiliación", "Nombres", "Apellidos", "Sexo", "Fecha Nac.",
-        "Edad Años", "Edad Meses", "Edad Días", "Pueblo/Etnia", "Ocupación", "Escolaridad",
+        "Edad Años", "Edad Meses", "Edad Días", "Pueblo/Etnia", "Comunidad Ling.",
+        "Ocupación", "Escolaridad",
         "Departamento", "Municipio", "Poblado",
-        "Dirección", "Encargado",
+        "Dirección", "Encargado", "Tel. Encargado",
         # Embarazo
         "Embarazada", "Lactando", "Sem. Embarazo", "Fecha Prob. Parto",
         "Vacuna Emb.", "Fecha Vac. Emb.",
@@ -629,7 +632,7 @@ def export_excel(x_api_key: str = Header(None)):
         "Fecha Inicio Fiebre", "Temp. °C",
         "Fiebre", "Exantema", "Koplik",
         "Tos", "Conjuntivitis", "Artralgia",
-        "Coriza", "Adenopatías",
+        "Coriza", "Adenopatías", "Asintomático",
         "Vacunado", "Fuente Info Vacuna", "Tipo Vacuna", "No. Dosis",
         "Fecha Últ. Dosis", "Obs. Vacunación",
         # Hospitalización
@@ -641,7 +644,7 @@ def export_excel(x_api_key: str = Header(None)):
         "Viajó 7-23d", "Destino Viaje",
         "Contacto Enfermo", "Contacto Embarazada",
         # Laboratorio
-        "Recolectó Muestra", "Suero", "Fecha Suero",
+        "Recolectó Muestra", "Motivo No Recolección", "Suero", "Fecha Suero",
         "Hisopado", "Fecha Hisopado",
         "Orina", "Fecha Orina",
         "Otra Muestra", "Desc. Otra Muestra", "Fecha Otra Muestra",
@@ -651,20 +654,21 @@ def export_excel(x_api_key: str = Header(None)):
         "Fecha Recep. Lab", "Fecha Result. Lab",
         "IgG Num.", "IgM Num.",
         # Contactos y IGSS
-        "Contactos Directos", "Clasificación", "Observaciones",
+        "Contactos Directos", "Clasificación", "Fecha Clasif. Final",
+        "Resp. Clasificación", "Observaciones",
         "Empleado IGSS", "Unidad Trabaja", "Puesto",
     ]
 
     # Category headers (row 1) — (start_col, end_col, label)  1-indexed within EXPORT_COLS
     CATEGORIES = [
         (1, 13, "DATOS GENERALES"),
-        (14, 29, "DATOS DEL PACIENTE"),
-        (30, 35, "EMBARAZO"),
-        (36, 62, "INFORMACIÓN CLÍNICA"),
-        (63, 71, "HOSPITALIZACIÓN"),
-        (72, 77, "FACTORES DE RIESGO"),
-        (78, 98, "LABORATORIO"),
-        (99, 104, "CONTACTOS Y DATOS IGSS"),
+        (14, 31, "DATOS DEL PACIENTE"),
+        (32, 37, "EMBARAZO"),
+        (38, 65, "INFORMACIÓN CLÍNICA"),
+        (66, 74, "HOSPITALIZACIÓN"),
+        (75, 80, "FACTORES DE RIESGO"),
+        (81, 102, "LABORATORIO"),
+        (103, 110, "CONTACTOS Y DATOS IGSS"),
     ]
 
     # Styles
@@ -766,6 +770,68 @@ def export_csv(x_api_key: str = Header(None)):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ─── PDF Ficha Export ─────────────────────────────────────
+@app.get("/api/export/ficha/{registro_id}")
+def export_ficha_pdf(registro_id: str, x_api_key: str = Header(None)):
+    """Genera PDF de ficha epidemiológica para un registro individual."""
+    verify_api_key(x_api_key)
+    reg = get_registro_by_id(registro_id)
+    if not reg:
+        raise HTTPException(status_code=404, detail=f"Registro {registro_id} no encontrado")
+
+    from pdf_ficha import generar_ficha_pdf
+    pdf_bytes = generar_ficha_pdf(reg)
+
+    filename = f"ficha_{registro_id.replace('/', '_')}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.post("/api/export/fichas")
+async def export_fichas_bulk(request: Request, x_api_key: str = Header(None)):
+    """Genera PDFs para múltiples registros.
+    Body: {"ids": ["IGSS-SAR-...", ...], "format": "merged"|"zip"}
+    """
+    verify_api_key(x_api_key)
+    data = await request.json()
+    ids = data.get("ids", [])
+    fmt = data.get("format", "merged")
+
+    if not ids or len(ids) > 500:
+        raise HTTPException(status_code=400, detail="Proporcione entre 1 y 500 IDs")
+
+    records = []
+    for rid in ids:
+        reg = get_registro_by_id(rid)
+        if reg:
+            records.append(reg)
+
+    if not records:
+        raise HTTPException(status_code=404, detail="Ningún registro encontrado")
+
+    from pdf_ficha import generar_fichas_bulk
+    merge = (fmt == "merged")
+    result_bytes = generar_fichas_bulk(records, merge=merge)
+
+    if merge:
+        filename = f"fichas_sarampion_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        return StreamingResponse(
+            io.BytesIO(result_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    else:
+        filename = f"fichas_sarampion_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        return StreamingResponse(
+            io.BytesIO(result_bytes),
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
 
 
 if __name__ == "__main__":

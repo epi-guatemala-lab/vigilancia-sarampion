@@ -38,6 +38,7 @@ COLUMNS = [
     "edad_meses",
     "edad_dias",
     "pueblo_etnia",
+    "comunidad_linguistica",
     "ocupacion",
     "escolaridad",
     "departamento_residencia",
@@ -45,6 +46,7 @@ COLUMNS = [
     "poblado",
     "direccion_exacta",
     "nombre_encargado",
+    "telefono_encargado",
     # Tab 3: Embarazo
     "esta_embarazada",
     "lactando",
@@ -72,6 +74,7 @@ COLUMNS = [
     "signo_tos",
     "signo_conjuntivitis",
     "signo_artralgia",
+    "asintomatico",
     "signo_coriza",
     "signo_adenopatias",
     "vacunado",
@@ -100,6 +103,7 @@ COLUMNS = [
     "contacto_embarazada",
     # Tab 6: Laboratorio
     "recolecto_muestra",
+    "motivo_no_recoleccion",
     "muestra_suero",
     "muestra_suero_fecha",
     "muestra_hisopado",
@@ -125,6 +129,8 @@ COLUMNS = [
     # Tab 7: Contactos y Datos IGSS
     "contactos_directos",
     "clasificacion_caso",
+    "fecha_clasificacion_final",
+    "responsable_clasificacion",
     "observaciones",
     "es_empleado_igss",
     "unidad_medica_trabaja",
