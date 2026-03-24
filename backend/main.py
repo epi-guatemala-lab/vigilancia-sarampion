@@ -24,7 +24,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, Request, HTTPException, Query, Header, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 
 from config import ALLOWED_ORIGINS, API_SECRET_KEY, PORT, RATE_LIMIT_SECONDS, MAX_UPLOAD_SIZE_MB
 from database import (
@@ -37,7 +37,8 @@ from mspas_queue import (
     init_mspas_tables, save_credentials, get_credentials,
     enqueue_record, enqueue_all_pending, get_queue, get_queue_counts,
     approve_records, update_estado, get_approved_for_submission,
-    mark_sent, mark_error, try_claim_for_submission, recover_stuck_submissions,
+    mark_sent, mark_error, mark_duplicate, try_claim_for_submission,
+    recover_stuck_submissions,
 )
 
 logger = logging.getLogger(__name__)
@@ -1001,7 +1002,10 @@ def mspas_submit_one(registro_id: str, x_api_key: str = Header(None)):
     bot = MSPASBot(username, password)
     result = bot.process_record(reg)
 
-    if result.get("success"):
+    if result.get("duplicate"):
+        # Patient already exists in MSPAS — mark as duplicate
+        mark_duplicate(registro_id, mspas_ficha_id=result.get("mspas_ficha_id", ""))
+    elif result.get("success"):
         if result.get("submitted"):
             mark_sent(registro_id, result.get("mspas_ficha_id", ""),
                      result.get("screenshots", [""])[-1] if result.get("screenshots") else "")
@@ -1022,6 +1026,23 @@ def mspas_get_status(registro_id: str, x_api_key: str = Header(None)):
         if item.get("registro_id") == registro_id:
             return item
     raise HTTPException(404, "Record not in MSPAS queue")
+
+
+@app.get("/api/mspas/screenshot/{filename}")
+def mspas_get_screenshot(filename: str, x_api_key: str = Header(None)):
+    """Serve a bot screenshot file."""
+    verify_api_key(x_api_key)
+    import os
+    # Sanitize filename to prevent path traversal
+    safe_filename = os.path.basename(filename)
+    screenshot_dir = os.environ.get(
+        "MSPAS_SCREENSHOT_DIR",
+        "/opt/vigilancia-sarampion/data/mspas_screenshots"
+    )
+    path = os.path.join(screenshot_dir, safe_filename)
+    if not os.path.exists(path):
+        raise HTTPException(404, "Screenshot not found")
+    return FileResponse(path, media_type="image/png")
 
 
 if __name__ == "__main__":

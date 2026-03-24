@@ -219,6 +219,11 @@ def mark_sent(registro_id: str, mspas_ficha_id: str, screenshot_path: str = ''):
     )
 
 
+def mark_duplicate(registro_id: str, mspas_ficha_id: str = ''):
+    """Mark a record as duplicate (already exists in MSPAS)."""
+    update_estado(registro_id, 'duplicado', mspas_ficha_id=mspas_ficha_id)
+
+
 def mark_error(registro_id: str, error_msg: str):
     """Mark a record as failed."""
     conn = get_connection()

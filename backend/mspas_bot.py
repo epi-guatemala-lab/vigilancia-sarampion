@@ -41,7 +41,10 @@ logger = logging.getLogger(__name__)
 PRODUCTION_MODE = os.environ.get("MSPAS_PRODUCTION_MODE", "false").lower() == "true"
 
 EPIWEB_URL = "https://cne.mspas.gob.gt/epiweb/"
-SCREENSHOT_DIR = "/tmp/mspas_screenshots"
+SCREENSHOT_DIR = os.environ.get(
+    "MSPAS_SCREENSHOT_DIR",
+    "/opt/vigilancia-sarampion/data/mspas_screenshots"
+)
 
 # Default timeouts (ms)
 NAV_TIMEOUT = 30_000
@@ -698,6 +701,164 @@ class MSPASBot:
 
         self._screenshot(page, "nav_form_ready")
         return True
+
+    # ── Duplicate check ──────────────────────────────────────────────────
+
+    def check_duplicate_in_mspas(self, page, data: dict) -> bool:
+        """Check if a patient already has a ficha in MSPAS.
+
+        Searches by apellidos + nombres on the sarampion list page.
+        Must be called BEFORE navigate_to_form() clicks "Crear Ficha Nueva".
+
+        Returns True if duplicate found, False if safe to create.
+        """
+        nombres = (data.get("nombres") or "").strip()
+        apellidos = (data.get("apellidos") or "").strip()
+
+        if not apellidos and not nombres:
+            logger.warning("Duplicate check skipped: no name data available")
+            return False
+
+        logger.info("Checking for duplicate in MSPAS: %s %s", apellidos, nombres)
+
+        try:
+            # Navigate to the sarampion list page
+            base_url = EPIWEB_URL.rstrip("/")
+            page.goto(
+                f"{base_url}/fichas/paginas/sar/sarampion.php",
+                timeout=NAV_TIMEOUT,
+                wait_until="networkidle",
+            )
+            page.wait_for_timeout(2000)
+
+            # Look for search/filter fields on the list page
+            # Try apellidos search field
+            apellidos_input = page.query_selector(
+                'input[name="apellidos"], input[name="txt_apellidos"], '
+                'input[name="apellido"], input#apellidos, input#txt_apellidos, '
+                'input[placeholder*="pellido"]'
+            )
+            nombres_input = page.query_selector(
+                'input[name="nombres"], input[name="txt_nombres"], '
+                'input[name="nombre"], input#nombres, input#txt_nombres, '
+                'input[placeholder*="ombre"]'
+            )
+
+            filled_any = False
+
+            if apellidos_input and apellidos:
+                apellidos_input.fill("")
+                apellidos_input.fill(apellidos)
+                filled_any = True
+                logger.debug("Filled apellidos search: %s", apellidos)
+
+            if nombres_input and nombres:
+                nombres_input.fill("")
+                nombres_input.fill(nombres)
+                filled_any = True
+                logger.debug("Filled nombres search: %s", nombres)
+
+            if not filled_any:
+                # No search fields found; try a general search box
+                general_search = page.query_selector(
+                    'input[type="search"], input[name="search"], '
+                    'input[name="buscar"], input#buscar, '
+                    'input.form-control[placeholder*="uscar"]'
+                )
+                if general_search:
+                    search_term = f"{apellidos} {nombres}".strip()
+                    general_search.fill("")
+                    general_search.fill(search_term)
+                    filled_any = True
+                    logger.debug("Filled general search: %s", search_term)
+
+            if not filled_any:
+                logger.warning(
+                    "Duplicate check: no search fields found on list page"
+                )
+                self._screenshot(page, "dup_check_no_fields")
+                return False
+
+            # Click search/filter button
+            search_btn = page.query_selector(
+                'button:has-text("Buscar"), input[type="submit"][value*="Buscar"], '
+                'button:has-text("Filtrar"), button:has-text("buscar"), '
+                'a:has-text("Buscar"), button.btn-primary[type="submit"], '
+                'button#btn_buscar, input#btn_buscar'
+            )
+            if search_btn:
+                search_btn.click()
+            else:
+                # Try pressing Enter on the last filled input
+                if apellidos_input and apellidos:
+                    apellidos_input.press("Enter")
+                elif nombres_input and nombres:
+                    nombres_input.press("Enter")
+
+            # Wait for search results
+            page.wait_for_timeout(3000)
+            self._wait_for_ajax(page, 2000)
+
+            self._screenshot(page, "dup_check_results")
+
+            # Check results table for matching rows
+            # Look for data rows in the results table (skip header row)
+            result_rows = page.query_selector_all(
+                'table tbody tr, table tr:not(:first-child)'
+            )
+
+            # Filter out header rows and empty rows
+            data_rows = []
+            for row in result_rows:
+                text = (row.text_content() or "").strip()
+                # Skip header-like rows and empty rows
+                if not text or text.lower().startswith("no.") or "apellido" in text.lower():
+                    continue
+                # Skip "no results" message rows
+                if "no se encontr" in text.lower() or "sin resultado" in text.lower():
+                    continue
+                data_rows.append(row)
+
+            if data_rows:
+                # Found potential matches — check if names actually match
+                search_apellidos = apellidos.upper()
+                search_nombres = nombres.upper()
+
+                for row in data_rows:
+                    row_text = (row.text_content() or "").upper()
+                    # Check if both apellidos and nombres appear in the row
+                    apellidos_match = search_apellidos and search_apellidos in row_text
+                    nombres_match = search_nombres and search_nombres in row_text
+
+                    if apellidos_match and nombres_match:
+                        logger.warning(
+                            "DUPLICATE FOUND in MSPAS for: %s %s",
+                            apellidos, nombres,
+                        )
+                        self._screenshot(page, "dup_check_DUPLICATE")
+                        return True
+
+                    # Partial match: if only apellidos was searched and matches
+                    if apellidos_match and not nombres:
+                        logger.warning(
+                            "POTENTIAL DUPLICATE in MSPAS (apellidos match): %s",
+                            apellidos,
+                        )
+                        self._screenshot(page, "dup_check_DUPLICATE")
+                        return True
+
+                logger.info(
+                    "Search returned %d rows but no exact name match found",
+                    len(data_rows),
+                )
+
+            logger.info("No duplicate found in MSPAS for: %s %s", apellidos, nombres)
+            return False
+
+        except Exception as e:
+            logger.warning("Duplicate check failed (proceeding anyway): %s", e)
+            self._screenshot(page, "dup_check_error")
+            return False
 
     # ── Tab 1: Datos Generales ───────────────────────────────────────────
 
@@ -1366,7 +1527,24 @@ class MSPASBot:
                         "duration_seconds": time.time() - self._start_time,
                     }
 
-                # Step 2: Navigate to form
+                # Step 2: Check for duplicates in MSPAS before creating ficha
+                if self.check_duplicate_in_mspas(page, record):
+                    logger.warning(
+                        "Duplicate detected in MSPAS for %s. Skipping.",
+                        record.get("registro_id", "?"),
+                    )
+                    return {
+                        "success": False,
+                        "production_mode": PRODUCTION_MODE,
+                        "submitted": False,
+                        "duplicate": True,
+                        "mspas_ficha_id": None,
+                        "screenshots": self.screenshots,
+                        "errors": ["Duplicado: paciente ya tiene ficha en MSPAS"],
+                        "duration_seconds": time.time() - self._start_time,
+                    }
+
+                # Step 3: Navigate to form
                 if not self.navigate_to_form(page):
                     return {
                         "success": False,
@@ -1378,7 +1556,7 @@ class MSPASBot:
                         "duration_seconds": time.time() - self._start_time,
                     }
 
-                # Step 3: Fill all tabs (with session checks between each)
+                # Step 4: Fill all tabs (with session checks between each)
                 self.fill_tab1_datos_generales(page, mapped)
 
                 for tab_fill_fn in [
@@ -1407,7 +1585,7 @@ class MSPASBot:
                             }
                     tab_fill_fn(page, mapped)
 
-                # Step 4: Submit or stop
+                # Step 5: Submit or stop
                 # Don't submit if too many errors accumulated during form filling
                 MAX_ERRORS_FOR_SUBMIT = 3
                 if PRODUCTION_MODE and len(self.errors) > MAX_ERRORS_FOR_SUBMIT:
