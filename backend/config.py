@@ -10,7 +10,11 @@ load_dotenv()
 DB_PATH = os.getenv("DB_PATH", "./data/sarampion_master.db")
 
 # Seguridad
-API_SECRET_KEY = os.getenv("API_SECRET_KEY", "dev-key-change-in-production")
+API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "")
+if not API_SECRET_KEY:
+    import warnings
+    warnings.warn("API_SECRET_KEY not set! Using insecure default. Set API_SECRET_KEY env var in production.")
+    API_SECRET_KEY = "dev-key-change-in-production"  # Only for dev
 
 # CORS
 ALLOWED_ORIGINS = [

@@ -37,7 +37,7 @@ from mspas_queue import (
     init_mspas_tables, save_credentials, get_credentials,
     enqueue_record, enqueue_all_pending, get_queue, get_queue_counts,
     approve_records, update_estado, get_approved_for_submission,
-    mark_sent, mark_error,
+    mark_sent, mark_error, try_claim_for_submission, recover_stuck_submissions,
 )
 
 logger = logging.getLogger(__name__)
@@ -173,6 +173,10 @@ def startup():
     init_db()
     init_audit_table()
     init_mspas_tables()
+    # Auto-recover records stuck in 'enviando' state (e.g. from crashed processes)
+    recovered = recover_stuck_submissions()
+    if recovered:
+        logger.info(f"Recovered {recovered} stuck MSPAS submissions")
     print(f"Vigilancia Sarampión API v2.0 iniciada en puerto {PORT}")
 
 
@@ -990,7 +994,8 @@ def mspas_submit_one(registro_id: str, x_api_key: str = Header(None)):
     if not reg:
         raise HTTPException(404, f"Registro {registro_id} not found")
 
-    update_estado(registro_id, 'enviando')
+    if not try_claim_for_submission(registro_id):
+        raise HTTPException(409, "Record is already being processed or not in 'aprobado' state")
 
     from mspas_bot import MSPASBot
     bot = MSPASBot(username, password)

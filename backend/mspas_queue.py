@@ -232,6 +232,34 @@ def mark_error(registro_id: str, error_msg: str):
         conn.close()
 
 
+def try_claim_for_submission(registro_id: str) -> bool:
+    """Atomically claim a record for submission. Returns True if claimed, False if already claimed."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE mspas_envios SET estado = 'enviando', updated_at = ? WHERE registro_id = ? AND estado = 'aprobado'",
+            (datetime.now().isoformat(), registro_id)
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+    finally:
+        conn.close()
+
+
+def recover_stuck_submissions(timeout_minutes: int = 10):
+    """Reset records stuck in 'enviando' state for longer than timeout."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE mspas_envios SET estado = 'error', ultimo_error = 'Timeout: proceso interrumpido', updated_at = ? WHERE estado = 'enviando' AND updated_at < datetime('now', ?)",
+            (datetime.now().isoformat(), f'-{timeout_minutes} minutes')
+        )
+        conn.commit()
+        return cursor.rowcount
+    finally:
+        conn.close()
+
+
 def get_approved_for_submission(limit: int = 50) -> list:
     """Get records approved and ready to submit."""
     conn = get_connection()

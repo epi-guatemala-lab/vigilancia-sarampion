@@ -77,7 +77,7 @@ def map_record_to_mspas(record: dict) -> dict:
                 return dt.strftime("%d/%m/%Y")
             except ValueError:
                 continue
-        return raw  # fallback: return as-is
+        return ""  # fallback: unparseable date, return empty
 
     def _radio(key: str) -> str:
         """Normalize yes/no/na → SI/NO/NA."""
@@ -558,6 +558,22 @@ class MSPASBot:
             """)
         except Exception:
             page.wait_for_timeout(timeout_ms)
+
+    # ── Session check ────────────────────────────────────────────────────
+
+    def _check_session_alive(self, page) -> bool:
+        """Check if the MSPAS session is still active."""
+        try:
+            # Check if the form title or a known element is still present
+            form = page.query_selector('#frm_general, form[name="frm_general"]')
+            if form:
+                return True
+            # Check if we've been redirected to login
+            if 'validarUsuario' in page.url or page.url.endswith('/epiweb/'):
+                return False
+            return True
+        except Exception:
+            return False
 
     # ── Login ────────────────────────────────────────────────────────────
 
@@ -1362,14 +1378,47 @@ class MSPASBot:
                         "duration_seconds": time.time() - self._start_time,
                     }
 
-                # Step 3: Fill all tabs
+                # Step 3: Fill all tabs (with session checks between each)
                 self.fill_tab1_datos_generales(page, mapped)
-                self.fill_tab2_datos_paciente(page, mapped)
-                self.fill_tab3_info_clinica(page, mapped)
-                self.fill_tab4_factores_riesgo(page, mapped)
-                self.fill_tab5_laboratorio(page, mapped)
+
+                for tab_fill_fn in [
+                    self.fill_tab2_datos_paciente,
+                    self.fill_tab3_info_clinica,
+                    self.fill_tab4_factores_riesgo,
+                    self.fill_tab5_laboratorio,
+                ]:
+                    if not self._check_session_alive(page):
+                        self.errors.append("MSPAS session expired, re-logging in...")
+                        if not self.login(page):
+                            return {
+                                "success": False, "production_mode": PRODUCTION_MODE,
+                                "submitted": False, "mspas_ficha_id": None,
+                                "screenshots": self.screenshots,
+                                "errors": self.errors + ["Re-login failed after session expiry"],
+                                "duration_seconds": time.time() - self._start_time,
+                            }
+                        if not self.navigate_to_form(page):
+                            return {
+                                "success": False, "production_mode": PRODUCTION_MODE,
+                                "submitted": False, "mspas_ficha_id": None,
+                                "screenshots": self.screenshots,
+                                "errors": self.errors + ["Re-navigation failed after session expiry"],
+                                "duration_seconds": time.time() - self._start_time,
+                            }
+                    tab_fill_fn(page, mapped)
 
                 # Step 4: Submit or stop
+                # Don't submit if too many errors accumulated during form filling
+                MAX_ERRORS_FOR_SUBMIT = 3
+                if PRODUCTION_MODE and len(self.errors) > MAX_ERRORS_FOR_SUBMIT:
+                    self.errors.append(f"Aborted: {len(self.errors)} errors exceed threshold of {MAX_ERRORS_FOR_SUBMIT}")
+                    return {
+                        "success": False, "production_mode": True, "submitted": False,
+                        "mspas_ficha_id": None, "screenshots": self.screenshots,
+                        "errors": self.errors,
+                        "duration_seconds": time.time() - self._start_time,
+                    }
+
                 if PRODUCTION_MODE:
                     return self.submit_form(page)
                 else:
