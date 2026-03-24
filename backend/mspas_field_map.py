@@ -502,6 +502,66 @@ OCUPACION_SEARCH_TERMS: dict[str, str] = {
 }
 
 
+def get_centro_search_text(unidad_medica: str) -> str:
+    """Extract key search terms from IGSS unit name for MSPAS Centro Externo dropdown.
+
+    MSPAS uses format like: 'IGSS Quetzaltenango, Hospital Quetzaltenango'
+    Our format: 'HOSPITAL QUETZALTENANGO, QUETZALTENANGO'
+
+    We extract the most distinctive part (usually the location name after
+    removing generic prefixes like HOSPITAL/CONSULTORIO and department suffixes).
+
+    Args:
+        unidad_medica: IGSS unit name as stored in our DB.
+
+    Returns:
+        Short search text for partial matching in the MSPAS dropdown.
+
+    Examples:
+        >>> get_centro_search_text('HOSPITAL QUETZALTENANGO, QUETZALTENANGO')
+        'QUETZALTENANGO'
+        >>> get_centro_search_text('CONSULTORIO DE VILLA NUEVA, GUATEMALA')
+        'VILLA NUEVA'
+        >>> get_centro_search_text('')
+        ''
+    """
+    if not unidad_medica:
+        return ''
+    text = str(unidad_medica).strip().upper()
+    if not text:
+        return ''
+    # Strip leading "ANEXO DEL IGSS" or "IGSS" before checking unit type
+    for leading in ['ANEXO DEL IGSS ', 'ANEXO IGSS ', 'IGSS ']:
+        if text.startswith(leading):
+            text = text[len(leading):]
+            break
+    # Remove common unit type prefixes
+    for prefix in ['HOSPITAL GENERAL DE ENFERMEDADES ',
+                   'HOSPITAL GENERAL DE ACCIDENTES ',
+                   'HOSPITAL GENERAL DE ',
+                   'HOSPITAL DE GINECO OBSTETRICIA ',
+                   'HOSPITAL DE ',
+                   'HOSPITAL ',
+                   'CONSULTORIO DE ',
+                   'CONSULTORIO ',
+                   'CLINICA DE ',
+                   'CLINICA ',
+                   'UNIDAD PERIFERICA ',
+                   'UNIDAD ',
+                   'CENTRO DE ATENCION INTEGRAL ',
+                   'CENTRO DE ATENCION ',
+                   'CENTRO ']:
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    # Remove department suffix after comma (e.g. ", QUETZALTENANGO")
+    if ',' in text:
+        text = text.split(',')[0].strip()
+    # If still too long, take just the first meaningful word(s)
+    # (enough for partial matching)
+    return text
+
+
 def get_occupation_search_text(occupation: str) -> str:
     """Devuelve el termino de busqueda para encontrar la ocupacion en el select MSPAS.
 

@@ -30,7 +30,7 @@ try:
         get_code, FUENTE_NOTI_CODES, BUSQUEDA_ACTIVA_CODES, FUENTE_VACUNA_CODES,
         VACUNA_TIPO_CODES, DOSIS_CODES, EGRESO_CODES, SEX_CODES, ETNIA_CODES,
         ESCOLARIDAD_CODES, ERUPCION_CODES, ANTIGENO_CODES, RESULTADO_CODES,
-        DEPT_CODES, normalize_si_no, get_occupation_search_text,
+        DEPT_CODES, normalize_si_no, get_occupation_search_text, get_centro_search_text,
         CLASIFICACION_FINAL_CODES, CONFIRMADO_POR_CODES, FUENTE_INFECCION_CODES,
         CRITERIO_DESCARTE_CODES,
     )
@@ -93,7 +93,12 @@ def map_record_to_mspas(record: dict) -> dict:
     mapped = dict(canonical)
 
     # Add bot-specific alias keys that fill_tab methods reference
-    mapped["centro_partial"] = _val("unidad_medica") or _val("centro_externo")
+    # Extract key search text from IGSS unit name for MSPAS dropdown partial matching
+    _raw_centro = _val("unidad_medica") or _val("centro_externo")
+    if HAS_FIELD_MAP:
+        mapped["centro_partial"] = get_centro_search_text(_raw_centro)
+    else:
+        mapped["centro_partial"] = _raw_centro
     mapped["genero"] = _val("sexo")
     mapped["genero_code"] = canonical.get("cbox_genero", "")
     mapped["etnia"] = _val("pueblo_etnia")
@@ -1449,14 +1454,47 @@ class MSPASBot:
                 "investigador_cargo"
             )
 
-        # Classification observations
+        # Classification observations — try multiple selectors since MSPAS
+        # form may use different field names/types across versions
         if data.get("clasificacion_observaciones"):
-            self._safe_fill(
-                page,
-                '#observaciones_clas, textarea[name="observaciones_clas"], input[name="observaciones_clas"]',
-                data["clasificacion_observaciones"],
-                "observaciones_clas"
-            )
+            obs_filled = False
+            obs_selectors = [
+                '#observaciones_clas',
+                'textarea[name="observaciones_clas"]',
+                'input[name="observaciones_clas"]',
+                '#observaciones',
+                'textarea[name="observaciones"]',
+                'input[name="observaciones"]',
+            ]
+            for sel in obs_selectors:
+                el = page.query_selector(sel)
+                if el:
+                    try:
+                        el.click()
+                        el.fill(data["clasificacion_observaciones"])
+                        logger.debug("Filled observaciones via selector: %s", sel)
+                        obs_filled = True
+                        break
+                    except Exception as e:
+                        logger.debug("Selector %s found but fill failed: %s", sel, e)
+                        continue
+            if not obs_filled:
+                # Last resort: find last textarea on the visible tab
+                try:
+                    textareas = page.query_selector_all('textarea:visible')
+                    if not textareas:
+                        textareas = page.query_selector_all('textarea')
+                    if textareas:
+                        textareas[-1].click()
+                        textareas[-1].fill(data["clasificacion_observaciones"])
+                        logger.debug("Filled observaciones via last textarea fallback")
+                        obs_filled = True
+                except Exception as e:
+                    logger.debug("Textarea fallback failed: %s", e)
+            if not obs_filled:
+                msg = "Could not find observaciones field in Tab 6 (tried multiple selectors)"
+                logger.warning(msg)
+                self.errors.append(msg)
 
         # Responsible for classification
         if data.get("clasificacion_responsable"):
