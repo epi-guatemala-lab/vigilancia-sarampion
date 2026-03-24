@@ -212,6 +212,12 @@ class MSPASBot:
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
+    def _enrich_result(self, result: dict) -> dict:
+        """Inject mapped_data and record_data into every result dict for UI display."""
+        result["mapped_data"] = getattr(self, '_mapped_data', {})
+        result["record_data"] = getattr(self, '_record_data', {})
+        return result
+
     def _screenshot(self, page, name: str) -> str:
         """Take a screenshot and add it to the list."""
         target_dir = getattr(self, '_record_screenshot_dir', SCREENSHOT_DIR)
@@ -1516,7 +1522,7 @@ class MSPASBot:
         # Double-check safety gate
         if not PRODUCTION_MODE:
             logger.error("submit_form() called but PRODUCTION_MODE is False. Aborting.")
-            return {
+            return self._enrich_result({
                 "success": False,
                 "production_mode": False,
                 "submitted": False,
@@ -1524,7 +1530,7 @@ class MSPASBot:
                 "screenshots": self.screenshots,
                 "errors": ["submit_form() called without MSPAS_PRODUCTION_MODE=true"],
                 "duration_seconds": time.time() - self._start_time,
-            }
+            })
 
         self._screenshot(page, "pre_submit")
 
@@ -1538,7 +1544,7 @@ class MSPASBot:
         if not guardar_btn:
             self.errors.append("Guardar button not found")
             self._screenshot(page, "submit_error_no_button")
-            return {
+            return self._enrich_result({
                 "success": False,
                 "production_mode": True,
                 "submitted": False,
@@ -1546,7 +1552,7 @@ class MSPASBot:
                 "screenshots": self.screenshots,
                 "errors": self.errors,
                 "duration_seconds": time.time() - self._start_time,
-            }
+            })
 
         guardar_btn.click()
         page.wait_for_timeout(5000)
@@ -1592,7 +1598,7 @@ class MSPASBot:
             self.errors.append(f"Submit error: {error_text.strip()}")
             submitted_ok = False
 
-        return {
+        return self._enrich_result({
             "success": submitted_ok,
             "production_mode": True,
             "submitted": True,
@@ -1600,7 +1606,7 @@ class MSPASBot:
             "screenshots": self.screenshots,
             "errors": self.errors,
             "duration_seconds": time.time() - self._start_time,
-        }
+        })
 
     # ── Main entry point ─────────────────────────────────────────────────
 
@@ -1632,6 +1638,22 @@ class MSPASBot:
 
         mapped = map_record_to_mspas(record)
 
+        # Build extra data to include in every result for UI display
+        self._mapped_data = {k: v for k, v in mapped.items() if v}
+        self._record_data = {
+            "registro_id": record.get("registro_id", ""),
+            "nombres": record.get("nombres", ""),
+            "apellidos": record.get("apellidos", ""),
+            "afiliacion": record.get("afiliacion", ""),
+            "departamento_residencia": record.get("departamento_residencia", ""),
+            "municipio_residencia": record.get("municipio_residencia", ""),
+            "fecha_notificacion": record.get("fecha_notificacion", ""),
+            "clasificacion_caso": record.get("clasificacion_caso", ""),
+            "unidad_medica": record.get("unidad_medica", ""),
+            "sexo": record.get("sexo", ""),
+            "edad_anios": record.get("edad_anios", ""),
+        }
+
         logger.info(
             "Processing record. Production mode: %s. Fields mapped: %d",
             PRODUCTION_MODE, sum(1 for v in mapped.values() if v)
@@ -1640,7 +1662,7 @@ class MSPASBot:
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
-            return {
+            return self._enrich_result({
                 "success": False,
                 "production_mode": PRODUCTION_MODE,
                 "submitted": False,
@@ -1648,7 +1670,7 @@ class MSPASBot:
                 "screenshots": [],
                 "errors": ["playwright not installed. Run: pip install playwright && playwright install chromium"],
                 "duration_seconds": time.time() - self._start_time,
-            }
+            })
 
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -1670,7 +1692,7 @@ class MSPASBot:
             try:
                 # Step 1: Login
                 if not self.login(page):
-                    return {
+                    return self._enrich_result({
                         "success": False,
                         "production_mode": PRODUCTION_MODE,
                         "submitted": False,
@@ -1678,7 +1700,7 @@ class MSPASBot:
                         "screenshots": self.screenshots,
                         "errors": self.errors,
                         "duration_seconds": time.time() - self._start_time,
-                    }
+                    })
 
                 # Step 2: Check for duplicates in MSPAS before creating ficha
                 if self.check_duplicate_in_mspas(page, record):
@@ -1686,7 +1708,7 @@ class MSPASBot:
                         "Duplicate detected in MSPAS for %s. Skipping.",
                         record.get("registro_id", "?"),
                     )
-                    return {
+                    return self._enrich_result({
                         "success": False,
                         "production_mode": PRODUCTION_MODE,
                         "submitted": False,
@@ -1695,11 +1717,11 @@ class MSPASBot:
                         "screenshots": self.screenshots,
                         "errors": ["Duplicado: paciente ya tiene ficha en MSPAS"],
                         "duration_seconds": time.time() - self._start_time,
-                    }
+                    })
 
                 # Step 3: Navigate to form
                 if not self.navigate_to_form(page):
-                    return {
+                    return self._enrich_result({
                         "success": False,
                         "production_mode": PRODUCTION_MODE,
                         "submitted": False,
@@ -1707,7 +1729,7 @@ class MSPASBot:
                         "screenshots": self.screenshots,
                         "errors": self.errors,
                         "duration_seconds": time.time() - self._start_time,
-                    }
+                    })
 
                 # Step 4: Fill all tabs (with session checks between each)
                 # If session expires mid-fill, restart ALL tabs from scratch (max 2 retries)
@@ -1734,29 +1756,29 @@ class MSPASBot:
                                 f"(retry {session_retries}/{MAX_SESSION_RETRIES})..."
                             )
                             if session_retries > MAX_SESSION_RETRIES:
-                                return {
+                                return self._enrich_result({
                                     "success": False, "production_mode": PRODUCTION_MODE,
                                     "submitted": False, "mspas_ficha_id": None,
                                     "screenshots": self.screenshots,
                                     "errors": self.errors + [f"Max session retries ({MAX_SESSION_RETRIES}) exceeded"],
                                     "duration_seconds": time.time() - self._start_time,
-                                }
+                                })
                             if not self.login(page):
-                                return {
+                                return self._enrich_result({
                                     "success": False, "production_mode": PRODUCTION_MODE,
                                     "submitted": False, "mspas_ficha_id": None,
                                     "screenshots": self.screenshots,
                                     "errors": self.errors + ["Re-login failed after session expiry"],
                                     "duration_seconds": time.time() - self._start_time,
-                                }
+                                })
                             if not self.navigate_to_form(page):
-                                return {
+                                return self._enrich_result({
                                     "success": False, "production_mode": PRODUCTION_MODE,
                                     "submitted": False, "mspas_ficha_id": None,
                                     "screenshots": self.screenshots,
                                     "errors": self.errors + ["Re-navigation failed after session expiry"],
                                     "duration_seconds": time.time() - self._start_time,
-                                }
+                                })
                             restart_needed = True
                             break  # break inner for-loop to restart from tab 1
                         tab_fill_fn(page, mapped)
@@ -1766,12 +1788,12 @@ class MSPASBot:
                 MAX_ERRORS_FOR_SUBMIT = 3
                 if PRODUCTION_MODE and len(self.errors) > MAX_ERRORS_FOR_SUBMIT:
                     self.errors.append(f"Aborted: {len(self.errors)} errors exceed threshold of {MAX_ERRORS_FOR_SUBMIT}")
-                    return {
+                    return self._enrich_result({
                         "success": False, "production_mode": True, "submitted": False,
                         "mspas_ficha_id": None, "screenshots": self.screenshots,
                         "errors": self.errors,
                         "duration_seconds": time.time() - self._start_time,
-                    }
+                    })
 
                 if PRODUCTION_MODE:
                     return self.submit_form(page)
@@ -1781,7 +1803,7 @@ class MSPASBot:
                         "DRY RUN complete. Form filled but NOT submitted. "
                         "Set MSPAS_PRODUCTION_MODE=true to submit."
                     )
-                    return {
+                    return self._enrich_result({
                         "success": True,
                         "production_mode": False,
                         "submitted": False,
@@ -1789,12 +1811,12 @@ class MSPASBot:
                         "screenshots": self.screenshots,
                         "errors": self.errors,
                         "duration_seconds": time.time() - self._start_time,
-                    }
+                    })
 
             except Exception as e:
                 logger.exception("Fatal error during form processing")
                 self._screenshot(page, "fatal_error")
-                return {
+                return self._enrich_result({
                     "success": False,
                     "production_mode": PRODUCTION_MODE,
                     "submitted": False,
@@ -1802,7 +1824,7 @@ class MSPASBot:
                     "screenshots": self.screenshots,
                     "errors": self.errors + [f"Fatal: {e}"],
                     "duration_seconds": time.time() - self._start_time,
-                }
+                })
             finally:
                 context.close()
                 browser.close()
