@@ -25,14 +25,14 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 PAGE_W, PAGE_H = LETTER  # 612 x 792 pt
-MARGIN = 25
+MARGIN = 22
 CONTENT_W = PAGE_W - 2 * MARGIN  # ~562 pt
 
 SECTION_BG = Color(0.20, 0.20, 0.20, 1)   # darker for contrast (MSPAS style)
 LIGHT_GRAY = Color(0.92, 0.92, 0.92, 1)
 
 # Heights
-SECTION_H = 18       # section header bars (taller for breathing room, MSPAS style)
+SECTION_H = 17       # section header bars (MSPAS style)
 RH = 21              # standard field row (label + value, no dates)
 RH_DATE = 27         # rows containing date boxes (need room for digits + label)
 RH_TALL = 36         # observaciones
@@ -108,13 +108,13 @@ class FichaBuilder:
         self.c.setLineWidth(0.5)
         self.c.rect(x, y, w, h)
         if label:
-            self._sf(F_LABEL)
+            self._sf(F_LABEL)  # Helvetica-Bold 6pt — bold labels per MSPAS
             self.c.setFillColor(black)
-            self.c.drawString(x + 2, y + h - 8, _trunc(label, w - 4, 3.2))
+            self.c.drawString(x + 2.5, y + h - 8, _trunc(label, w - 5, 3.2))
         if value:
             self._sf(F_VALUE)
             self.c.setFillColor(black)
-            self.c.drawString(x + 2, y + h - 17, _trunc(value, w - 4))
+            self.c.drawString(x + 2.5, y + h - 17, _trunc(value, w - 5))
 
     def _cell_plain(self, x, y, w, h, text='', font=F_VALUE, center=False):
         """Bordered cell with single text, no label/value split."""
@@ -158,12 +158,13 @@ class FichaBuilder:
     def _checkbox(self, x, y, checked=False, label=''):
         """Checkbox at (x,y) bottom-left. Returns x after label."""
         self.c.setStrokeColor(black)
-        self.c.setLineWidth(0.5)
+        self.c.setLineWidth(0.6)
         self.c.rect(x, y, CB_SIZE, CB_SIZE)
         if checked:
             self._sf(F_CHECK)
             self.c.setFillColor(black)
-            self.c.drawCentredString(x + CB_SIZE / 2, y + (CB_SIZE - F_CHECK[1]) / 2 - 0.5, 'X')
+            # Bold centered X — offset fine-tuned for F_CHECK=11pt
+            self.c.drawCentredString(x + CB_SIZE / 2, y + (CB_SIZE - F_CHECK[1]) / 2 - 0.3, 'X')
         nx = x + CB_SIZE + 2
         if label:
             self._sf(F_CB_LABEL)
@@ -174,68 +175,72 @@ class FichaBuilder:
 
     def _date_cell(self, x, y, w, h, label='', date_str=''):
         """Cell with label at top-left, date digit boxes at bottom-left.
-        Uses compact layout: label on top line, Dia/Mes/Ano + boxes below.
+        Uses compact layout: label on top line, Dia/Mes/Ano labels ABOVE boxes.
         """
         self.c.setStrokeColor(black)
         self.c.setLineWidth(0.5)
         self.c.rect(x, y, w, h)
 
         if label:
-            self._sf(F_LABEL)
+            self._sf(F_LABEL)  # Helvetica-Bold 6pt
             self.c.setFillColor(black)
-            self.c.drawString(x + 2, y + h - 8, _trunc(label, w - 4, 3.2))
+            self.c.drawString(x + 2.5, y + h - 8, _trunc(label, w - 5, 3.2))
 
         dd, mm, yyyy = _parse_date(date_str)
         bs = DATE_BOX
-        bx = x + 2
+        bx = x + 3
         by = y + 2
 
-        # Dia
+        # Dia — label ABOVE boxes
         self._sf(F_SMALL)
         self.c.setFillColor(black)
-        self.c.drawString(bx, by + bs + 1, 'D\u00eda')
+        self.c.drawCentredString(bx + bs, by + bs + 1.5, 'D\u00eda')
         for i, ch in enumerate(dd.ljust(2)):
             self.c.setStrokeColor(black)
-            self.c.setLineWidth(0.3)
+            self.c.setLineWidth(0.4)
             self.c.rect(bx + i * bs, by, bs, bs)
             if ch.strip():
                 self._sf(F_DATE_DIGIT)
                 self.c.setFillColor(black)
-                self.c.drawCentredString(bx + i * bs + bs / 2, by + 1, ch)
+                self.c.drawCentredString(bx + i * bs + bs / 2, by + 1.5, ch)
         bx += 2 * bs
+        # Separator "/"
         self._sf(F_DATE_DIGIT)
         self.c.setFillColor(black)
-        self.c.drawString(bx + 0.5, by + 1, '/')
-        bx += 4.5
+        self.c.drawCentredString(bx + 2.5, by + 1.5, '/')
+        bx += 5
 
-        # Mes
+        # Mes — label ABOVE boxes
         self._sf(F_SMALL)
-        self.c.drawString(bx, by + bs + 1, 'Mes')
+        self.c.setFillColor(black)
+        self.c.drawCentredString(bx + bs, by + bs + 1.5, 'Mes')
         for i, ch in enumerate(mm.ljust(2)):
             self.c.setStrokeColor(black)
-            self.c.setLineWidth(0.3)
+            self.c.setLineWidth(0.4)
             self.c.rect(bx + i * bs, by, bs, bs)
             if ch.strip():
                 self._sf(F_DATE_DIGIT)
                 self.c.setFillColor(black)
-                self.c.drawCentredString(bx + i * bs + bs / 2, by + 1, ch)
+                self.c.drawCentredString(bx + i * bs + bs / 2, by + 1.5, ch)
         bx += 2 * bs
+        # Separator "/"
         self._sf(F_DATE_DIGIT)
         self.c.setFillColor(black)
-        self.c.drawString(bx + 0.5, by + 1, '/')
-        bx += 4.5
+        self.c.drawCentredString(bx + 2.5, by + 1.5, '/')
+        bx += 5
 
-        # Ano
+        # Ano — label ABOVE boxes
         self._sf(F_SMALL)
-        self.c.drawString(bx, by + bs + 1, 'A\u00f1o')
+        self.c.setFillColor(black)
+        self.c.drawCentredString(bx + 2 * bs, by + bs + 1.5, 'A\u00f1o')
         for i, ch in enumerate(yyyy.ljust(4)):
             self.c.setStrokeColor(black)
-            self.c.setLineWidth(0.3)
+            self.c.setLineWidth(0.4)
             self.c.rect(bx + i * bs, by, bs, bs)
             if ch.strip():
                 self._sf(F_DATE_DIGIT)
                 self.c.setFillColor(black)
-                self.c.drawCentredString(bx + i * bs + bs / 2, by + 1, ch)
+                self.c.drawCentredString(bx + i * bs + bs / 2, by + 1.5, ch)
 
     def _row(self, fields, h=RH):
         """Row of cells. fields = [(frac, label, value), ...]"""
@@ -266,42 +271,55 @@ class FichaBuilder:
         d = self.d
         top = self.y
 
-        # Logo placeholder top-left (bordered box like MSPAS original)
-        logo_path = os.path.join(os.path.dirname(__file__), 'assets', 'mspas_logo.png')
+        # Logo / Escudo de Guatemala top-left
+        # Try: escudo_guatemala.png, then mspas_logo.png, then placeholder
+        assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
+        logo_path = None
+        for fname in ('escudo_guatemala.png', 'mspas_logo.png'):
+            cand = os.path.join(assets_dir, fname)
+            if os.path.isfile(cand):
+                logo_path = cand
+                break
+
+        logo_size = 45  # 45x45pt box (prominent like MSPAS original)
         lx = MARGIN
-        ly = top - 36
-        if os.path.isfile(logo_path):
+        ly = top - logo_size
+        if logo_path:
             try:
-                c.drawImage(logo_path, lx, ly, width=36, height=36,
+                c.drawImage(logo_path, lx, ly, width=logo_size, height=logo_size,
                             preserveAspectRatio=True, mask='auto')
             except Exception:
-                pass
-        else:
+                logo_path = None  # fall through to placeholder
+        if not logo_path:
+            # Clean bordered placeholder box
             c.setStrokeColor(black)
-            c.setLineWidth(0.6)
-            c.rect(lx, ly, 36, 36)
-            self._sf(("Helvetica-Bold", 6))
-            c.setFillColor(Color(0.3, 0.3, 0.3))
-            c.drawCentredString(lx + 18, ly + 20, 'MSPAS')
-            self._sf(("Helvetica", 4))
-            c.drawCentredString(lx + 18, ly + 12, 'Escudo')
+            c.setLineWidth(0.8)
+            c.rect(lx, ly, logo_size, logo_size)
+            # Inner border for double-line effect
+            c.setLineWidth(0.3)
+            c.rect(lx + 2, ly + 2, logo_size - 4, logo_size - 4)
+            self._sf(("Helvetica-Bold", 7))
+            c.setFillColor(Color(0.25, 0.25, 0.25))
+            c.drawCentredString(lx + logo_size / 2, ly + logo_size / 2 + 4, 'MSPAS')
+            self._sf(("Helvetica", 5))
+            c.drawCentredString(lx + logo_size / 2, ly + logo_size / 2 - 5, 'Guatemala')
             c.setFillColor(black)
 
-        # Center titles — use shorter width to not overlap with right box
-        # The right box starts at MARGIN + CONTENT_W - 160 = ~427
-        # So center titles in area from MARGIN+40 to 427 = center ~259
-        title_center = (MARGIN + 40 + MARGIN + CONTENT_W - 165) / 2
+        # Center titles — between logo (left) and disease box (right)
+        title_left = MARGIN + logo_size + 8
+        title_right = MARGIN + CONTENT_W - 165
+        title_center = (title_left + title_right) / 2
         self._sf(F_TITLE_LG)
         c.setFillColor(black)
-        c.drawCentredString(title_center, top - 10, "MINISTERIO DE SALUD P\u00daBLICA Y ASISTENCIA SOCIAL")
+        c.drawCentredString(title_center, top - 14, "MINISTERIO DE SALUD P\u00daBLICA Y ASISTENCIA SOCIAL")
         self._sf(F_TITLE_MD)
-        c.drawCentredString(title_center, top - 20, "DEPARTAMENTO DE EPIDEMIOLOG\u00cdA")
+        c.drawCentredString(title_center, top - 26, "DEPARTAMENTO DE EPIDEMIOLOG\u00cdA")
         self._sf(F_TITLE_SM)
-        c.drawCentredString(title_center, top - 30, "FICHA EPIDEMIOL\u00d3GICA")
+        c.drawCentredString(title_center, top - 37, "FICHA EPIDEMIOL\u00d3GICA")
 
         # Disease selection box — top right
         bw = 160
-        bh = 36
+        bh = logo_size  # match logo height
         bx = MARGIN + CONTENT_W - bw
         by = top - bh
         c.setStrokeColor(black)
@@ -310,11 +328,11 @@ class FichaBuilder:
 
         self._sf(F_HDR_BOX)
         c.setFillColor(black)
-        c.drawString(bx + 3, by + bh - 8, "FICHA EPIDEMIOL\u00d3GICA")
+        c.drawString(bx + 3, by + bh - 10, "FICHA EPIDEMIOL\u00d3GICA")
         self._sf(F_HDR_SM)
-        c.drawString(bx + 3, by + bh - 15, "Caso sospechoso de:")
+        c.drawString(bx + 3, by + bh - 19, "Caso sospechoso de:")
         self._sf(("Helvetica", 3.5))
-        c.drawString(bx + 3, by + bh - 21, "Marque la enfermedad que va a notificar")
+        c.drawString(bx + 3, by + bh - 27, "Marque la enfermedad que va a notificar")
 
         diag = _get(d, 'diagnostico_registrado', '').upper()
         is_sar = 'B05' in diag or 'SARAMP' in diag
@@ -322,10 +340,11 @@ class FichaBuilder:
         if not is_sar and not is_rub:
             is_sar = True
 
-        self._checkbox(bx + 6, by + 3, checked=is_sar, label='Sarampi\u00f3n')
-        self._checkbox(bx + 80, by + 3, checked=is_rub, label='Rub\u00e9ola')
+        cb_row_y = by + 5
+        self._checkbox(bx + 6, cb_row_y, checked=is_sar, label='Sarampi\u00f3n')
+        self._checkbox(bx + 80, cb_row_y, checked=is_rub, label='Rub\u00e9ola')
 
-        self.y = top - 40
+        self.y = top - logo_size - 4
 
     def _p1_definition(self):
         c = self.c
@@ -404,11 +423,16 @@ class FichaBuilder:
         ])
 
         # Residencia label row (borderless, bold text only — matches MSPAS original)
-        h = 14
+        h = 12
         y = self.y - h
-        self._sf(F_BOLD6)
+        self._sf(("Helvetica-Bold", 6.5))
         self.c.setFillColor(black)
         self.c.drawString(MARGIN + 2, y + 3, 'Residencia')
+        # Subtle underline extending across content width
+        self.c.setStrokeColor(Color(0.6, 0.6, 0.6, 1))
+        self.c.setLineWidth(0.3)
+        self.c.line(MARGIN, y, MARGIN + CONTENT_W, y)
+        self.c.setStrokeColor(black)
         self.y -= h
 
         self._row([
@@ -615,21 +639,34 @@ class FichaBuilder:
 
         self.y -= total_h
 
-        # Motivo sospecha
+        # Motivo sospecha — derived from existing fields when motivo_sospecha is not stored
         h = 14
         y = self.y - h
         self.c.setStrokeColor(black)
         self.c.setLineWidth(0.5)
         self.c.rect(MARGIN, y, CONTENT_W, h)
         motivo = _get(d, 'motivo_sospecha', '').upper()
+        # Derive motivo from other fields if not explicitly stored
+        is_hallazgo = 'HALLAZGO' in motivo or 'LABORATORIO' in motivo
+        is_contacto = 'CONTACTO' in motivo
+        if not motivo and asint == 'SI':
+            # Check if lab results exist → hallazgo de laboratorio
+            has_lab = any(_get(d, f) for f in (
+                'resultado_igg_cualitativo', 'resultado_igm_cualitativo',
+                'resultado_pcr_orina', 'resultado_pcr_hisopado',
+            ))
+            if has_lab:
+                is_hallazgo = True
+            # Check if contact with suspect → contacto
+            if _get(d, 'contacto_sospechoso_7_23', '').upper() == 'SI':
+                is_contacto = True
         self._sf(F_LABEL)
         self.c.setFillColor(black)
         self.c.drawString(MARGIN + 2, y + h - 8, 'En paciente asintom\u00e1tico marque motivo de sospecha')
         cb_y = y + (h - CB_SIZE) / 2
         mx = MARGIN + CONTENT_W * 0.40
-        self._checkbox(mx, cb_y, checked=('HALLAZGO' in motivo or 'LABORATORIO' in motivo),
-                       label='Hallazgo de laboratorio')
-        self._checkbox(mx + 105, cb_y, checked=('CONTACTO' in motivo), label='Contacto')
+        self._checkbox(mx, cb_y, checked=is_hallazgo, label='Hallazgo de laboratorio')
+        self._checkbox(mx + 105, cb_y, checked=is_contacto, label='Contacto')
         self.y -= h
 
         # Fecha erupcion | Fecha fiebre | T grados
@@ -797,23 +834,26 @@ class FichaBuilder:
         self.c.setFillColor(black)
         self.y -= h_hdr
 
-        # Data rows
+        # Data rows — per-sample date for recolección, global dates for recepción/resultado
         h = RH_DATE
+        global_recepcion = _get(d, 'fecha_recepcion_laboratorio')
+        global_resultado = _get(d, 'fecha_resultado_laboratorio')
         muestras = [
-            ('Suero', 'muestra_suero_fecha', 'muestra_suero_recepcion', 'muestra_suero_resultado'),
-            ('Hisopado Nasofar\u00edngeo', 'muestra_hisopado_fecha', 'muestra_hisopado_recepcion',
-             'muestra_hisopado_resultado'),
-            ('Orina', 'muestra_orina_fecha', 'muestra_orina_recepcion', 'muestra_orina_resultado'),
-            ('Otra', 'muestra_otra_fecha', 'muestra_otra_recepcion', 'muestra_otra_resultado'),
+            ('Suero', 'muestra_suero_fecha'),
+            ('Hisopado Nasofar\u00edngeo', 'muestra_hisopado_fecha'),
+            ('Orina', 'muestra_orina_fecha'),
+            ('Otra', 'muestra_otra_fecha'),
         ]
 
-        for tipo, f1, f2, f3 in muestras:
+        for tipo, f_recoleccion in muestras:
             y = self.y - h
             self._cell_plain(x, y, col_t, h, tipo, font=F_VALUE)
             dx = x + col_t
-            for fkey in [f1, f2, f3]:
-                self._date_cell(dx, y, col_f, h, '', _get(d, fkey))
-                dx += col_f
+            self._date_cell(dx, y, col_f, h, '', _get(d, f_recoleccion))
+            dx += col_f
+            self._date_cell(dx, y, col_f, h, '', global_recepcion)
+            dx += col_f
+            self._date_cell(dx, y, col_f, h, '', global_resultado)
             self.y -= h
 
     def _p2_clasificacion_final(self):
@@ -850,8 +890,8 @@ class FichaBuilder:
         self.y -= h
 
         self._row([
-            (0.50, 'Cargo', _get(d, 'cargo_clasificacion')),
-            (0.50, 'Tel\u00e9fono', _get(d, 'telefono_clasificacion')),
+            (0.50, 'Cargo', _get(d, 'cargo_responsable')),
+            (0.50, 'Tel\u00e9fono', _get(d, 'telefono_responsable')),
         ])
 
         h = RH_TALL

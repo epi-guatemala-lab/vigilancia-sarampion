@@ -30,7 +30,7 @@ from config import ALLOWED_ORIGINS, API_SECRET_KEY, PORT, RATE_LIMIT_SECONDS, MA
 from database import (
     init_db, insert_registro, get_registros, get_count, check_duplicate,
     get_registro_by_id, update_registro, delete_registro, bulk_insert_registros,
-    init_audit_table, log_changes, get_audit_trail,
+    init_audit_table, log_changes, get_audit_trail, search_registros,
     COLUMNS, EDITABLE_COLUMNS,
 )
 
@@ -515,6 +515,20 @@ def listar_registros(
     }
 
 
+@app.get("/api/registros/search")
+def api_search_registros(
+    q: str = Query("", description="Texto a buscar"),
+    limit: int = Query(20, ge=1, le=100),
+    x_api_key: str = Header(None),
+):
+    """Buscar registros por afiliación, nombre o ID."""
+    verify_api_key(x_api_key)
+    if not q or len(q) < 2:
+        raise HTTPException(400, "La búsqueda debe tener al menos 2 caracteres")
+    results = search_registros(q, limit)
+    return {"data": results, "total": len(results), "query": q}
+
+
 @app.get("/api/registros/count")
 def contar_registros(
     x_api_key: str = Header(None),
@@ -583,15 +597,16 @@ def export_excel(x_api_key: str = Header(None)):
         "signo_coriza", "signo_adenopatias", "asintomatico",
         "vacunado", "fuente_info_vacuna", "tipo_vacuna", "numero_dosis_spr",
         "fecha_ultima_dosis", "observaciones_vacuna",
-        # Hospitalización (66-74)
+        # Hospitalización (66-77)
         "hospitalizado", "hosp_nombre", "hosp_fecha", "no_registro_medico",
+        "complicaciones", "complicaciones_otra", "diagnostico_otro",
         "condicion_egreso", "fecha_egreso", "fecha_defuncion",
         "medico_certifica_defuncion", "motivo_consulta",
-        # Factores de Riesgo (75-80)
+        # Factores de Riesgo (78-83)
         "contacto_sospechoso_7_23", "caso_sospechoso_comunidad_3m",
         "viajo_7_23_previo", "destino_viaje",
         "contacto_enfermo_catarro", "contacto_embarazada",
-        # Laboratorio (81-102)
+        # Laboratorio (84-105)
         "recolecto_muestra", "motivo_no_recoleccion", "muestra_suero", "muestra_suero_fecha",
         "muestra_hisopado", "muestra_hisopado_fecha",
         "muestra_orina", "muestra_orina_fecha",
@@ -601,7 +616,7 @@ def export_excel(x_api_key: str = Header(None)):
         "resultado_pcr_orina", "resultado_pcr_hisopado",
         "fecha_recepcion_laboratorio", "fecha_resultado_laboratorio",
         "resultado_igg_numerico", "resultado_igm_numerico",
-        # Contactos y IGSS (103-110)
+        # Contactos y IGSS (106-113)
         "contactos_directos", "clasificacion_caso", "fecha_clasificacion_final",
         "responsable_clasificacion", "observaciones",
         "es_empleado_igss", "unidad_medica_trabaja", "puesto_desempena",
@@ -637,6 +652,7 @@ def export_excel(x_api_key: str = Header(None)):
         "Fecha Últ. Dosis", "Obs. Vacunación",
         # Hospitalización
         "Hospitalizado", "Hospital", "Fecha Hosp.", "Reg. Médico",
+        "Complicaciones", "Complicaciones (otra)", "Diagnóstico (otro)",
         "Condición Egreso", "Fecha Egreso", "Fecha Defunción",
         "Médico Defunción", "Motivo Consulta",
         # Factores de Riesgo
@@ -665,10 +681,10 @@ def export_excel(x_api_key: str = Header(None)):
         (14, 31, "DATOS DEL PACIENTE"),
         (32, 37, "EMBARAZO"),
         (38, 65, "INFORMACIÓN CLÍNICA"),
-        (66, 74, "HOSPITALIZACIÓN"),
-        (75, 80, "FACTORES DE RIESGO"),
-        (81, 102, "LABORATORIO"),
-        (103, 110, "CONTACTOS Y DATOS IGSS"),
+        (66, 77, "HOSPITALIZACIÓN"),
+        (78, 83, "FACTORES DE RIESGO"),
+        (84, 105, "LABORATORIO"),
+        (106, 113, "CONTACTOS Y DATOS IGSS"),
     ]
 
     # Styles

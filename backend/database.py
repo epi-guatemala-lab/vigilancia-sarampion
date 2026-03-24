@@ -483,6 +483,25 @@ def log_changes(registro_id: str, old: dict, new: dict, usuario: str = "api", ip
         conn.close()
 
 
+def search_registros(query: str, limit: int = 20) -> list:
+    """Search records by afiliacion, nombre, apellido, or registro_id."""
+    conn = get_connection()
+    try:
+        q = f"%{query}%"
+        rows = conn.execute("""
+            SELECT * FROM registros
+            WHERE registro_id LIKE ?
+               OR afiliacion LIKE ?
+               OR nombre_apellido LIKE ?
+               OR nombres LIKE ?
+               OR apellidos LIKE ?
+            ORDER BY id DESC LIMIT ?
+        """, (q, q, q, q, q, limit)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def get_audit_trail(registro_id: str) -> list[dict]:
     """Obtiene el historial de cambios de un registro."""
     conn = get_connection()
