@@ -1034,16 +1034,33 @@ def mspas_get_status(registro_id: str, x_api_key: str = Header(None)):
 
 @app.get("/api/mspas/screenshot/{filename}")
 def mspas_get_screenshot(filename: str, x_api_key: str = Header(None)):
-    """Serve a bot screenshot file."""
+    """Serve a bot screenshot file (legacy flat path)."""
     verify_api_key(x_api_key)
     import os
-    # Sanitize filename to prevent path traversal
     safe_filename = os.path.basename(filename)
     screenshot_dir = os.environ.get(
         "MSPAS_SCREENSHOT_DIR",
         "/opt/vigilancia-sarampion/data/mspas_screenshots"
     )
     path = os.path.join(screenshot_dir, safe_filename)
+    if not os.path.exists(path):
+        raise HTTPException(404, "Screenshot not found")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.get("/api/mspas/screenshot/{registro_id}/{filename}")
+def mspas_get_screenshot_by_record(registro_id: str, filename: str,
+                                    x_api_key: str = Header(None)):
+    """Serve a bot screenshot file from a per-record subdirectory."""
+    verify_api_key(x_api_key)
+    import os
+    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', registro_id)
+    safe_filename = os.path.basename(filename)
+    screenshot_dir = os.environ.get(
+        "MSPAS_SCREENSHOT_DIR",
+        "/opt/vigilancia-sarampion/data/mspas_screenshots"
+    )
+    path = os.path.join(screenshot_dir, safe_id, safe_filename)
     if not os.path.exists(path):
         raise HTTPException(404, "Screenshot not found")
     return FileResponse(path, media_type="image/png")

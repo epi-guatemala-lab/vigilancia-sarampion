@@ -209,8 +209,9 @@ class MSPASBot:
 
     def _screenshot(self, page, name: str) -> str:
         """Take a screenshot and add it to the list."""
-        os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-        path = os.path.join(SCREENSHOT_DIR, f"{name}.png")
+        target_dir = getattr(self, '_record_screenshot_dir', SCREENSHOT_DIR)
+        os.makedirs(target_dir, exist_ok=True)
+        path = os.path.join(target_dir, f"{name}.png")
         try:
             page.screenshot(path=path, full_page=True)
             self.screenshots.append(path)
@@ -1584,6 +1585,12 @@ class MSPASBot:
         self._start_time = time.time()
         self.screenshots = []
         self.errors = []
+
+        # Create per-record screenshot directory
+        raw_id = record.get('registro_id', 'unknown')
+        safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', str(raw_id))
+        self._record_screenshot_dir = os.path.join(SCREENSHOT_DIR, safe_id)
+        os.makedirs(self._record_screenshot_dir, exist_ok=True)
 
         mapped = map_record_to_mspas(record)
 
