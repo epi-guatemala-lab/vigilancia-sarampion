@@ -33,6 +33,12 @@ from database import (
     init_audit_table, log_changes, get_audit_trail, search_registros,
     COLUMNS, EDITABLE_COLUMNS,
 )
+from mspas_queue import (
+    init_mspas_tables, save_credentials, get_credentials,
+    enqueue_record, enqueue_all_pending, get_queue, get_queue_counts,
+    approve_records, update_estado, get_approved_for_submission,
+    mark_sent, mark_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +172,7 @@ def validate_registro_update(data: dict) -> list[str]:
 def startup():
     init_db()
     init_audit_table()
+    init_mspas_tables()
     print(f"Vigilancia Sarampión API v2.0 iniciada en puerto {PORT}")
 
 
@@ -885,6 +892,131 @@ def export_ficha_publica(registro_id: str):
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ─── MSPAS Queue Endpoints ─────────────────────────────────
+
+@app.post("/api/mspas/config")
+async def mspas_save_config(request: Request, x_api_key: str = Header(None)):
+    """Save MSPAS EPIWEB credentials."""
+    verify_api_key(x_api_key)
+    data = await request.json()
+    username = data.get("username", "")
+    password = data.get("password", "")
+    if not username or not password:
+        raise HTTPException(400, "Username and password required")
+    save_credentials(username, password)
+    return {"status": "ok", "message": "Credentials saved"}
+
+
+@app.get("/api/mspas/config")
+def mspas_get_config(x_api_key: str = Header(None)):
+    """Check if MSPAS credentials are configured."""
+    verify_api_key(x_api_key)
+    username, password = get_credentials()
+    return {
+        "configured": bool(username and password),
+        "username": username[:3] + "***" if username else None,
+    }
+
+
+@app.post("/api/mspas/test")
+def mspas_test_connection(x_api_key: str = Header(None)):
+    """Test MSPAS login without submitting anything."""
+    verify_api_key(x_api_key)
+    username, password = get_credentials()
+    if not username:
+        raise HTTPException(400, "MSPAS credentials not configured")
+
+    from mspas_bot import MSPASBot
+    bot = MSPASBot(username, password)
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        try:
+            success = bot.login(page)
+            return {"success": success, "message": "Login exitoso" if success else "Login fallido"}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+        finally:
+            browser.close()
+
+
+@app.get("/api/mspas/queue")
+def mspas_get_queue(
+    estado: str = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    x_api_key: str = Header(None),
+):
+    """Get MSPAS submission queue."""
+    verify_api_key(x_api_key)
+    items = get_queue(estado=estado, limit=limit, offset=offset)
+    counts = get_queue_counts()
+    return {"data": items, "counts": counts, "total": sum(counts.values())}
+
+
+@app.post("/api/mspas/queue/enqueue-all")
+def mspas_enqueue_all(x_api_key: str = Header(None)):
+    """Add all records not yet in queue."""
+    verify_api_key(x_api_key)
+    added = enqueue_all_pending()
+    return {"added": added}
+
+
+@app.post("/api/mspas/queue/approve")
+async def mspas_approve(request: Request, x_api_key: str = Header(None)):
+    """Approve records for MSPAS submission."""
+    verify_api_key(x_api_key)
+    data = await request.json()
+    ids = data.get("ids", [])
+    if not ids:
+        raise HTTPException(400, "No IDs provided")
+    approve_records(ids, aprobado_por="api")
+    return {"approved": len(ids)}
+
+
+@app.post("/api/mspas/submit/{registro_id}")
+def mspas_submit_one(registro_id: str, x_api_key: str = Header(None)):
+    """Submit a single record to MSPAS (or test-fill in non-production mode)."""
+    verify_api_key(x_api_key)
+
+    username, password = get_credentials()
+    if not username:
+        raise HTTPException(400, "MSPAS credentials not configured")
+
+    reg = get_registro_by_id(registro_id)
+    if not reg:
+        raise HTTPException(404, f"Registro {registro_id} not found")
+
+    update_estado(registro_id, 'enviando')
+
+    from mspas_bot import MSPASBot
+    bot = MSPASBot(username, password)
+    result = bot.process_record(reg)
+
+    if result.get("success"):
+        if result.get("submitted"):
+            mark_sent(registro_id, result.get("mspas_ficha_id", ""),
+                     result.get("screenshots", [""])[-1] if result.get("screenshots") else "")
+        else:
+            update_estado(registro_id, 'aprobado')  # Back to approved (test mode)
+    else:
+        mark_error(registro_id, "; ".join(result.get("errors", ["Unknown error"])))
+
+    return result
+
+
+@app.get("/api/mspas/status/{registro_id}")
+def mspas_get_status(registro_id: str, x_api_key: str = Header(None)):
+    """Get MSPAS submission status for a record."""
+    verify_api_key(x_api_key)
+    items = get_queue()
+    for item in items:
+        if item.get("registro_id") == registro_id:
+            return item
+    raise HTTPException(404, "Record not in MSPAS queue")
 
 
 if __name__ == "__main__":

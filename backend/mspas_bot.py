@@ -24,6 +24,17 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+try:
+    from mspas_field_map import (
+        get_code, FUENTE_NOTI_CODES, BUSQUEDA_ACTIVA_CODES, FUENTE_VACUNA_CODES,
+        VACUNA_TIPO_CODES, DOSIS_CODES, EGRESO_CODES, SEX_CODES, ETNIA_CODES,
+        ESCOLARIDAD_CODES, ERUPCION_CODES, ANTIGENO_CODES, RESULTADO_CODES,
+        DEPT_CODES, normalize_si_no, get_occupation_search_text,
+    )
+    HAS_FIELD_MAP = True
+except ImportError:
+    HAS_FIELD_MAP = False
+
 logger = logging.getLogger(__name__)
 
 # ── Safety gate ──────────────────────────────────────────────────────────────
@@ -79,6 +90,13 @@ def map_record_to_mspas(record: dict) -> dict:
             return "NA"
         return v
 
+    # Use mspas_field_map.py codes when available (converts text to MSPAS
+    # numeric codes that match <option value="N"> in the form selects).
+    if HAS_FIELD_MAP:
+        _gc = lambda mapping, key, default="": get_code(mapping, _val(key), default)
+    else:
+        _gc = lambda mapping, key, default="": _val(key) or default
+
     mapped = {
         # Tab 1 — Datos Generales
         "fecha_not": _date("fecha_notificacion"),
@@ -91,10 +109,14 @@ def map_record_to_mspas(record: dict) -> dict:
         "nombres": _val("nombres"),
         "apellidos": _val("apellidos"),
         "genero": _val("sexo"),
+        "genero_code": _gc(SEX_CODES, "sexo") if HAS_FIELD_MAP else "",
         "etnia": _val("pueblo_etnia"),
+        "etnia_code": _gc(ETNIA_CODES, "pueblo_etnia") if HAS_FIELD_MAP else "",
         "ocupacion": _val("ocupacion"),
         "escolaridad": _val("escolaridad"),
+        "escolaridad_code": _gc(ESCOLARIDAD_CODES, "escolaridad") if HAS_FIELD_MAP else "",
         "departamento": _val("departamento_residencia"),
+        "departamento_code": _gc(DEPT_CODES, "departamento_residencia") if HAS_FIELD_MAP else "",
         "municipio": _val("municipio_residencia"),
         "poblado": _val("poblado"),
         "direccion": _val("direccion_exacta"),
@@ -108,11 +130,14 @@ def map_record_to_mspas(record: dict) -> dict:
         "fecha_ini_sint": _date("fecha_inicio_sintomas"),
         "fecha_captacion": _date("fecha_captacion"),
         "fuente_noti": _val("fuente_notificacion"),
+        "fuente_noti_code": _gc(FUENTE_NOTI_CODES, "fuente_notificacion") if HAS_FIELD_MAP else "",
         "fecha_domiciliaria": _date("fecha_visita_domiciliaria"),
         "fecha_investigacion": _date("fecha_inicio_investigacion"),
         "busqueda_activa": _val("busqueda_activa"),
+        "busqueda_activa_code": _gc(BUSQUEDA_ACTIVA_CODES, "busqueda_activa") if HAS_FIELD_MAP else "",
         "fecha_erupcion": _date("fecha_inicio_erupcion"),
         "sitio_erupcion": _val("sitio_inicio_erupcion"),
+        "sitio_erupcion_code": _gc(ERUPCION_CODES, "sitio_inicio_erupcion") if HAS_FIELD_MAP else "",
         "fecha_fiebre": _date("fecha_inicio_fiebre"),
         "temperatura": _val("temperatura_celsius"),
         "signo_tos": _radio("signo_tos"),
@@ -122,14 +147,18 @@ def map_record_to_mspas(record: dict) -> dict:
         "signo_artralgia": _radio("signo_artralgia"),
         "vacunado": _radio("vacunado"),
         "fuente_vacuna": _val("fuente_info_vacuna"),
+        "fuente_vacuna_code": _gc(FUENTE_VACUNA_CODES, "fuente_info_vacuna") if HAS_FIELD_MAP else "",
         "tipo_vacuna": _val("tipo_vacuna"),
+        "tipo_vacuna_code": _gc(VACUNA_TIPO_CODES, "tipo_vacuna") if HAS_FIELD_MAP else "",
         "no_dosis": _val("numero_dosis_spr"),
+        "no_dosis_code": _gc(DOSIS_CODES, "numero_dosis_spr") if HAS_FIELD_MAP else "",
         "fecha_ult_dosis": _date("fecha_ultima_dosis"),
         "hospitalizado": _radio("hospitalizado"),
         "hosp_nombre": _val("hosp_nombre"),
         "hosp_fecha": _date("hosp_fecha"),
         "hosp_reg_med": _val("no_registro_medico"),
         "condicion_egreso": _val("condicion_egreso"),
+        "condicion_egreso_code": _gc(EGRESO_CODES, "condicion_egreso") if HAS_FIELD_MAP else "",
         "fecha_egreso": _date("fecha_egreso"),
 
         # Tab 4 — Factores de Riesgo
@@ -147,7 +176,9 @@ def map_record_to_mspas(record: dict) -> dict:
         "muestra_orina": _val("muestra_orina") not in ("", "0", "NO", "False"),
         "muestra_orina_fecha": _date("muestra_orina_fecha"),
         "antigeno": _val("antigeno_prueba"),
+        "antigeno_code": _gc(ANTIGENO_CODES, "antigeno_prueba") if HAS_FIELD_MAP else "",
         "resultado_lab": _val("resultado_prueba"),
+        "resultado_lab_code": _gc(RESULTADO_CODES, "resultado_prueba") if HAS_FIELD_MAP else "",
         "fecha_recep_lab": _date("fecha_recepcion_laboratorio"),
         "fecha_resul_lab": _date("fecha_resultado_laboratorio"),
     }
@@ -200,9 +231,18 @@ class MSPASBot:
             logger.warning(msg)
             self.errors.append(msg)
 
-    def _safe_select(self, page, selector: str, value: str, label: str = ""):
-        """Select an option from a <select> element by visible text or value."""
-        if not value:
+    def _safe_select(self, page, selector: str, value: str, label: str = "",
+                     code: str = ""):
+        """Select an option from a <select> element.
+
+        Args:
+            selector: CSS selector for the <select> element.
+            value: Text value for label-based or partial matching (fallback).
+            label: Human-readable label for logging.
+            code: MSPAS numeric code (e.g. '1', '2'). If provided, select by
+                  option value first (most reliable).
+        """
+        if not value and not code:
             return
         try:
             el = page.query_selector(selector)
@@ -212,27 +252,37 @@ class MSPASBot:
                 self.errors.append(msg)
                 return
 
-            # Try selecting by label (visible text) first, then by value
-            try:
-                page.select_option(selector, label=value)
-                logger.debug("Selected %s = %s (by label)", label or selector, value)
-                return
-            except Exception:
-                pass
+            # Strategy 1: Select by numeric code (most reliable for MSPAS forms)
+            if code:
+                try:
+                    page.select_option(selector, value=code)
+                    logger.debug("Selected %s = code '%s' (by value)", label or selector, code)
+                    return
+                except Exception:
+                    pass
 
-            # Try partial match: find the option whose text contains the value
-            options = el.query_selector_all("option")
-            val_upper = value.upper().strip()
-            for opt in options:
-                text = (opt.text_content() or "").strip().upper()
-                if val_upper in text or text in val_upper:
-                    opt_value = opt.get_attribute("value")
-                    if opt_value:
-                        page.select_option(selector, value=opt_value)
-                        logger.debug("Selected %s = %s (partial match)", label or selector, text)
-                        return
+            # Strategy 2: Select by exact label text
+            if value:
+                try:
+                    page.select_option(selector, label=value)
+                    logger.debug("Selected %s = %s (by label)", label or selector, value)
+                    return
+                except Exception:
+                    pass
 
-            msg = f"No matching option for {label or selector} = {value}"
+                # Strategy 3: Partial match on option text
+                options = el.query_selector_all("option")
+                val_upper = value.upper().strip()
+                for opt in options:
+                    text = (opt.text_content() or "").strip().upper()
+                    if val_upper in text or text in val_upper:
+                        opt_value = opt.get_attribute("value")
+                        if opt_value:
+                            page.select_option(selector, value=opt_value)
+                            logger.debug("Selected %s = %s (partial match)", label or selector, text)
+                            return
+
+            msg = f"No matching option for {label or selector} = {value} (code={code})"
             logger.warning(msg)
             self.errors.append(msg)
 
@@ -298,25 +348,50 @@ class MSPASBot:
             self.errors.append(msg)
 
     def _safe_radio(self, page, name: str, value: str, label: str = ""):
-        """Click a radio button by name and value."""
+        """Click a radio button by name and value.
+
+        Handles MSPAS forms where radios may be hidden behind conditional divs
+        by using force=True. Also tries alternate value formats (SI/1, NO/2).
+        """
         if not value:
             return
         try:
             selector = f'input[name="{name}"][value="{value}"]'
             el = page.query_selector(selector)
             if el:
-                el.click()
+                el.click(force=True)
                 logger.debug("Radio %s = %s", label or name, value)
-            else:
-                # Try case-insensitive match
-                radios = page.query_selector_all(f'input[name="{name}"]')
+                return
+
+            # Try case-insensitive match on existing radios
+            radios = page.query_selector_all(f'input[name="{name}"]')
+            if radios:
                 for radio in radios:
-                    radio_val = (radio.get_attribute("value") or "").upper()
+                    radio_val = (radio.get_attribute("value") or "").strip().upper()
                     if radio_val == value.upper():
-                        radio.click()
+                        radio.click(force=True)
                         logger.debug("Radio %s = %s (case match)", label or name, value)
                         return
-                msg = f"Radio not found: {name}={value} ({label})"
+
+                # Try alternate SI/NO <-> 1/2 mapping
+                alt_map = {"SI": "1", "NO": "2", "1": "SI", "2": "NO",
+                           "NA": "3", "3": "NA"}
+                alt_value = alt_map.get(value.upper(), "")
+                if alt_value:
+                    for radio in radios:
+                        radio_val = (radio.get_attribute("value") or "").strip().upper()
+                        if radio_val == alt_value.upper():
+                            radio.click(force=True)
+                            logger.debug("Radio %s = %s (alt value %s)", label or name, value, alt_value)
+                            return
+
+                # Last resort: log available values for debugging
+                available = [radio.get_attribute("value") for radio in radios]
+                msg = f"Radio not found: {name}={value} ({label}). Available values: {available}"
+                logger.warning(msg)
+                self.errors.append(msg)
+            else:
+                msg = f"No radio inputs found with name='{name}' ({label})"
                 logger.warning(msg)
                 self.errors.append(msg)
         except Exception as e:
@@ -562,11 +637,13 @@ class MSPASBot:
 
         # Gender select
         if data.get("genero"):
-            self._safe_select(page, '#cbox_genero, select[name="cbox_genero"]', data["genero"], "genero")
+            self._safe_select(page, '#cbox_genero, select[name="cbox_genero"]', data["genero"], "genero",
+                              code=data.get("genero_code", ""))
 
         # Ethnicity
         if data.get("etnia"):
-            self._safe_select(page, '#cbox_etnia, select[name="cbox_etnia"]', data["etnia"], "etnia")
+            self._safe_select(page, '#cbox_etnia, select[name="cbox_etnia"]', data["etnia"], "etnia",
+                              code=data.get("etnia_code", ""))
 
         # Occupation (searchable, 441 options — type partial text)
         if data.get("ocupacion"):
@@ -579,7 +656,8 @@ class MSPASBot:
 
         # Education level
         if data.get("escolaridad"):
-            self._safe_select(page, '#cbox_escolar, select[name="cbox_escolar"]', data["escolaridad"], "escolaridad")
+            self._safe_select(page, '#cbox_escolar, select[name="cbox_escolar"]', data["escolaridad"], "escolaridad",
+                              code=data.get("escolaridad_code", ""))
 
         # Department → Municipality → Poblado (cascading AJAX selects)
         if data.get("departamento"):
@@ -587,7 +665,8 @@ class MSPASBot:
                 page,
                 '#cbox_iddep, select[name="cbox_iddep"]',
                 data["departamento"],
-                "departamento"
+                "departamento",
+                code=data.get("departamento_code", ""),
             )
             # CRITICAL: Wait for municipios to load via AJAX
             logger.info("Waiting for municipios AJAX load...")
@@ -690,7 +769,8 @@ class MSPASBot:
                 page,
                 '#cb_fuente_noti, select[name="cb_fuente_noti"]',
                 data["fuente_noti"],
-                "fuente_notificacion"
+                "fuente_notificacion",
+                code=data.get("fuente_noti_code", ""),
             )
 
         # Active search
@@ -699,7 +779,8 @@ class MSPASBot:
                 page,
                 '#slc_activa, select[name="slc_activa"]',
                 data["busqueda_activa"],
-                "busqueda_activa"
+                "busqueda_activa",
+                code=data.get("busqueda_activa_code", ""),
             )
 
         # Eruption type/site
@@ -708,7 +789,8 @@ class MSPASBot:
                 page,
                 '#cbox_erupciones, select[name="cbox_erupciones"]',
                 data["sitio_erupcion"],
-                "sitio_erupcion"
+                "sitio_erupcion",
+                code=data.get("sitio_erupcion_code", ""),
             )
 
         # Temperature
@@ -751,7 +833,8 @@ class MSPASBot:
                         page,
                         '#cb_fuente, select[name="cb_fuente"]',
                         data["fuente_vacuna"],
-                        "fuente_vacuna"
+                        "fuente_vacuna",
+                        code=data.get("fuente_vacuna_code", ""),
                     )
 
                 if data.get("tipo_vacuna"):
@@ -759,7 +842,8 @@ class MSPASBot:
                         page,
                         '#cb_vacuna, select[name="cb_vacuna"]',
                         data["tipo_vacuna"],
-                        "tipo_vacuna"
+                        "tipo_vacuna",
+                        code=data.get("tipo_vacuna_code", ""),
                     )
 
                 if data.get("no_dosis"):
@@ -767,7 +851,8 @@ class MSPASBot:
                         page,
                         '#no_dosis, select[name="no_dosis"]',
                         data["no_dosis"],
-                        "no_dosis"
+                        "no_dosis",
+                        code=data.get("no_dosis_code", ""),
                     )
 
                 if data.get("fecha_ult_dosis"):
@@ -822,7 +907,8 @@ class MSPASBot:
                 page,
                 '#cb_egreso_condicion, select[name="cb_egreso_condicion"]',
                 data["condicion_egreso"],
-                "condicion_egreso"
+                "condicion_egreso",
+                code=data.get("condicion_egreso_code", ""),
             )
 
         # Discharge date
@@ -962,7 +1048,8 @@ class MSPASBot:
                 page,
                 '#slc_antigeno, select[name="slc_antigeno"]',
                 data["antigeno"],
-                "antigeno"
+                "antigeno",
+                code=data.get("antigeno_code", ""),
             )
 
         # Reception date at lab
@@ -1001,7 +1088,8 @@ class MSPASBot:
                 page,
                 '#slc_resul_lab, select[name="slc_resul_lab"]',
                 data["resultado_lab"],
-                "resultado_lab"
+                "resultado_lab",
+                code=data.get("resultado_lab_code", ""),
             )
 
         self._screenshot(page, "tab5_laboratorio")
@@ -1276,10 +1364,10 @@ def _test():
 
         "fecha_inicio_sintomas": "2026-03-15",
         "fecha_captacion": "2026-03-17",
-        "fuente_notificacion": "CONSULTA EXTERNA",
+        "fuente_notificacion": "Pública",
         "fecha_visita_domiciliaria": "2026-03-18",
         "fecha_inicio_investigacion": "2026-03-18",
-        "busqueda_activa": "SI",
+        "busqueda_activa": "Comunidad",
         "fecha_inicio_erupcion": "2026-03-16",
         "sitio_inicio_erupcion": "CARA",
         "fecha_inicio_fiebre": "2026-03-15",
@@ -1291,13 +1379,13 @@ def _test():
         "signo_artralgia": "NO",
 
         "vacunado": "SI",
-        "fuente_info_vacuna": "CARNE",
-        "tipo_vacuna": "SPR",
+        "fuente_info_vacuna": "Verbal",
+        "tipo_vacuna": "SRP Sarampión Rubéola Paperas",
         "numero_dosis_spr": "2",
         "fecha_ultima_dosis": "2020-01-10",
 
         "hospitalizado": "NO",
-        "condicion_egreso": "VIVO",
+        "condicion_egreso": "Mejorado",
 
         "contacto_sospechoso_7_23": "NO",
         "caso_sospechoso_comunidad_3m": "NO",
