@@ -620,7 +620,10 @@ def export_excel(x_api_key: str = Header(None)):
         "contactos_directos", "clasificacion_caso", "fecha_clasificacion_final",
         "responsable_clasificacion", "observaciones",
         "es_empleado_igss", "unidad_medica_trabaja", "puesto_desempena",
-        "subgerencia_igss", "direccion_igss", "departamento_igss", "seccion_igss",
+        "subgerencia_igss", "subgerencia_igss_otra",
+        "direccion_igss", "direccion_igss_otra",
+        "departamento_igss", "departamento_igss_otro",
+        "seccion_igss", "seccion_igss_otra",
     ]
 
     COL_HEADERS = [
@@ -674,7 +677,10 @@ def export_excel(x_api_key: str = Header(None)):
         "Contactos Directos", "Clasificación", "Fecha Clasif. Final",
         "Resp. Clasificación", "Observaciones",
         "Empleado IGSS", "Unidad Trabaja", "Puesto",
-        "Subgerencia IGSS", "Dirección IGSS", "Depto. IGSS", "Sección IGSS",
+        "Subgerencia IGSS", "Subgerencia Otra",
+        "Dirección IGSS", "Dirección Otra",
+        "Depto. IGSS", "Depto. Otro",
+        "Sección IGSS", "Sección Otra",
     ]
 
     # Category headers (row 1) — (start_col, end_col, label)  1-indexed within EXPORT_COLS
@@ -686,7 +692,7 @@ def export_excel(x_api_key: str = Header(None)):
         (66, 77, "HOSPITALIZACIÓN"),
         (78, 83, "FACTORES DE RIESGO"),
         (84, 105, "LABORATORIO"),
-        (106, 117, "CONTACTOS Y DATOS IGSS"),
+        (106, 121, "CONTACTOS Y DATOS IGSS"),
     ]
 
     # Styles

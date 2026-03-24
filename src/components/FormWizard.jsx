@@ -98,7 +98,11 @@ export default function FormWizard() {
 
     // IGSS organigrama cascading resets
     if (fieldId === 'subgerencia_igss') {
-      updateMultipleFields({ direccion_igss: '', departamento_igss: '', seccion_igss: '' })
+      updateMultipleFields({
+        direccion_igss: '', direccion_igss_otra: '',
+        departamento_igss: '', departamento_igss_otro: '',
+        seccion_igss: '', seccion_igss_otra: ''
+      })
     }
     if (fieldId === 'departamento_igss') {
       updateField('seccion_igss', '')
@@ -107,7 +111,10 @@ export default function FormWizard() {
     if (fieldId === 'es_empleado_igss' && value === 'NO') {
       updateMultipleFields({
         unidad_medica_trabaja: '', puesto_desempena: '',
-        subgerencia_igss: '', direccion_igss: '', departamento_igss: '', seccion_igss: '',
+        subgerencia_igss: '', subgerencia_igss_otra: '',
+        direccion_igss: '', direccion_igss_otra: '',
+        departamento_igss: '', departamento_igss_otro: '',
+        seccion_igss: '', seccion_igss_otra: '',
       })
     }
 
