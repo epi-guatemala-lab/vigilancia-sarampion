@@ -28,36 +28,35 @@ PAGE_W, PAGE_H = LETTER  # 612 x 792 pt
 MARGIN = 25
 CONTENT_W = PAGE_W - 2 * MARGIN  # ~562 pt
 
-SECTION_BG = Color(0.20, 0.20, 0.20, 1)
+SECTION_BG = Color(0.25, 0.25, 0.25, 1)
 LIGHT_GRAY = Color(0.92, 0.92, 0.92, 1)
 
 # Heights
-SECTION_H = 14       # section header bars
-RH = 20              # standard field row (label + value, no dates)
-RH_DATE = 26         # rows containing date boxes (need room for digits + label)
+SECTION_H = 16       # section header bars (taller for breathing room)
+RH = 21              # standard field row (label + value, no dates)
+RH_DATE = 27         # rows containing date boxes (need room for digits + label)
 RH_TALL = 36         # observaciones
 
 CB_SIZE = 8          # checkbox side
 DATE_BOX = 9         # individual date digit box size
 
 # Fonts
-F_SECTION    = ("Helvetica-Bold", 7.5)
-F_LABEL      = ("Helvetica-Bold", 5)
-F_VALUE      = ("Helvetica", 6.5)
+F_SECTION    = ("Helvetica-Bold", 9)
+F_LABEL      = ("Helvetica-Bold", 6)
+F_VALUE      = ("Helvetica", 7.5)
 F_BOLD6      = ("Helvetica-Bold", 6)
 F_SMALL      = ("Helvetica", 3.5)
 F_TITLE_LG   = ("Helvetica-Bold", 9)
 F_TITLE_MD   = ("Helvetica-Bold", 7.5)
 F_TITLE_SM   = ("Helvetica-Bold", 7)
 F_ITALIC     = ("Helvetica-Oblique", 5)
-F_CHECK      = ("Helvetica-Bold", 6.5)
+F_CHECK      = ("Helvetica-Bold", 10)
 F_DATE_DIGIT = ("Helvetica", 6.5)
 F_CB_LABEL   = ("Helvetica", 5.5)
-F_FACTOR     = ("Helvetica", 5)
-F_CONTACT    = ("Helvetica", 5)
+F_FACTOR     = ("Helvetica", 5.5)
+F_CONTACT    = ("Helvetica", 5.5)
 F_HDR_BOX    = ("Helvetica-Bold", 5.5)
 F_HDR_SM     = ("Helvetica", 4.5)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -70,7 +69,6 @@ def _get(data: dict, key: str, default: str = '') -> str:
         return default
     return val
 
-
 def _parse_date(val: str) -> tuple:
     if not val:
         return ('', '', '')
@@ -82,13 +80,11 @@ def _parse_date(val: str) -> tuple:
             continue
     return ('', '', '')
 
-
 def _trunc(text: str, w: float, cw: float = 3.5) -> str:
     mx = max(3, int(w / cw))
     if len(text) > mx:
         return text[:mx - 1] + '\u2026'
     return text
-
 
 # ---------------------------------------------------------------------------
 # FichaBuilder
@@ -107,18 +103,18 @@ class FichaBuilder:
         self.c.setFont(f[0], f[1])
 
     def _cell(self, x, y, w, h, label='', value=''):
-        """Bordered cell: label top-left (5pt bold), value below (6.5pt)."""
+        """Bordered cell: label top-left (6pt bold), value below (7.5pt)."""
         self.c.setStrokeColor(black)
         self.c.setLineWidth(0.5)
         self.c.rect(x, y, w, h)
         if label:
             self._sf(F_LABEL)
             self.c.setFillColor(black)
-            self.c.drawString(x + 2, y + h - 6, _trunc(label, w - 4, 2.8))
+            self.c.drawString(x + 2, y + h - 8, _trunc(label, w - 4, 3.2))
         if value:
             self._sf(F_VALUE)
             self.c.setFillColor(black)
-            self.c.drawString(x + 2, y + h - 14, _trunc(value, w - 4))
+            self.c.drawString(x + 2, y + h - 17, _trunc(value, w - 4))
 
     def _cell_plain(self, x, y, w, h, text='', font=F_VALUE, center=False):
         """Bordered cell with single text, no label/value split."""
@@ -143,12 +139,12 @@ class FichaBuilder:
         self.c.rect(MARGIN, y, CONTENT_W, h, fill=1, stroke=1)
         self.c.setFillColor(white)
         self._sf(F_SECTION)
-        self.c.drawCentredString(MARGIN + CONTENT_W / 2, y + 3.5, title)
+        self.c.drawCentredString(MARGIN + CONTENT_W / 2, y + (h - F_SECTION[1]) / 2, title)
         self.c.setFillColor(black)
         self.y -= h
 
     def _subtitle(self, text):
-        self.y -= 9
+        self.y -= 11
         self._sf(F_BOLD6)
         self.c.setFillColor(black)
         self.c.drawString(MARGIN + 2, self.y + 2, text)
@@ -161,7 +157,7 @@ class FichaBuilder:
         if checked:
             self._sf(F_CHECK)
             self.c.setFillColor(black)
-            self.c.drawCentredString(x + CB_SIZE / 2, y + 0.5, 'X')
+            self.c.drawCentredString(x + CB_SIZE / 2, y + (CB_SIZE - F_CHECK[1]) / 2 - 0.5, 'X')
         nx = x + CB_SIZE + 2
         if label:
             self._sf(F_CB_LABEL)
@@ -181,7 +177,7 @@ class FichaBuilder:
         if label:
             self._sf(F_LABEL)
             self.c.setFillColor(black)
-            self.c.drawString(x + 2, y + h - 6, _trunc(label, w - 4, 2.8))
+            self.c.drawString(x + 2, y + h - 8, _trunc(label, w - 4, 3.2))
 
         dd, mm, yyyy = _parse_date(date_str)
         bs = DATE_BOX
@@ -264,7 +260,7 @@ class FichaBuilder:
         d = self.d
         top = self.y
 
-        # Logo placeholder top-left (small)
+        # Logo placeholder top-left (bordered box like MSPAS original)
         logo_path = os.path.join(os.path.dirname(__file__), 'assets', 'mspas_logo.png')
         lx = MARGIN
         ly = top - 36
@@ -275,12 +271,14 @@ class FichaBuilder:
             except Exception:
                 pass
         else:
-            c.setStrokeColor(Color(0.75, 0.75, 0.75))
-            c.setLineWidth(0.5)
+            c.setStrokeColor(black)
+            c.setLineWidth(0.6)
             c.rect(lx, ly, 36, 36)
-            self._sf(F_SMALL)
-            c.setFillColor(Color(0.5, 0.5, 0.5))
-            c.drawCentredString(lx + 18, ly + 15, 'MSPAS')
+            self._sf(("Helvetica-Bold", 6))
+            c.setFillColor(Color(0.3, 0.3, 0.3))
+            c.drawCentredString(lx + 18, ly + 20, 'MSPAS')
+            self._sf(("Helvetica", 4))
+            c.drawCentredString(lx + 18, ly + 12, 'Escudo')
             c.setFillColor(black)
 
         # Center titles — use shorter width to not overlap with right box
@@ -346,16 +344,16 @@ class FichaBuilder:
         y = self.y - h
         w = CONTENT_W * 0.5
         self._date_cell(MARGIN, y, w, h, 'Fecha de notificaci\u00f3n', _get(d, 'fecha_notificacion'))
-        self._date_cell(MARGIN + w, y, w, h, 'Fecha de registro', _get(d, 'fecha_registro'))
+        self._date_cell(MARGIN + w, y, w, h, 'Fecha de registro', _get(d, 'fecha_registro_diagnostico'))
         self.y -= h
 
         self._row([
             (0.40, 'Unidad M\u00e9dica', _get(d, 'unidad_medica')),
-            (0.30, 'Municipio', _get(d, 'municipio_unidad')),
-            (0.30, 'Departamento', _get(d, 'departamento_unidad')),
+            (0.30, 'Municipio', _get(d, 'municipio_residencia')),
+            (0.30, 'Departamento', _get(d, 'departamento_residencia')),
         ])
         self._row([
-            (0.40, 'Responsable', _get(d, 'responsable')),
+            (0.40, 'Responsable', _get(d, 'nom_responsable')),
             (0.30, 'Cargo', _get(d, 'cargo_responsable')),
             (0.30, 'Tel\u00e9fono', _get(d, 'telefono_responsable')),
         ])
@@ -399,12 +397,9 @@ class FichaBuilder:
             (0.30, 'Escolaridad', _get(d, 'escolaridad')),
         ])
 
-        # Residencia label row (compact)
-        h = 12
+        # Residencia label row (borderless, bold text only — matches MSPAS original)
+        h = 14
         y = self.y - h
-        self.c.setStrokeColor(black)
-        self.c.setLineWidth(0.5)
-        self.c.rect(MARGIN, y, CONTENT_W, h)
         self._sf(F_BOLD6)
         self.c.setFillColor(black)
         self.c.drawString(MARGIN + 2, y + 3, 'Residencia')
@@ -416,10 +411,10 @@ class FichaBuilder:
             (0.30, 'Poblado', _get(d, 'poblado')),
         ])
 
-        self._row([(1.0, 'Direcci\u00f3n exacta', _get(d, 'direccion'))])
+        self._row([(1.0, 'Direcci\u00f3n exacta', _get(d, 'direccion_exacta'))])
 
         self._row([
-            (0.50, 'Pueblo de pertinencia', _get(d, 'pueblo_pertinencia')),
+            (0.50, 'Pueblo de pertinencia', _get(d, 'pueblo_etnia')),
             (0.50, 'Comunidad ling\u00fc\u00edstica', _get(d, 'comunidad_linguistica')),
         ])
 
@@ -429,7 +424,7 @@ class FichaBuilder:
         w_fn = CONTENT_W * 0.40
         w_r = CONTENT_W * 0.20
         self._date_cell(MARGIN, y, w_fn, h, 'Fecha de Nacimiento', _get(d, 'fecha_nacimiento'))
-        self._cell(MARGIN + w_fn, y, w_r, h, 'A\u00f1os', _get(d, 'edad_anos'))
+        self._cell(MARGIN + w_fn, y, w_r, h, 'A\u00f1os', _get(d, 'edad_anios'))
         self._cell(MARGIN + w_fn + w_r, y, w_r, h, 'Meses', _get(d, 'edad_meses'))
         self._cell(MARGIN + w_fn + 2 * w_r, y, w_r, h, 'D\u00edas', _get(d, 'edad_dias'))
         self.y -= h
@@ -457,7 +452,7 @@ class FichaBuilder:
 
         self._sf(F_LABEL)
         self.c.setFillColor(black)
-        self.c.drawString(x + 2, y + h - 6, 'Vacunado (SR/SPR)')
+        self.c.drawString(x + 2, y + h - 8, 'Vacunado (SR/SPR)')
         cb_y = y + 3
         self._checkbox(x + 3, cb_y, checked=(vacunado == 'SI'), label='SI')
         self._checkbox(x + 35, cb_y, checked=(vacunado == 'NO'), label='NO')
@@ -465,7 +460,7 @@ class FichaBuilder:
         div = x + CONTENT_W * 0.20
         self.c.line(div, y, div, y + h)
         self._sf(F_LABEL)
-        self.c.drawString(div + 2, y + h - 6, 'Fuente de Informaci\u00f3n')
+        self.c.drawString(div + 2, y + h - 8, 'Fuente de Informaci\u00f3n')
         fx = div + 3
         for lbl, kw in [('Carn\u00e9', 'CARNE'), ('SIGSA 5a', 'SIGSA'),
                          ('Cuadernillo', 'CUADERNILLO'), ('Verbal', 'VERBAL')]:
@@ -479,7 +474,7 @@ class FichaBuilder:
         w_d = CONTENT_W * 0.10
         w_f = CONTENT_W * 0.35
         w_o = CONTENT_W * 0.55
-        self._cell(x, y, w_d, h, 'No. dosis', _get(d, 'numero_dosis'))
+        self._cell(x, y, w_d, h, 'No. dosis', _get(d, 'numero_dosis_spr'))
         self._date_cell(x + w_d, y, w_f, h, 'Fecha \u00faltima dosis', _get(d, 'fecha_ultima_dosis'))
         self._cell(x + w_d + w_f, y, w_o, h, 'Observaciones', _get(d, 'observaciones_vacuna'))
         self.y -= h
@@ -517,7 +512,7 @@ class FichaBuilder:
         self.c.rect(x + w_fc, y, w_fn, h)
         self._sf(F_LABEL)
         self.c.setFillColor(black)
-        self.c.drawString(x + w_fc + 2, y + h - 6, 'Fuente de notificaci\u00f3n')
+        self.c.drawString(x + w_fc + 2, y + h - 8, 'Fuente de notificaci\u00f3n')
 
         fuente_not = _get(d, 'fuente_notificacion', '').upper()
         is_serv = any(k in fuente_not for k in ('PUBLICA', 'PRIVADA', 'SERVICIO', 'LABORATORIO'))
@@ -545,8 +540,8 @@ class FichaBuilder:
         self.c.rect(x + w_fp, y, w_emb, h)
         self._sf(F_LABEL)
         self.c.setFillColor(black)
-        self.c.drawString(x + w_fp + 2, y + h - 6, 'Paciente embarazada')
-        emb = _get(d, 'paciente_embarazada', '').upper()
+        self.c.drawString(x + w_fp + 2, y + h - 8, 'Paciente embarazada')
+        emb = _get(d, 'esta_embarazada', '').upper()
         cb_y = y + 3
         ex = x + w_fp + 3
         ex = self._checkbox(ex, cb_y, checked=(emb == 'SI'), label='SI')
@@ -557,7 +552,7 @@ class FichaBuilder:
         self.y -= h
 
         # -- Signos y sintomas --
-        self._subtitle('Signos y s\u00edntomas (marque con una "X" los que presente el paciente)')
+        self._subtitle('Signos y s\u00edntomas (marque con una "X" los s\u00edntomas/signos que presenta)')
 
         signos = {
             'Tos': _get(d, 'signo_tos'),
@@ -623,7 +618,7 @@ class FichaBuilder:
         motivo = _get(d, 'motivo_sospecha', '').upper()
         self._sf(F_LABEL)
         self.c.setFillColor(black)
-        self.c.drawString(MARGIN + 2, y + h - 6, 'En paciente asintom\u00e1tico marque motivo de sospecha')
+        self.c.drawString(MARGIN + 2, y + h - 8, 'En paciente asintom\u00e1tico marque motivo de sospecha')
         cb_y = y + (h - CB_SIZE) / 2
         mx = MARGIN + CONTENT_W * 0.40
         self._checkbox(mx, cb_y, checked=('HALLAZGO' in motivo or 'LABORATORIO' in motivo),
@@ -639,7 +634,7 @@ class FichaBuilder:
         w3 = CONTENT_W * 0.24
         self._date_cell(MARGIN, y, w1, h, 'Fecha de Inicio Erupci\u00f3n', _get(d, 'fecha_inicio_erupcion'))
         self._date_cell(MARGIN + w1, y, w2, h, 'Fecha inicio fiebre', _get(d, 'fecha_inicio_fiebre'))
-        self._cell(MARGIN + w1 + w2, y, w3, h, 'T grados C', _get(d, 'temperatura'))
+        self._cell(MARGIN + w1 + w2, y, w3, h, 'T grados C', _get(d, 'temperatura_celsius'))
         self.y -= h
 
         # -- Hospitalizacion --
@@ -657,11 +652,11 @@ class FichaBuilder:
         self.c.rect(MARGIN, y, w1, h)
         self._sf(F_LABEL)
         self.c.setFillColor(black)
-        self.c.drawString(MARGIN + 2, y + h - 6, 'Hospitalizaci\u00f3n')
+        self.c.drawString(MARGIN + 2, y + h - 8, 'Hospitalizaci\u00f3n')
         cb_y = y + 3
         self._checkbox(MARGIN + 3, cb_y, checked=(hosp == 'SI'), label='SI')
         self._checkbox(MARGIN + 35, cb_y, checked=(hosp == 'NO'), label='NO')
-        self._cell(MARGIN + w1, y, w2, h, 'Nombre del Hospital', _get(d, 'nombre_hospital'))
+        self._cell(MARGIN + w1, y, w2, h, 'Nombre del Hospital', _get(d, 'hosp_nombre'))
         self.y -= h
 
         # Fecha hospitalizacion | Registro
@@ -669,8 +664,8 @@ class FichaBuilder:
         y = self.y - h
         w1 = CONTENT_W * 0.40
         w2 = CONTENT_W * 0.60
-        self._date_cell(MARGIN, y, w1, h, 'Fecha de Hospitalizaci\u00f3n', _get(d, 'fecha_hospitalizacion'))
-        self._cell(MARGIN + w1, y, w2, h, 'N\u00famero de Registro M\u00e9dico', _get(d, 'registro_medico'))
+        self._date_cell(MARGIN, y, w1, h, 'Fecha de Hospitalizaci\u00f3n', _get(d, 'hosp_fecha'))
+        self._cell(MARGIN + w1, y, w2, h, 'N\u00famero de Registro M\u00e9dico', _get(d, 'no_registro_medico'))
         self.y -= h
 
         # Condicion Egreso | Fecha defuncion
@@ -685,7 +680,7 @@ class FichaBuilder:
         self.c.rect(MARGIN, y, w1, h)
         self._sf(F_LABEL)
         self.c.setFillColor(black)
-        self.c.drawString(MARGIN + 2, y + h - 6, 'Condici\u00f3n de Egreso')
+        self.c.drawString(MARGIN + 2, y + h - 8, 'Condici\u00f3n de Egreso')
         cb_y = y + 3
         ex = MARGIN + 3
         for lbl, kw in [('Mejorado', 'MEJOR'), ('Grave', 'GRAVE'), ('Muerto', 'MUERT')]:
@@ -772,7 +767,7 @@ class FichaBuilder:
         cb_y = y + (h - CB_SIZE) / 2
         self._checkbox(x + 3, cb_y, checked=(recolecto == 'NO'), label='No se recolect\u00f3 la muestra')
         self._cell(x + w1, y, w2, h, '\u00bfPor qu\u00e9 no se recolect\u00f3 la muestra?',
-                   _get(d, 'motivo_no_muestra'))
+                   _get(d, 'motivo_no_recoleccion'))
         self.y -= h
 
         # Header
@@ -844,7 +839,7 @@ class FichaBuilder:
         y = self.y - h
         w1 = CONTENT_W * 0.40
         w2 = CONTENT_W * 0.60
-        self._date_cell(x, y, w1, h, 'Fecha de clasificaci\u00f3n final', _get(d, 'fecha_clasificacion'))
+        self._date_cell(x, y, w1, h, 'Fecha de clasificaci\u00f3n final', _get(d, 'fecha_clasificacion_final'))
         self._cell(x + w1, y, w2, h, 'Responsable clasificaci\u00f3n', _get(d, 'responsable_clasificacion'))
         self.y -= h
 
@@ -920,7 +915,6 @@ class FichaBuilder:
                 hx += w
             self.y -= h
 
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -938,7 +932,6 @@ def generar_ficha_pdf(data: dict) -> bytes:
     c.save()
     buf.seek(0)
     return buf.read()
-
 
 def generar_fichas_bulk(records: list, merge: bool = True) -> bytes:
     if not records:
@@ -969,7 +962,6 @@ def generar_fichas_bulk(records: list, merge: bool = True) -> bytes:
         zip_buf.seek(0)
         return zip_buf.read()
 
-
 # ---------------------------------------------------------------------------
 # CLI test
 # ---------------------------------------------------------------------------
@@ -979,10 +971,8 @@ def _test():
         'diagnostico_registrado': 'B05 - Sarampion',
         'unidad_medica': 'Hospital General de Enfermedades - Zona 9',
         'fecha_notificacion': '2026-03-15',
-        'fecha_registro': '2026-03-15',
-        'municipio_unidad': 'Guatemala',
-        'departamento_unidad': 'Guatemala',
-        'responsable': 'Dr. Juan P\u00e9rez Garc\u00eda',
+        'fecha_registro_diagnostico': '2026-03-15',
+        'nom_responsable': 'Dr. Juan P\u00e9rez Garc\u00eda',
         'cargo_responsable': 'Epidemi\u00f3logo',
         'telefono_responsable': '2412-1224',
         'nombres': 'Mar\u00eda Isabel',
@@ -994,18 +984,18 @@ def _test():
         'departamento_residencia': 'Guatemala',
         'municipio_residencia': 'Mixco',
         'poblado': 'Colonia El Milagro Zona 6',
-        'direccion': '4ta Avenida 12-34 Zona 1, Colonia Las Flores',
-        'pueblo_pertinencia': 'Ladino',
+        'direccion_exacta': '4ta Avenida 12-34 Zona 1, Colonia Las Flores',
+        'pueblo_etnia': 'Ladino',
         'comunidad_linguistica': 'Espa\u00f1ol',
         'fecha_nacimiento': '1990-05-20',
-        'edad_anos': '35',
+        'edad_anios': '35',
         'edad_meses': '',
         'edad_dias': '',
         'nombre_encargado': 'Pedro Antonio L\u00f3pez M\u00e9ndez',
         'telefono_encargado': '5555-1234',
         'vacunado': 'SI',
         'fuente_info_vacuna': 'Carne',
-        'numero_dosis': '2',
+        'numero_dosis_spr': '2',
         'fecha_ultima_dosis': '2015-03-10',
         'observaciones_vacuna': 'Esquema completo seg\u00fan carn\u00e9',
         'fecha_inicio_sintomas': '2026-03-10',
@@ -1013,7 +1003,7 @@ def _test():
         'fecha_captacion': '2026-03-12',
         'fuente_notificacion': 'Servicio de salud p\u00fablica',
         'fecha_inicio_investigacion': '2026-03-14',
-        'paciente_embarazada': 'NO',
+        'esta_embarazada': 'NO',
         'signo_tos': 'SI',
         'signo_coriza': 'NO',
         'signo_adenopatias': 'NO',
@@ -1023,11 +1013,11 @@ def _test():
         'asintomatico': 'NO',
         'fecha_inicio_erupcion': '2026-03-11',
         'fecha_inicio_fiebre': '2026-03-10',
-        'temperatura': '38.5',
+        'temperatura_celsius': '38.5',
         'hospitalizado': 'SI',
-        'nombre_hospital': 'Hospital General de Enfermedades Zona 9',
-        'fecha_hospitalizacion': '2026-03-13',
-        'registro_medico': 'HGE-2026-12345',
+        'hosp_nombre': 'Hospital General de Enfermedades Zona 9',
+        'hosp_fecha': '2026-03-13',
+        'no_registro_medico': 'HGE-2026-12345',
         'condicion_egreso': 'Mejorado',
         'fecha_defuncion': '',
         'contacto_sospechoso_7_23': 'SI',
@@ -1041,7 +1031,7 @@ def _test():
         'muestra_hisopado_recepcion': '2026-03-14',
         'muestra_hisopado_resultado': '2026-03-19',
         'clasificacion_caso': 'Confirmado',
-        'fecha_clasificacion': '2026-03-20',
+        'fecha_clasificacion_final': '2026-03-20',
         'responsable_clasificacion': 'Dra. Ana Patricia Mart\u00ednez Gonz\u00e1lez',
         'cargo_clasificacion': 'Coordinadora Epidemiolog\u00eda',
         'telefono_clasificacion': '2412-5678',
@@ -1066,7 +1056,6 @@ def _test():
         f.write(pdf_bytes)
     print(f"Generated test PDF: {out_path} ({len(pdf_bytes)} bytes)")
     return out_path
-
 
 if __name__ == '__main__':
     _test()
