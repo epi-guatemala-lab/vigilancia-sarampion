@@ -267,7 +267,7 @@ def recover_stuck_submissions(timeout_minutes: int = 10):
     conn = get_connection()
     try:
         cursor = conn.execute(
-            "UPDATE mspas_envios SET estado = 'error', ultimo_error = 'Timeout: proceso interrumpido', updated_at = ? WHERE estado = 'enviando' AND updated_at < datetime('now', ?)",
+            "UPDATE mspas_envios SET estado = 'error', ultimo_error = 'Timeout: proceso interrumpido', updated_at = ? WHERE estado = 'enviando' AND datetime(updated_at) < datetime('now', ?)",
             (datetime.now().isoformat(), f'-{timeout_minutes} minutes')
         )
         conn.commit()
