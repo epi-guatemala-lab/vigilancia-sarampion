@@ -213,7 +213,7 @@ def approve_records(registro_ids: list, aprobado_por: str = 'api'):
         now = datetime.now().isoformat()
         for rid in registro_ids:
             conn.execute(
-                "UPDATE mspas_envios SET estado = 'aprobado', aprobado_por = ?, fecha_aprobacion = ?, updated_at = ? WHERE registro_id = ? AND estado IN ('pendiente', 'revisado', 'error')",
+                "UPDATE mspas_envios SET estado = 'aprobado', aprobado_por = ?, fecha_aprobacion = ?, updated_at = ? WHERE registro_id = ? AND estado IN ('pendiente', 'revisado', 'error', 'duplicado')",
                 (aprobado_por, now, now, rid)
             )
         conn.commit()

@@ -721,16 +721,35 @@ class MSPASBot:
 
     # ── Duplicate check ──────────────────────────────────────────────────
 
+    def _parse_date_loose(self, text: str) -> Optional[datetime]:
+        """Try to parse a date string in common formats. Returns None on failure."""
+        if not text:
+            return None
+        text = text.strip()
+        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"):
+            try:
+                return datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+        return None
+
     def check_duplicate_in_mspas(self, page, data: dict) -> bool:
         """Check if a patient already has a ficha in MSPAS.
 
-        Searches by apellidos + nombres on the sarampion list page.
+        Searches by apellidos + nombres on the sarampion list page, then
+        verifies any name match also has a fecha_notificacion within 30 days
+        of our record (if dates are visible in the results table). If dates
+        are not visible, a name-only match is treated as a potential duplicate
+        with a warning logged about false-positive risk.
+
         Must be called BEFORE navigate_to_form() clicks "Crear Ficha Nueva".
 
         Returns True if duplicate found, False if safe to create.
         """
         nombres = (data.get("nombres") or "").strip()
         apellidos = (data.get("apellidos") or "").strip()
+        our_fecha_str = (data.get("fecha_notificacion") or "").strip()
+        our_fecha = self._parse_date_loose(our_fecha_str)
 
         if not apellidos and not nombres:
             logger.warning("Duplicate check skipped: no name data available")
@@ -848,10 +867,40 @@ class MSPASBot:
                     nombres_match = search_nombres and search_nombres in row_text
 
                     if apellidos_match and nombres_match:
-                        logger.warning(
-                            "DUPLICATE FOUND in MSPAS for: %s %s",
-                            apellidos, nombres,
-                        )
+                        # Name matches — now check date proximity if possible
+                        # Try to extract a date from the row cells
+                        row_cells = row.query_selector_all("td")
+                        row_fecha = None
+                        for cell in row_cells:
+                            cell_text = (cell.text_content() or "").strip()
+                            row_fecha = self._parse_date_loose(cell_text)
+                            if row_fecha:
+                                break
+
+                        if row_fecha and our_fecha:
+                            days_diff = abs((row_fecha - our_fecha).days)
+                            if days_diff > 30:
+                                logger.info(
+                                    "Name match for %s %s but dates differ by %d days "
+                                    "(ours=%s, theirs=%s) — NOT a duplicate",
+                                    apellidos, nombres, days_diff,
+                                    our_fecha_str, row_fecha.strftime('%d/%m/%Y'),
+                                )
+                                continue  # Check next row
+                            logger.warning(
+                                "DUPLICATE FOUND in MSPAS for: %s %s "
+                                "(date match: ours=%s, theirs=%s, diff=%d days)",
+                                apellidos, nombres,
+                                our_fecha_str, row_fecha.strftime('%d/%m/%Y'), days_diff,
+                            )
+                        else:
+                            # No date visible in results — name-only match
+                            logger.warning(
+                                "POTENTIAL DUPLICATE in MSPAS for: %s %s "
+                                "(name-only match, dates not visible in list — "
+                                "false positive possible)",
+                                apellidos, nombres,
+                            )
                         self._screenshot(page, "dup_check_DUPLICATE")
                         return True
 
@@ -1734,56 +1783,14 @@ class MSPASBot:
                     })
 
                 # Step 4: Fill all tabs (with session checks between each)
-                # If session expires mid-fill, restart ALL tabs from scratch (max 2 retries)
-                MAX_SESSION_RETRIES = 2
-                session_retries = 0
-
-                all_tab_fns = [
-                    self.fill_tab1_datos_generales,
-                    self.fill_tab2_datos_paciente,
-                    self.fill_tab3_info_clinica,
-                    self.fill_tab4_factores_riesgo,
-                    self.fill_tab5_laboratorio,
-                    self.fill_tab6_clasificacion,
-                ]
-
-                restart_needed = True
-                while restart_needed:
-                    restart_needed = False
-                    for i, tab_fill_fn in enumerate(all_tab_fns):
-                        if i > 0 and not self._check_session_alive(page):
-                            session_retries += 1
-                            self.errors.append(
-                                f"MSPAS session expired at tab {i+1}, restarting ALL tabs "
-                                f"(retry {session_retries}/{MAX_SESSION_RETRIES})..."
-                            )
-                            if session_retries > MAX_SESSION_RETRIES:
-                                return self._enrich_result({
-                                    "success": False, "production_mode": PRODUCTION_MODE,
-                                    "submitted": False, "mspas_ficha_id": None,
-                                    "screenshots": self.screenshots,
-                                    "errors": self.errors + [f"Max session retries ({MAX_SESSION_RETRIES}) exceeded"],
-                                    "duration_seconds": time.time() - self._start_time,
-                                })
-                            if not self.login(page):
-                                return self._enrich_result({
-                                    "success": False, "production_mode": PRODUCTION_MODE,
-                                    "submitted": False, "mspas_ficha_id": None,
-                                    "screenshots": self.screenshots,
-                                    "errors": self.errors + ["Re-login failed after session expiry"],
-                                    "duration_seconds": time.time() - self._start_time,
-                                })
-                            if not self.navigate_to_form(page):
-                                return self._enrich_result({
-                                    "success": False, "production_mode": PRODUCTION_MODE,
-                                    "submitted": False, "mspas_ficha_id": None,
-                                    "screenshots": self.screenshots,
-                                    "errors": self.errors + ["Re-navigation failed after session expiry"],
-                                    "duration_seconds": time.time() - self._start_time,
-                                })
-                            restart_needed = True
-                            break  # break inner for-loop to restart from tab 1
-                        tab_fill_fn(page, mapped)
+                if not self._fill_all_tabs(page, mapped):
+                    return self._enrich_result({
+                        "success": False, "production_mode": PRODUCTION_MODE,
+                        "submitted": False, "mspas_ficha_id": None,
+                        "screenshots": self.screenshots,
+                        "errors": self.errors,
+                        "duration_seconds": time.time() - self._start_time,
+                    })
 
                 # Step 5: Submit or stop
                 # Don't submit if too many errors accumulated during form filling
@@ -1833,12 +1840,65 @@ class MSPASBot:
 
     # ── Batch processing ─────────────────────────────────────────────────
 
-    def process_batch(self, records: list[dict]) -> list[dict]:
+    def _fill_all_tabs(self, page, mapped) -> bool:
+        """Fill all 6 form tabs with session checks between each.
+
+        Returns True if all tabs filled successfully, False if session expired
+        and could not be recovered. On session recovery, restarts all tabs
+        from scratch.
+        """
+        MAX_SESSION_RETRIES = 2
+        session_retries = 0
+
+        all_tab_fns = [
+            self.fill_tab1_datos_generales,
+            self.fill_tab2_datos_paciente,
+            self.fill_tab3_info_clinica,
+            self.fill_tab4_factores_riesgo,
+            self.fill_tab5_laboratorio,
+            self.fill_tab6_clasificacion,
+        ]
+
+        restart_needed = True
+        while restart_needed:
+            restart_needed = False
+            for i, tab_fill_fn in enumerate(all_tab_fns):
+                if i > 0 and not self._check_session_alive(page):
+                    session_retries += 1
+                    self.errors.append(
+                        f"MSPAS session expired at tab {i+1}, restarting ALL tabs "
+                        f"(retry {session_retries}/{MAX_SESSION_RETRIES})..."
+                    )
+                    if session_retries > MAX_SESSION_RETRIES:
+                        self.errors.append(f"Max session retries ({MAX_SESSION_RETRIES}) exceeded")
+                        return False
+                    if not self.login(page):
+                        self.errors.append("Re-login failed after session expiry")
+                        return False
+                    # Re-navigate to form
+                    if not self.navigate_to_form(page):
+                        self.errors.append("Re-navigation failed after session expiry")
+                        return False
+                    restart_needed = True
+                    break  # break inner for-loop to restart from tab 1
+                tab_fill_fn(page, mapped)
+
+        return True
+
+    def process_batch(self, records: list[dict],
+                      on_complete: callable = None) -> list[dict]:
         """Process multiple records with a single browser session.
 
         Reuses login and browser across all records instead of launching
         a new browser per record. For N records this saves ~15s per record
         (1 login instead of N logins).
+
+        Args:
+            records: list of record dicts to process.
+            on_complete: optional callback(registro_id, result_dict) called
+                after each record is processed, enabling per-record state
+                updates (e.g. marking sent/error in the queue immediately
+                instead of waiting for the entire batch to finish).
 
         Returns list of result dicts (one per record), same format as
         process_record().
@@ -1935,7 +1995,7 @@ class MSPASBot:
                         if not self._check_session_alive(page):
                             logger.warning("Batch: session expired at record %d, re-logging in...", i + 1)
                             if not self.login(page):
-                                results.append(self._enrich_result({
+                                result = self._enrich_result({
                                     "success": False,
                                     "production_mode": PRODUCTION_MODE,
                                     "submitted": False,
@@ -1943,13 +2003,16 @@ class MSPASBot:
                                     "screenshots": self.screenshots,
                                     "errors": self.errors + ["Re-login failed during batch"],
                                     "duration_seconds": time.time() - record_start,
-                                }))
+                                })
+                                results.append(result)
+                                if on_complete:
+                                    on_complete(rid, result)
                                 continue
 
                         # Check for duplicates in MSPAS
                         if self.check_duplicate_in_mspas(page, record):
                             logger.warning("Batch: duplicate detected for %s", rid)
-                            results.append(self._enrich_result({
+                            result = self._enrich_result({
                                 "success": False,
                                 "production_mode": PRODUCTION_MODE,
                                 "submitted": False,
@@ -1958,14 +2021,17 @@ class MSPASBot:
                                 "screenshots": self.screenshots,
                                 "errors": ["Duplicado: paciente ya tiene ficha en MSPAS"],
                                 "duration_seconds": time.time() - record_start,
-                            }))
+                            })
+                            results.append(result)
+                            if on_complete:
+                                on_complete(rid, result)
                             page.wait_for_timeout(500)
                             continue
 
                         # Navigate to form creation page (direct URL, skip list clicks)
                         base_url = EPIWEB_URL.rstrip("/")
                         if not self.navigate_to_form(page):
-                            results.append(self._enrich_result({
+                            result = self._enrich_result({
                                 "success": False,
                                 "production_mode": PRODUCTION_MODE,
                                 "submitted": False,
@@ -1973,16 +2039,27 @@ class MSPASBot:
                                 "screenshots": self.screenshots,
                                 "errors": self.errors + ["Navigate to form failed"],
                                 "duration_seconds": time.time() - record_start,
-                            }))
+                            })
+                            results.append(result)
+                            if on_complete:
+                                on_complete(rid, result)
                             continue
 
-                        # Fill all 6 tabs
-                        self.fill_tab1_datos_generales(page, mapped)
-                        self.fill_tab2_datos_paciente(page, mapped)
-                        self.fill_tab3_info_clinica(page, mapped)
-                        self.fill_tab4_factores_riesgo(page, mapped)
-                        self.fill_tab5_laboratorio(page, mapped)
-                        self.fill_tab6_clasificacion(page, mapped)
+                        # Fill all 6 tabs (with session checks between each)
+                        if not self._fill_all_tabs(page, mapped):
+                            result = self._enrich_result({
+                                "success": False,
+                                "production_mode": PRODUCTION_MODE,
+                                "submitted": False,
+                                "mspas_ficha_id": None,
+                                "screenshots": self.screenshots,
+                                "errors": self.errors,
+                                "duration_seconds": time.time() - record_start,
+                            })
+                            results.append(result)
+                            if on_complete:
+                                on_complete(rid, result)
+                            continue
 
                         # Final screenshot
                         self._screenshot(page, "final_preview")
@@ -2016,6 +2093,8 @@ class MSPASBot:
                             })
 
                         results.append(result)
+                        if on_complete:
+                            on_complete(rid, result)
 
                         # Navigate back to sarampion list (NOT submit again)
                         try:
@@ -2034,7 +2113,7 @@ class MSPASBot:
                             self._screenshot(page, "batch_error")
                         except Exception:
                             pass
-                        results.append(self._enrich_result({
+                        result = self._enrich_result({
                             "success": False,
                             "production_mode": PRODUCTION_MODE,
                             "submitted": False,
@@ -2042,7 +2121,10 @@ class MSPASBot:
                             "screenshots": self.screenshots,
                             "errors": self.errors + [f"Fatal: {e}"],
                             "duration_seconds": time.time() - record_start,
-                        }))
+                        })
+                        results.append(result)
+                        if on_complete:
+                            on_complete(rid, result)
 
                     # Small delay between records
                     page.wait_for_timeout(500)

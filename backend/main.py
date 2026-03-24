@@ -1069,32 +1069,40 @@ def mspas_submit_batch(x_api_key: str = Header(None)):
         return {"processed": 0, "success": 0, "errors": len(claimed),
                 "message": "No valid records found for claimed IDs"}
 
-    # Process entire batch with a single browser session
+    # Process entire batch with a single browser session.
+    # State is updated PER RECORD via on_complete callback so that if the
+    # process crashes at record N, records 1..N-1 already have their final
+    # state persisted (not stuck in 'enviando').
     from mspas_bot import MSPASBot
     bot = MSPASBot(username, password)
-    results = bot.process_batch(records)
 
-    # Update queue states based on results
     success_count = 0
     error_count = 0
     duplicate_count = 0
-    for reg, result in zip(records, results):
-        rid = reg.get('registro_id', '')
-        if result.get('duplicate'):
-            mark_duplicate(rid, mspas_ficha_id=result.get('mspas_ficha_id', ''))
-            duplicate_count += 1
-        elif result.get('success'):
-            if result.get('submitted'):
-                mark_sent(rid, result.get('mspas_ficha_id', ''),
-                         result.get('screenshots', [''])[-1] if result.get('screenshots') else '')
-                success_count += 1
+
+    def _on_record_done(rid, result):
+        nonlocal success_count, error_count, duplicate_count
+        try:
+            if result.get('duplicate'):
+                mark_duplicate(rid, mspas_ficha_id=result.get('mspas_ficha_id', ''))
+                duplicate_count += 1
+            elif result.get('success'):
+                if result.get('submitted'):
+                    mark_sent(rid, result.get('mspas_ficha_id', ''),
+                             result.get('screenshots', [''])[-1] if result.get('screenshots') else '')
+                    success_count += 1
+                else:
+                    # Test mode: back to approved
+                    update_estado(rid, 'aprobado')
+                    success_count += 1
             else:
-                # Test mode: back to approved
-                update_estado(rid, 'aprobado')
-                success_count += 1
-        else:
-            mark_error(rid, '; '.join(result.get('errors', ['Unknown error'])))
+                mark_error(rid, '; '.join(result.get('errors', ['Unknown error'])))
+                error_count += 1
+        except Exception as e:
+            logger.error("Failed to update state for record %s: %s", rid, e)
             error_count += 1
+
+    results = bot.process_batch(records, on_complete=_on_record_done)
 
     return {
         "processed": len(results),
