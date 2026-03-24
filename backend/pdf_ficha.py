@@ -130,7 +130,7 @@ class FichaDrawer:
         self._rect(MARGIN_L, ry, CONTENT_W, SECTION_H, fill=True)
         self.c.setFillColor(white)
         self._set_font(FONT_SECTION)
-        self.c.drawString(MARGIN_L + 4, ry + 4, text)
+        self.c.drawCentredString(MARGIN_L + CONTENT_W / 2, ry + 4, text)
         self.c.setFillColor(black)
         self.y += SECTION_H
 
@@ -180,9 +180,9 @@ class FichaDrawer:
         dx = x + (DATE_CELL_W * 0.5) if not label else x + 2
         # Draw sub-labels
         self._set_font(FONT_SMALL)
-        self.c.drawString(dx, ry + h - 5, "Dia")
+        self.c.drawString(dx, ry + h - 5, "Día")
         self.c.drawString(dx + DATE_CELL_W * 2 + 4, ry + h - 5, "Mes")
-        self.c.drawString(dx + DATE_CELL_W * 4 + 8, ry + h - 5, "Ano")
+        self.c.drawString(dx + DATE_CELL_W * 4 + 8, ry + h - 5, "Año")
 
         # Draw 8 cells: DD MM YYYY
         cell_x = dx
@@ -231,9 +231,9 @@ class FichaDrawer:
         """Header with title and top-right disease selection box."""
         d = self.data
         # Center title
-        self._text_centered(PAGE_W / 2, _y(self.y + 10), "MINISTERIO DE SALUD PUBLICA Y ASISTENCIA SOCIAL", FONT_TITLE)
-        self._text_centered(PAGE_W / 2, _y(self.y + 20), "DEPARTAMENTO DE EPIDEMIOLOGIA", ("Helvetica-Bold", 8))
-        self._text_centered(PAGE_W / 2, _y(self.y + 30), "FICHA EPIDEMIOLOGICA", ("Helvetica-Bold", 8))
+        self._text_centered(PAGE_W / 2, _y(self.y + 10), "MINISTERIO DE SALUD PÚBLICA Y ASISTENCIA SOCIAL", FONT_TITLE)
+        self._text_centered(PAGE_W / 2, _y(self.y + 20), "DEPARTAMENTO DE EPIDEMIOLOGÍA", ("Helvetica-Bold", 8))
+        self._text_centered(PAGE_W / 2, _y(self.y + 30), "FICHA EPIDEMIOLÓGICA", ("Helvetica-Bold", 8))
 
         # Top-right box
         box_x = MARGIN_R - 200
@@ -242,7 +242,7 @@ class FichaDrawer:
         box_h = 42
         ry = _y(box_y_top + box_h)
         self._rect(box_x, ry, box_w, box_h)
-        self._text(box_x + 4, ry + box_h - 8, "FICHA EPIDEMIOLOGICA", ("Helvetica-Bold", 7))
+        self._text(box_x + 4, ry + box_h - 8, "FICHA EPIDEMIOLÓGICA", ("Helvetica-Bold", 7))
         self._text(box_x + 4, ry + box_h - 17, "Caso sospechoso de:", FONT_LABEL)
         self._text(box_x + 4, ry + box_h - 25, "Marque la enfermedad que va a notificar", FONT_SMALL)
 
@@ -254,11 +254,11 @@ class FichaDrawer:
         # Sarampion checkbox
         cb_y = box_y_top + 30
         self._draw_checkbox(box_x + 10, cb_y, checked=is_sarampion)
-        self._text(box_x + 22, _y(cb_y + CHECKBOX_SZ) + 1.5, "Sarampion", FONT_LABEL)
+        self._text(box_x + 22, _y(cb_y + CHECKBOX_SZ) + 1.5, "Sarampión", FONT_LABEL)
 
         # Rubeola checkbox
         self._draw_checkbox(box_x + 100, cb_y, checked=is_rubeola)
-        self._text(box_x + 112, _y(cb_y + CHECKBOX_SZ) + 1.5, "Rubeola", FONT_LABEL)
+        self._text(box_x + 112, _y(cb_y + CHECKBOX_SZ) + 1.5, "Rubéola", FONT_LABEL)
 
         self.y += 44
 
@@ -266,9 +266,9 @@ class FichaDrawer:
         """Italic definition text below header."""
         self._set_font(FONT_ITALIC)
         self.c.drawString(MARGIN_L, _y(self.y + 8),
-            "Sospecha rubeola en: Persona de cualquier edad en la que un trabajador de salud sospeche infeccion por rubeola.")
+            "Sospecha rubéola en: Persona de cualquier edad en la que un trabajador de salud sospeche infección por rubéola.")
         self.c.drawString(MARGIN_L, _y(self.y + 16),
-            "Sospeche sarampion en: Persona de cualquier edad que presente fiebre, erupcion y alguno de los siguientes signos: Tos, Coriza o Conjuntivitis.")
+            "Sospeche sarampión en: Persona de cualquier edad que presente fiebre, erupción y alguno de los siguientes signos: Tos, Coriza o Conjuntivitis.")
         self.y += 20
 
     def _draw_datos_generales(self):
@@ -288,7 +288,7 @@ class FichaDrawer:
         ry = _y(self.y + ROW_H)
         self._rect(x, ry, w1, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha de notificacion")
+        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha de notificación")
         self._draw_date_boxes(x + 75, self.y + 2, fn)
         self._rect(x + w1, ry, w2, ROW_H)
         self.c.drawString(x + w1 + 2, ry + ROW_H - 5, "Fecha de registro")
@@ -297,7 +297,7 @@ class FichaDrawer:
 
         # Row 3: Unidad Medica | Municipio | Departamento
         self._field_row([
-            ("Unidad Medica", _get(d, 'unidad_medica'), 0.40),
+            ("Unidad Médica", _get(d, 'unidad_medica'), 0.40),
             ("Municipio", _get(d, 'municipio_unidad'), 0.30),
             ("Departamento", _get(d, 'departamento_unidad'), 0.30),
         ])
@@ -306,7 +306,7 @@ class FichaDrawer:
         self._field_row([
             ("Responsable", _get(d, 'responsable'), 0.45),
             ("Cargo", _get(d, 'cargo_responsable'), 0.30),
-            ("Telefono", _get(d, 'telefono_responsable'), 0.25),
+            ("Teléfono", _get(d, 'telefono_responsable'), 0.25),
         ])
 
     def _draw_datos_paciente(self):
@@ -339,7 +339,7 @@ class FichaDrawer:
         # Row 2: CUI | Ocupacion | Escolaridad
         self._field_row([
             ("CUI paciente", _get(d, 'afiliacion'), 0.40),
-            ("Ocupacion", _get(d, 'ocupacion'), 0.30),
+            ("Ocupación", _get(d, 'ocupacion'), 0.30),
             ("Escolaridad", _get(d, 'escolaridad'), 0.30),
         ])
 
@@ -357,12 +357,12 @@ class FichaDrawer:
         ])
 
         # Row 5: Direccion exacta
-        self._field_row([("Direccion exacta", _get(d, 'direccion'), 1.0)])
+        self._field_row([("Dirección exacta", _get(d, 'direccion'), 1.0)])
 
         # Row 6: Pueblo pertinencia | Comunidad linguistica
         self._field_row([
             ("Pueblo de pertinencia", _get(d, 'pueblo_pertinencia'), 0.50),
-            ("Comunidad linguistica", _get(d, 'comunidad_linguistica'), 0.50),
+            ("Comunidad lingüística", _get(d, 'comunidad_linguistica'), 0.50),
         ])
 
         # Row 7: Fecha Nacimiento | Anos | Meses | Dias
@@ -377,15 +377,15 @@ class FichaDrawer:
         self._set_font(FONT_LABEL)
         self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha de Nacimiento")
         self._draw_date_boxes(x + 72, self.y + 2, fn)
-        self._draw_field(x + w_fn, self.y, w_a, "Anos", _get(d, 'edad_anos'))
+        self._draw_field(x + w_fn, self.y, w_a, "Años", _get(d, 'edad_anos'))
         self._draw_field(x + w_fn + w_a, self.y, w_m, "Meses", _get(d, 'edad_meses'))
-        self._draw_field(x + w_fn + w_a + w_m, self.y, w_d, "Dias", _get(d, 'edad_dias'))
+        self._draw_field(x + w_fn + w_a + w_m, self.y, w_d, "Días", _get(d, 'edad_dias'))
         self.y += ROW_H
 
         # Row 8: Nombre Madre/Padre/Encargado | Telefono
         self._field_row([
             ("Nombre de la Madre, Padre o Encargado", _get(d, 'nombre_encargado'), 0.75),
-            ("Telefono", _get(d, 'telefono_encargado'), 0.25),
+            ("Teléfono", _get(d, 'telefono_encargado'), 0.25),
         ])
 
     def _draw_antecedente_vacunal(self):
@@ -414,9 +414,9 @@ class FichaDrawer:
         # Fuente
         self._rect(x + w1, ry, w2, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + w1 + 2, ry + ROW_H - 5, "Fuente de Informacion")
+        self.c.drawString(x + w1 + 2, ry + ROW_H - 5, "Fuente de Información")
         fx = x + w1 + 75
-        for lbl, kw in [("Carne", "CARNE"), ("SIGSA 5a", "SIGSA"), ("Cuadernillo", "CUADERNILLO"), ("Verbal", "VERBAL")]:
+        for lbl, kw in [("Carné", "CARNE"), ("SIGSA 5a", "SIGSA"), ("Cuadernillo", "CUADERNILLO"), ("Verbal", "VERBAL")]:
             self._draw_checkbox(fx, self.y + 3, checked=(kw in fuente))
             self._text(fx + 10, _y(self.y + 3 + CHECKBOX_SZ) + 1.5, lbl, FONT_LABEL)
             fx += 55 if lbl != "Cuadernillo" else 60
@@ -432,7 +432,7 @@ class FichaDrawer:
         self._draw_field(x, self.y, w_d, "No. dosis", _get(d, 'numero_dosis'))
         self._rect(x + w_d, ry, w_f, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + w_d + 2, ry + ROW_H - 5, "Fecha ultima dosis")
+        self.c.drawString(x + w_d + 2, ry + ROW_H - 5, "Fecha última dosis")
         self._draw_date_boxes(x + w_d + 65, self.y + 2, fd)
         self._draw_field(x + w_d + w_f, self.y, w_o, "Observaciones", _get(d, 'observaciones_vacuna'))
         self.y += ROW_H
@@ -440,7 +440,7 @@ class FichaDrawer:
     def _draw_informacion_clinica(self):
         """INFORMACION CLINICA section."""
         d = self.data
-        self._draw_section_header("INFORMACION CLINICA")
+        self._draw_section_header("INFORMACIÓN CLÍNICA")
 
         # --- Conocimiento de caso ---
         ry = _y(self.y + 10)
@@ -455,9 +455,9 @@ class FichaDrawer:
         ry = _y(self.y + ROW_H)
         self._rect(x, ry, w1, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha inicio sintomas")
+        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha inicio síntomas")
         self._draw_date_boxes(x + 75, self.y + 2, fi)
-        self._draw_field(x + w1, self.y, w2, "Semana Epidemiologica", _get(d, 'semana_epidemiologica'))
+        self._draw_field(x + w1, self.y, w2, "Semana Epidemiológica", _get(d, 'semana_epidemiologica'))
         self.y += ROW_H
 
         # Fecha captacion | Fuente notificacion
@@ -467,19 +467,27 @@ class FichaDrawer:
         w_fn = CONTENT_W * 0.70
         self._rect(x, ry, w_fc, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha de Captacion")
+        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha de Captación")
         self._draw_date_boxes(x + 65, self.y + 2, fc)
 
         self._rect(x + w_fc, ry, w_fn, ROW_H)
-        self.c.drawString(x + w_fc + 2, ry + ROW_H - 5, "Fuente de notificacion")
+        self.c.drawString(x + w_fc + 2, ry + ROW_H - 5, "Fuente de notificación")
         fuente_not = _get(d, 'fuente_notificacion', '').upper()
-        fx = x + w_fc + 75
-        for lbl, kw in [("Serv. salud", "SERVICIO"), ("Rumor", "RUMOR"),
-                         ("Lab", "LABORATORIO"), ("Contacto", "CONTACTO"),
-                         ("Visita dom.", "VISITA")]:
-            self._draw_checkbox(fx, self.y + 3, checked=(kw in fuente_not))
-            self._text(fx + 10, _y(self.y + 3 + CHECKBOX_SZ) + 1.5, lbl, FONT_SMALL)
-            fx += 48
+        # Map EPIWEB values to MSPAS paper form categories
+        is_serv_salud = any(k in fuente_not for k in ('PÚBLICA', 'PUBLICA', 'PRIVADA',
+                            'LABORATORIO', 'SERVICIO'))
+        is_rumor = 'COMUNIDAD' in fuente_not or 'RUMOR' in fuente_not
+        is_visita = any(k in fuente_not for k in ('BÚSQUEDA', 'BUSQUEDA', 'ACTIVA',
+                        'DEFUNCIÓN', 'DEFUNCION', 'VISITA', 'DOMICILIAR'))
+        fx = x + w_fc + 80
+        self._draw_checkbox(fx, self.y + 3, checked=is_serv_salud)
+        self._text(fx + 10, _y(self.y + 3 + CHECKBOX_SZ) + 1.5, "Servicio de salud", FONT_LABEL)
+        fx += 75
+        self._draw_checkbox(fx, self.y + 3, checked=is_rumor)
+        self._text(fx + 10, _y(self.y + 3 + CHECKBOX_SZ) + 1.5, "Rumor", FONT_LABEL)
+        fx += 45
+        self._draw_checkbox(fx, self.y + 3, checked=is_visita)
+        self._text(fx + 10, _y(self.y + 3 + CHECKBOX_SZ) + 1.5, "Visita domiciliaria", FONT_LABEL)
         self.y += ROW_H
 
         # Fecha planificada investigacion | Paciente embarazada
@@ -490,7 +498,7 @@ class FichaDrawer:
         w2 = CONTENT_W * 0.40
         self._rect(x, ry, w1, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha planificada inicio investigacion")
+        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha planificada inicio investigación")
         self._draw_date_boxes(x + 130, self.y + 2, fp)
         self._rect(x + w1, ry, w2, ROW_H)
         self.c.drawString(x + w1 + 2, ry + ROW_H - 5, "Paciente embarazada")
@@ -505,14 +513,14 @@ class FichaDrawer:
 
         # --- Signos y sintomas ---
         ry = _y(self.y + 10)
-        self._text(MARGIN_L + 2, ry, "Signos y sintomas", FONT_SUBTITLE)
+        self._text(MARGIN_L + 2, ry, "Signos y síntomas", FONT_SUBTITLE)
         self.y += 10
 
         # Grid of symptoms
         signos = {
             'Tos': _get(d, 'signo_tos'),
             'Coriza': _get(d, 'signo_coriza'),
-            'Adenopatias': _get(d, 'signo_adenopatias'),
+            'Adenopatías': _get(d, 'signo_adenopatias'),
             'Artralgia o artritis': _get(d, 'signo_artralgia'),
             'Conjuntivitis': _get(d, 'signo_conjuntivitis'),
             'Fiebre': _get(d, 'signo_fiebre'),
@@ -521,7 +529,7 @@ class FichaDrawer:
         self._rect(MARGIN_L, ry, CONTENT_W, ROW_H * 2)
 
         # Left column
-        left_signos = ['Tos', 'Coriza', 'Adenopatias']
+        left_signos = ['Tos', 'Coriza', 'Adenopatías']
         right_signos = ['Artralgia o artritis', 'Conjuntivitis', 'Fiebre']
 
         sy = self.y + 1
@@ -541,13 +549,31 @@ class FichaDrawer:
         asint = _get(d, 'asintomatico', '').upper()
         ax = MARGIN_L + CONTENT_W * 0.75
         self._set_font(FONT_LABEL)
-        self.c.drawString(ax, _y(sy + 2), "Asintomatico")
+        self.c.drawString(ax, _y(sy + 2), "Asintomático")
         self._draw_checkbox(ax + 42, sy + 1, checked=(asint == 'SI'))
         self._text(ax + 52, _y(sy + 1 + CHECKBOX_SZ) + 1.5, "SI", FONT_LABEL)
         self._draw_checkbox(ax + 66, sy + 1, checked=(asint == 'NO'))
         self._text(ax + 76, _y(sy + 1 + CHECKBOX_SZ) + 1.5, "No", FONT_LABEL)
 
         self.y += ROW_H * 2
+
+        # Row: En paciente asintomático marque motivo de sospecha
+        motivo = _get(d, 'motivo_sospecha', '').upper()
+        ry = _y(self.y + ROW_H)
+        self._rect(MARGIN_L, ry, CONTENT_W, ROW_H)
+        self._set_font(FONT_LABEL)
+        self.c.drawString(MARGIN_L + 2, ry + ROW_H - 5,
+                          "En paciente asintomático marque motivo de sospecha")
+        mx = MARGIN_L + 190
+        self._draw_checkbox(mx, self.y + 3,
+                            checked=('HALLAZGO' in motivo or 'LABORATORIO' in motivo))
+        self._text(mx + 10, _y(self.y + 3 + CHECKBOX_SZ) + 1.5,
+                   "Hallazgo de laboratorio", FONT_LABEL)
+        self._draw_checkbox(mx + 100, self.y + 3,
+                            checked=('CONTACTO' in motivo))
+        self._text(mx + 110, _y(self.y + 3 + CHECKBOX_SZ) + 1.5,
+                   "Contacto", FONT_LABEL)
+        self.y += ROW_H
 
         # Fecha erupcion | Fecha fiebre | Temperatura
         fe = _parse_date(_get(d, 'fecha_inicio_erupcion'))
@@ -559,7 +585,7 @@ class FichaDrawer:
         ry = _y(self.y + ROW_H)
         self._rect(x, ry, w1, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha Inicio Erupcion")
+        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha Inicio Erupción")
         self._draw_date_boxes(x + 72, self.y + 2, fe)
         self._rect(x + w1, ry, w2, ROW_H)
         self.c.drawString(x + w1 + 2, ry + ROW_H - 5, "Fecha inicio fiebre")
@@ -569,7 +595,7 @@ class FichaDrawer:
 
         # --- Hospitalizacion y defuncion ---
         ry = _y(self.y + 10)
-        self._text(MARGIN_L + 2, ry, "Hospitalizacion y defuncion", FONT_SUBTITLE)
+        self._text(MARGIN_L + 2, ry, "Hospitalización y defunción", FONT_SUBTITLE)
         self.y += 10
 
         hosp = _get(d, 'hospitalizado', '').upper()
@@ -580,7 +606,7 @@ class FichaDrawer:
         ry = _y(self.y + ROW_H)
         self._rect(x, ry, w1, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + 2, ry + ROW_H - 5, "Hospitalizacion")
+        self.c.drawString(x + 2, ry + ROW_H - 5, "Hospitalización")
         hx = x + 55
         self._draw_checkbox(hx, self.y + 3, checked=(hosp == 'SI'))
         self._text(hx + 10, _y(self.y + 3 + CHECKBOX_SZ) + 1.5, "SI", FONT_LABEL)
@@ -596,9 +622,9 @@ class FichaDrawer:
         ry = _y(self.y + ROW_H)
         self._rect(x, ry, w1, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha de Hospitalizacion")
+        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha de Hospitalización")
         self._draw_date_boxes(x + 80, self.y + 2, fh)
-        self._draw_field(x + w1, self.y, w2, "Numero de Registro Medico", _get(d, 'registro_medico'))
+        self._draw_field(x + w1, self.y, w2, "Número de Registro Médico", _get(d, 'registro_medico'))
         self.y += ROW_H
 
         # Row: Condicion egreso | Fecha defuncion
@@ -609,7 +635,7 @@ class FichaDrawer:
         ry = _y(self.y + ROW_H)
         self._rect(x, ry, w1, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + 2, ry + ROW_H - 5, "Condicion de Egreso")
+        self.c.drawString(x + 2, ry + ROW_H - 5, "Condición de Egreso")
         ex = x + 65
         for lbl, kw in [("Mejorado", "MEJOR"), ("Grave", "GRAVE"), ("Muerto", "MUERT")]:
             self._draw_checkbox(ex, self.y + 3, checked=(kw in egreso))
@@ -617,7 +643,7 @@ class FichaDrawer:
             ex += 50
         self._rect(x + w1, ry, w2, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + w1 + 2, ry + ROW_H - 5, "Fecha de defuncion")
+        self.c.drawString(x + w1 + 2, ry + ROW_H - 5, "Fecha de defunción")
         self._draw_date_boxes(x + w1 + 65, self.y + 2, fd)
         self.y += ROW_H
 
@@ -627,11 +653,11 @@ class FichaDrawer:
         self._draw_section_header("FACTORES DE RIESGO")
 
         factores = [
-            ("Tuvo contacto con otro sospechoso de 7-23 dias previos al inicio de la erupcion",
+            ("Tuvo contacto con otro sospechoso de 7-23 días previos al inicio de la erupción",
              _get(d, 'contacto_sospechoso_7_23', '').upper()),
-            ("Hubo algun caso sospechoso en la comunidad en los ultimos 3 meses",
+            ("Hubo algún caso sospechoso en la comunidad en los últimos 3 meses",
              _get(d, 'caso_sospechoso_comunidad_3m', '').upper()),
-            ("Viajo durante los 7-23 dias previos al inicio de la erupcion",
+            ("Viajó durante los 7-23 días previos al inicio de la erupción",
              _get(d, 'viajo_7_23_previo', '').upper()),
         ]
 
@@ -689,8 +715,8 @@ class FichaDrawer:
         ry = _y(self.y + ROW_H)
         self._rect(x, ry, w1, ROW_H)
         self._draw_checkbox(x + 4, self.y + 3, checked=no_recolecto)
-        self._text(x + 16, ry + 4, "No se recolecto la muestra", FONT_LABEL)
-        self._draw_field(x + w1, self.y, w2, "Por que no se recolecto la muestra?",
+        self._text(x + 16, ry + 4, "No se recolectó la muestra", FONT_LABEL)
+        self._draw_field(x + w1, self.y, w2, "Por qué no se recolectó la muestra?",
                          _get(d, 'motivo_no_muestra'))
         self.y += ROW_H
 
@@ -703,8 +729,8 @@ class FichaDrawer:
         hx = x
         headers = [
             ("Tipo de Muestra", col_tipo),
-            ("Fecha de recoleccion", col_fecha),
-            ("Fecha de recepcion (LNS)", col_fecha),
+            ("Fecha de recolección", col_fecha),
+            ("Fecha de recepción (LNS)", col_fecha),
             ("Fecha Resultado (LNS)", col_fecha),
         ]
         for lbl, w in headers:
@@ -716,7 +742,7 @@ class FichaDrawer:
         # Lab rows
         muestras = [
             ("Suero", 'muestra_suero_fecha', 'muestra_suero_recepcion', 'muestra_suero_resultado'),
-            ("Hisopado Nasofaringeo", 'muestra_hisopado_fecha', 'muestra_hisopado_recepcion', 'muestra_hisopado_resultado'),
+            ("Hisopado Nasofaríngeo", 'muestra_hisopado_fecha', 'muestra_hisopado_recepcion', 'muestra_hisopado_resultado'),
             ("Orina", 'muestra_orina_fecha', 'muestra_orina_recepcion', 'muestra_orina_resultado'),
             ("Otra", 'muestra_otra_fecha', 'muestra_otra_recepcion', 'muestra_otra_resultado'),
         ]
@@ -740,7 +766,7 @@ class FichaDrawer:
         """CLASIFICACION FINAL section."""
         d = self.data
         self.y += 4
-        self._draw_section_header("CLASIFICACION FINAL")
+        self._draw_section_header("CLASIFICACIÓN FINAL")
 
         clasif = _get(d, 'clasificacion_caso', '').upper()
         x = MARGIN_L
@@ -750,13 +776,13 @@ class FichaDrawer:
         w_rest = CONTENT_W * 0.75
         ry = _y(self.y + ROW_H)
         self._rect(x, ry, w_lbl, ROW_H)
-        self._text(x + 2, ry + 4, "Clasificacion Final", FONT_BOLD)
+        self._text(x + 2, ry + 4, "Clasificación Final", FONT_BOLD)
         self._rect(x + w_lbl, ry, w_rest, ROW_H)
         cx = x + w_lbl + 8
         checks = [
             ("Confirmado", "CONFIRM"),
             ("Descartado", "DESCART"),
-            ("Confirmado por nexo epidemiologico", "NEXO"),
+            ("Confirmado por nexo epidemiológico", "NEXO"),
         ]
         for lbl, kw in checks:
             self._draw_checkbox(cx, self.y + 3, checked=(kw in clasif))
@@ -771,15 +797,15 @@ class FichaDrawer:
         ry = _y(self.y + ROW_H)
         self._rect(x, ry, w1, ROW_H)
         self._set_font(FONT_LABEL)
-        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha de clasificacion final")
+        self.c.drawString(x + 2, ry + ROW_H - 5, "Fecha de clasificación final")
         self._draw_date_boxes(x + 95, self.y + 2, fc)
-        self._draw_field(x + w1, self.y, w2, "Responsable clasificacion", _get(d, 'responsable_clasificacion'))
+        self._draw_field(x + w1, self.y, w2, "Responsable clasificación", _get(d, 'responsable_clasificacion'))
         self.y += ROW_H
 
         # Row: Cargo | Telefono
         self._field_row([
             ("Cargo", _get(d, 'cargo_clasificacion'), 0.50),
-            ("Telefono", _get(d, 'telefono_clasificacion'), 0.50),
+            ("Teléfono", _get(d, 'telefono_clasificacion'), 0.50),
         ])
 
         # Row: Observaciones
@@ -798,8 +824,8 @@ class FichaDrawer:
             ("Nombres y Apellidos del contacto", 0.25),
             ("Edad", 0.07),
             ("Sexo", 0.07),
-            ("Telefono", 0.12),
-            ("Direccion", 0.28),
+            ("Teléfono", 0.12),
+            ("Dirección", 0.28),
             ("Fecha de contacto", 0.16),
         ]
 
@@ -861,8 +887,8 @@ def generar_ficha_pdf(data: dict) -> bytes:
     """
     buf = io.BytesIO()
     c = Canvas(buf, pagesize=LETTER)
-    c.setTitle("Ficha Epidemiologica - Sarampion/Rubeola")
-    c.setAuthor("IGSS Epidemiologia")
+    c.setTitle("Ficha Epidemiológica - Sarampión/Rubéola")
+    c.setAuthor("IGSS Epidemiología")
 
     drawer = FichaDrawer(c, data)
 
@@ -897,8 +923,8 @@ def generar_fichas_bulk(records: list, merge: bool = True) -> bytes:
     if merge:
         buf = io.BytesIO()
         c = Canvas(buf, pagesize=LETTER)
-        c.setTitle("Fichas Epidemiologicas - Sarampion/Rubeola")
-        c.setAuthor("IGSS Epidemiologia")
+        c.setTitle("Fichas Epidemiológicas - Sarampión/Rubéola")
+        c.setAuthor("IGSS Epidemiología")
 
         for i, data in enumerate(records):
             drawer = FichaDrawer(c, data)
@@ -937,7 +963,7 @@ if __name__ == '__main__':
         'municipio_unidad': 'Guatemala',
         'departamento_unidad': 'Guatemala',
         'responsable': 'Dr. Juan Perez',
-        'cargo_responsable': 'Epidemiologo',
+        'cargo_responsable': 'Epidemiólogo',
         'telefono_responsable': '2412-1224',
         'nombres': 'Maria Isabel',
         'apellidos': 'Lopez Garcia',
@@ -950,7 +976,7 @@ if __name__ == '__main__':
         'poblado': 'Zona 1',
         'direccion': '4ta Avenida 12-34 Zona 1',
         'pueblo_pertinencia': 'Ladino',
-        'comunidad_linguistica': 'Espanol',
+        'comunidad_linguistica': 'Español',
         'fecha_nacimiento': '1990-05-20',
         'edad_anos': '35',
         'edad_meses': '',
