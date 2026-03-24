@@ -1829,6 +1829,236 @@ class MSPASBot:
                 context.close()
                 browser.close()
 
+    # ── Batch processing ─────────────────────────────────────────────────
+
+    def process_batch(self, records: list[dict]) -> list[dict]:
+        """Process multiple records with a single browser session.
+
+        Reuses login and browser across all records instead of launching
+        a new browser per record. For N records this saves ~15s per record
+        (1 login instead of N logins).
+
+        Returns list of result dicts (one per record), same format as
+        process_record().
+        """
+        if not records:
+            return []
+
+        results: list[dict] = []
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            return [self._enrich_result({
+                "success": False,
+                "production_mode": PRODUCTION_MODE,
+                "submitted": False,
+                "mspas_ficha_id": None,
+                "screenshots": [],
+                "errors": ["playwright not installed. Run: pip install playwright && playwright install chromium"],
+                "duration_seconds": 0,
+            }) for _ in records]
+
+        batch_start = time.time()
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                ]
+            )
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 900},
+                locale="es-GT",
+                timezone_id="America/Guatemala",
+            )
+            page = context.new_page()
+            page.set_default_timeout(ACTION_TIMEOUT)
+
+            try:
+                # Login ONCE for the entire batch
+                self.screenshots = []
+                self.errors = []
+                if not self.login(page):
+                    login_err = self.errors.copy()
+                    return [self._enrich_result({
+                        "success": False,
+                        "production_mode": PRODUCTION_MODE,
+                        "submitted": False,
+                        "mspas_ficha_id": None,
+                        "screenshots": self.screenshots.copy(),
+                        "errors": login_err + ["Batch login failed"],
+                        "duration_seconds": time.time() - batch_start,
+                    }) for _ in records]
+
+                logger.info("Batch mode: logged in. Processing %d records...", len(records))
+
+                for i, record in enumerate(records):
+                    record_start = time.time()
+                    rid = record.get('registro_id', f'batch_{i}')
+                    logger.info("Batch [%d/%d]: %s", i + 1, len(records), rid)
+
+                    # Reset per-record state
+                    self.screenshots = []
+                    self.errors = []
+                    self._start_time = record_start
+
+                    # Setup per-record screenshot directory
+                    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', str(rid))
+                    self._record_screenshot_dir = os.path.join(SCREENSHOT_DIR, safe_id)
+                    os.makedirs(self._record_screenshot_dir, exist_ok=True)
+
+                    try:
+                        # Map fields
+                        mapped = map_record_to_mspas(record)
+                        self._mapped_data = {k: v for k, v in mapped.items() if v}
+                        self._record_data = {
+                            "registro_id": record.get("registro_id", ""),
+                            "nombres": record.get("nombres", ""),
+                            "apellidos": record.get("apellidos", ""),
+                            "afiliacion": record.get("afiliacion", ""),
+                            "departamento_residencia": record.get("departamento_residencia", ""),
+                            "municipio_residencia": record.get("municipio_residencia", ""),
+                            "fecha_notificacion": record.get("fecha_notificacion", ""),
+                            "clasificacion_caso": record.get("clasificacion_caso", ""),
+                            "unidad_medica": record.get("unidad_medica", ""),
+                            "sexo": record.get("sexo", ""),
+                            "edad_anios": record.get("edad_anios", ""),
+                        }
+
+                        # Check session is still alive; re-login if needed
+                        if not self._check_session_alive(page):
+                            logger.warning("Batch: session expired at record %d, re-logging in...", i + 1)
+                            if not self.login(page):
+                                results.append(self._enrich_result({
+                                    "success": False,
+                                    "production_mode": PRODUCTION_MODE,
+                                    "submitted": False,
+                                    "mspas_ficha_id": None,
+                                    "screenshots": self.screenshots,
+                                    "errors": self.errors + ["Re-login failed during batch"],
+                                    "duration_seconds": time.time() - record_start,
+                                }))
+                                continue
+
+                        # Check for duplicates in MSPAS
+                        if self.check_duplicate_in_mspas(page, record):
+                            logger.warning("Batch: duplicate detected for %s", rid)
+                            results.append(self._enrich_result({
+                                "success": False,
+                                "production_mode": PRODUCTION_MODE,
+                                "submitted": False,
+                                "duplicate": True,
+                                "mspas_ficha_id": None,
+                                "screenshots": self.screenshots,
+                                "errors": ["Duplicado: paciente ya tiene ficha en MSPAS"],
+                                "duration_seconds": time.time() - record_start,
+                            }))
+                            page.wait_for_timeout(500)
+                            continue
+
+                        # Navigate to form creation page (direct URL, skip list clicks)
+                        base_url = EPIWEB_URL.rstrip("/")
+                        if not self.navigate_to_form(page):
+                            results.append(self._enrich_result({
+                                "success": False,
+                                "production_mode": PRODUCTION_MODE,
+                                "submitted": False,
+                                "mspas_ficha_id": None,
+                                "screenshots": self.screenshots,
+                                "errors": self.errors + ["Navigate to form failed"],
+                                "duration_seconds": time.time() - record_start,
+                            }))
+                            continue
+
+                        # Fill all 6 tabs
+                        self.fill_tab1_datos_generales(page, mapped)
+                        self.fill_tab2_datos_paciente(page, mapped)
+                        self.fill_tab3_info_clinica(page, mapped)
+                        self.fill_tab4_factores_riesgo(page, mapped)
+                        self.fill_tab5_laboratorio(page, mapped)
+                        self.fill_tab6_clasificacion(page, mapped)
+
+                        # Final screenshot
+                        self._screenshot(page, "final_preview")
+
+                        # Submit or dry-run
+                        MAX_ERRORS_FOR_SUBMIT = 3
+                        if PRODUCTION_MODE and len(self.errors) <= MAX_ERRORS_FOR_SUBMIT:
+                            result = self.submit_form(page)
+                        elif PRODUCTION_MODE and len(self.errors) > MAX_ERRORS_FOR_SUBMIT:
+                            self.errors.append(
+                                f"Aborted: {len(self.errors)} errors exceed threshold of {MAX_ERRORS_FOR_SUBMIT}"
+                            )
+                            result = self._enrich_result({
+                                "success": False,
+                                "production_mode": True,
+                                "submitted": False,
+                                "mspas_ficha_id": None,
+                                "screenshots": self.screenshots,
+                                "errors": self.errors,
+                                "duration_seconds": time.time() - record_start,
+                            })
+                        else:
+                            result = self._enrich_result({
+                                "success": True,
+                                "production_mode": PRODUCTION_MODE,
+                                "submitted": False,
+                                "mspas_ficha_id": None,
+                                "screenshots": self.screenshots,
+                                "errors": self.errors,
+                                "duration_seconds": time.time() - record_start,
+                            })
+
+                        results.append(result)
+
+                        # Navigate back to sarampion list (NOT submit again)
+                        try:
+                            page.goto(
+                                f"{base_url}/fichas/paginas/sar/sarampion.php",
+                                timeout=NAV_TIMEOUT,
+                                wait_until="networkidle",
+                            )
+                            page.wait_for_timeout(1000)
+                        except Exception as nav_err:
+                            logger.warning("Batch: failed to navigate back after record %s: %s", rid, nav_err)
+
+                    except Exception as e:
+                        logger.error("Batch: error processing %s: %s", rid, e)
+                        try:
+                            self._screenshot(page, "batch_error")
+                        except Exception:
+                            pass
+                        results.append(self._enrich_result({
+                            "success": False,
+                            "production_mode": PRODUCTION_MODE,
+                            "submitted": False,
+                            "mspas_ficha_id": None,
+                            "screenshots": self.screenshots,
+                            "errors": self.errors + [f"Fatal: {e}"],
+                            "duration_seconds": time.time() - record_start,
+                        }))
+
+                    # Small delay between records to avoid overwhelming MSPAS
+                    page.wait_for_timeout(1000)
+
+            finally:
+                context.close()
+                browser.close()
+
+        total_time = time.time() - batch_start
+        success_count = sum(1 for r in results if r.get("success"))
+        logger.info(
+            "Batch complete: %d/%d successful in %.1fs (avg %.1fs/record)",
+            success_count, len(records), total_time,
+            total_time / len(records) if records else 0,
+        )
+
+        return results
+
 
 # ── Standalone test ──────────────────────────────────────────────────────────
 

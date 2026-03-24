@@ -1022,6 +1022,89 @@ def mspas_submit_one(registro_id: str, x_api_key: str = Header(None)):
     return result
 
 
+@app.post("/api/mspas/submit-batch")
+def mspas_submit_batch(x_api_key: str = Header(None)):
+    """Submit ALL approved records in batch (single browser session).
+
+    Much faster than individual submissions: 1 login instead of N logins,
+    saving ~15s per record. For 1000 records: ~14h instead of ~18h.
+    """
+    verify_api_key(x_api_key)
+
+    # Recover any stuck submissions first
+    recovered = recover_stuck_submissions(timeout_minutes=10)
+    if recovered:
+        logger.info(f"Auto-recovered {recovered} stuck MSPAS submissions before batch")
+
+    username, password = get_credentials()
+    if not username:
+        raise HTTPException(400, "MSPAS credentials not configured")
+
+    # Get all approved records
+    approved_ids = get_approved_for_submission(limit=99999)
+    if not approved_ids:
+        return {"processed": 0, "success": 0, "errors": 0,
+                "message": "No approved records pending submission"}
+
+    # Claim all for submission (atomically mark as 'enviando')
+    claimed = []
+    for rid in approved_ids:
+        if try_claim_for_submission(rid):
+            claimed.append(rid)
+
+    if not claimed:
+        return {"processed": 0, "success": 0, "errors": 0,
+                "message": "All approved records are already being processed"}
+
+    # Fetch full record data for each claimed ID
+    records = []
+    for rid in claimed:
+        reg = get_registro_by_id(rid)
+        if reg:
+            records.append(reg)
+        else:
+            mark_error(rid, "Registro no encontrado en la base de datos")
+
+    if not records:
+        return {"processed": 0, "success": 0, "errors": len(claimed),
+                "message": "No valid records found for claimed IDs"}
+
+    # Process entire batch with a single browser session
+    from mspas_bot import MSPASBot
+    bot = MSPASBot(username, password)
+    results = bot.process_batch(records)
+
+    # Update queue states based on results
+    success_count = 0
+    error_count = 0
+    duplicate_count = 0
+    for reg, result in zip(records, results):
+        rid = reg.get('registro_id', '')
+        if result.get('duplicate'):
+            mark_duplicate(rid, mspas_ficha_id=result.get('mspas_ficha_id', ''))
+            duplicate_count += 1
+        elif result.get('success'):
+            if result.get('submitted'):
+                mark_sent(rid, result.get('mspas_ficha_id', ''),
+                         result.get('screenshots', [''])[-1] if result.get('screenshots') else '')
+                success_count += 1
+            else:
+                # Test mode: back to approved
+                update_estado(rid, 'aprobado')
+                success_count += 1
+        else:
+            mark_error(rid, '; '.join(result.get('errors', ['Unknown error'])))
+            error_count += 1
+
+    return {
+        "processed": len(results),
+        "success": success_count,
+        "errors": error_count,
+        "duplicates": duplicate_count,
+        "message": f"Batch complete: {success_count} ok, {error_count} errors, {duplicate_count} duplicates",
+    }
+
+
 @app.get("/api/mspas/status/{registro_id}")
 def mspas_get_status(registro_id: str, x_api_key: str = Header(None)):
     """Get MSPAS submission status for a record."""
