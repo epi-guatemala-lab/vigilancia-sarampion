@@ -10,6 +10,7 @@ import PhoneField from './fields/PhoneField.jsx'
 import FileField from './fields/FileField.jsx'
 import { getMunicipios } from '../config/mspasMunicipios.js'
 import { getPoblados } from '../config/mspasPoblados.js'
+import { getDirecciones, getDepartamentosIGSS, getSecciones } from '../config/igssOrganizacion.js'
 
 const fieldComponents = {
   text: TextField,
@@ -45,6 +46,21 @@ function resolveFieldOptions(field, formData) {
     const depto = formData.departamento_residencia
     const muni = formData.municipio_residencia
     return (depto && muni) ? getPoblados(depto, muni) : []
+  }
+
+  // IGSS Organigrama cascading
+  if (field.cascadeFrom === 'subgerencia_igss') {
+    const sg = formData.subgerencia_igss
+    return sg ? getDirecciones(sg) : ['NO APLICA']
+  }
+  if (field.cascadeFrom === 'subgerencia_igss_depto') {
+    const sg = formData.subgerencia_igss
+    return sg ? getDepartamentosIGSS(sg) : ['OTRO']
+  }
+  if (field.cascadeFrom === 'departamento_igss_seccion') {
+    const sg = formData.subgerencia_igss
+    const depto = formData.departamento_igss
+    return (sg && depto) ? getSecciones(sg, depto) : ['OTRA']
   }
 
   return field.options

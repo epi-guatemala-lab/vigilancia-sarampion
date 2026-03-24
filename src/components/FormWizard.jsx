@@ -96,6 +96,21 @@ export default function FormWizard() {
       updateField('poblado', '')
     }
 
+    // IGSS organigrama cascading resets
+    if (fieldId === 'subgerencia_igss') {
+      updateMultipleFields({ direccion_igss: '', departamento_igss: '', seccion_igss: '' })
+    }
+    if (fieldId === 'departamento_igss') {
+      updateField('seccion_igss', '')
+    }
+    // Reset all IGSS fields when es_empleado_igss changes to NO
+    if (fieldId === 'es_empleado_igss' && value === 'NO') {
+      updateMultipleFields({
+        unidad_medica_trabaja: '', puesto_desempena: '',
+        subgerencia_igss: '', direccion_igss: '', departamento_igss: '', seccion_igss: '',
+      })
+    }
+
     // Auto-calcular semana epidemiológica
     const autoFields = formFields.filter(f => f.autoCalculate === 'epiWeek' && f.dependsOnDate === fieldId)
     if (autoFields.length > 0) {
