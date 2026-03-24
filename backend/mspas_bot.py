@@ -26,14 +26,18 @@ from typing import Optional
 
 try:
     from mspas_field_map import (
+        map_record_to_mspas as _field_map_record_to_mspas,
         get_code, FUENTE_NOTI_CODES, BUSQUEDA_ACTIVA_CODES, FUENTE_VACUNA_CODES,
         VACUNA_TIPO_CODES, DOSIS_CODES, EGRESO_CODES, SEX_CODES, ETNIA_CODES,
         ESCOLARIDAD_CODES, ERUPCION_CODES, ANTIGENO_CODES, RESULTADO_CODES,
         DEPT_CODES, normalize_si_no, get_occupation_search_text,
+        CLASIFICACION_FINAL_CODES, CONFIRMADO_POR_CODES, FUENTE_INFECCION_CODES,
+        CRITERIO_DESCARTE_CODES,
     )
     HAS_FIELD_MAP = True
 except ImportError:
     HAS_FIELD_MAP = False
+    _field_map_record_to_mspas = None
 
 logger = logging.getLogger(__name__)
 
@@ -57,33 +61,25 @@ PAGE_SETTLE = 2000
 
 def map_record_to_mspas(record: dict) -> dict:
     """Convert an IGSS DB record dict into the field names expected by the
-    MSPAS EPIWEB sarampion form.  Keys are MSPAS form element identifiers;
-    values are the data to fill.
-    """
-    r = record
+    MSPAS EPIWEB sarampion form.
 
-    def _val(key: str, default: str = "") -> str:
-        v = r.get(key)
+    Delegates to the canonical mspas_field_map.map_record_to_mspas() for
+    all field conversion logic, then adds bot-specific alias keys that the
+    fill_tab*() methods expect (e.g. 'genero', 'centro_partial', etc.).
+    """
+    # Use canonical field_map as single source of truth
+    if HAS_FIELD_MAP and _field_map_record_to_mspas is not None:
+        canonical = _field_map_record_to_mspas(record)
+    else:
+        canonical = {}
+
+    def _val(key, default=""):
+        v = record.get(key)
         if v is None:
             return default
-        return str(v).strip()
+        return str(v).strip() or default
 
-    def _date(key: str) -> str:
-        """Normalize dates to DD/MM/YYYY expected by EPIWEB datepickers."""
-        raw = _val(key)
-        if not raw:
-            return ""
-        # Try ISO (YYYY-MM-DD) first
-        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y", "%d-%m-%Y"):
-            try:
-                dt = datetime.strptime(raw[:10], fmt)
-                return dt.strftime("%d/%m/%Y")
-            except ValueError:
-                continue
-        return ""  # fallback: unparseable date, return empty
-
-    def _radio(key: str) -> str:
-        """Normalize yes/no/na → SI/NO/NA."""
+    def _radio(key):
         v = _val(key).upper()
         if v in ("SI", "SÍ", "YES", "1", "TRUE"):
             return "SI"
@@ -93,98 +89,107 @@ def map_record_to_mspas(record: dict) -> dict:
             return "NA"
         return v
 
-    # Use mspas_field_map.py codes when available (converts text to MSPAS
-    # numeric codes that match <option value="N"> in the form selects).
+    # Start with all canonical fields
+    mapped = dict(canonical)
+
+    # Add bot-specific alias keys that fill_tab methods reference
+    mapped["centro_partial"] = _val("unidad_medica") or _val("centro_externo")
+    mapped["genero"] = _val("sexo")
+    mapped["genero_code"] = canonical.get("cbox_genero", "")
+    mapped["etnia"] = _val("pueblo_etnia")
+    mapped["etnia_code"] = canonical.get("cbox_etnia", "")
+    mapped["ocupacion"] = _val("ocupacion")
+    mapped["escolaridad"] = _val("escolaridad")
+    mapped["escolaridad_code"] = canonical.get("cbox_escolar", "")
+    mapped["departamento"] = _val("departamento_residencia")
+    mapped["departamento_code"] = canonical.get("cbox_iddep", "")
+    mapped["municipio"] = _val("municipio_residencia")
+    mapped["poblado"] = _val("poblado")
+    mapped["direccion"] = _val("direccion_exacta")
+    mapped["fecha_nac"] = canonical.get("fecha_nac", "")
+    mapped["nombre_madre"] = _val("nombre_encargado")
+    mapped["embarazada"] = _radio("esta_embarazada")
+    mapped["lactando"] = _radio("lactando")
+    mapped["sem_embarazo"] = _val("semanas_embarazo")
+
+    # Tab 3 aliases
+    mapped["fecha_ini_sint"] = canonical.get("fecha_ini_sint", "")
+    mapped["fecha_captacion"] = canonical.get("fecha_captacion", "")
+    mapped["fuente_noti"] = _val("fuente_notificacion")
+    mapped["fuente_noti_code"] = canonical.get("cb_fuente_noti", "")
+    mapped["fecha_domiciliaria"] = canonical.get("fecha_domiciliaria", "")
+    mapped["fecha_investigacion"] = canonical.get("fecha_investigacion", "")
+    mapped["busqueda_activa"] = _val("busqueda_activa")
+    mapped["busqueda_activa_code"] = canonical.get("slc_activa", "")
+    mapped["fecha_erupcion"] = canonical.get("txt_fecha_erupcion", "")
+    mapped["sitio_erupcion"] = _val("sitio_inicio_erupcion")
+    mapped["sitio_erupcion_code"] = canonical.get("cbox_erupciones", "")
+    mapped["fecha_fiebre"] = canonical.get("txt_fecha_fiebre", "")
+    mapped["temperatura"] = canonical.get("txt_temperatura", "")
+    mapped["signo_tos"] = _radio("signo_tos")
+    mapped["signo_coriza"] = _radio("signo_coriza")
+    mapped["signo_conjuntivitis"] = _radio("signo_conjuntivitis")
+    mapped["signo_adenopatias"] = _radio("signo_adenopatias")
+    mapped["signo_artralgia"] = _radio("signo_artralgia")
+    mapped["vacunado"] = _radio("vacunado")
+    mapped["fuente_vacuna"] = _val("fuente_info_vacuna")
+    mapped["fuente_vacuna_code"] = canonical.get("cb_fuente", "")
+    mapped["tipo_vacuna"] = _val("tipo_vacuna")
+    mapped["tipo_vacuna_code"] = canonical.get("cb_vacuna", "")
+    mapped["no_dosis"] = _val("numero_dosis_spr")
+    mapped["no_dosis_code"] = canonical.get("no_dosis", "")
+    mapped["fecha_ult_dosis"] = canonical.get("fecha_ult_dosis", "")
+    mapped["hospitalizado"] = _radio("hospitalizado")
+    mapped["hosp_nombre"] = _val("hosp_nombre")
+    mapped["hosp_fecha"] = canonical.get("hosp_fecha", "")
+    mapped["hosp_reg_med"] = _val("no_registro_medico")
+    mapped["condicion_egreso"] = _val("condicion_egreso")
+    mapped["condicion_egreso_code"] = canonical.get("cb_egreso_condicion", "")
+    mapped["fecha_egreso"] = canonical.get("egreso_fecha", "")
+
+    # Tab 4 aliases
+    mapped["contacto_sospechoso"] = _radio("contacto_sospechoso_7_23")
+    mapped["casos_comunidad"] = _radio("caso_sospechoso_comunidad_3m")
+    mapped["viajo"] = _radio("viajo_7_23_previo")
+    mapped["donde_viajo"] = _val("destino_viaje")
+
+    # Tab 5 aliases
+    mapped["recolecto_muestra"] = _radio("recolecto_muestra")
+    mapped["muestra_suero"] = _val("muestra_suero") not in ("", "0", "NO", "False")
+    mapped["muestra_suero_fecha"] = canonical.get("fecha_suero", "")
+    mapped["muestra_hisopado"] = _val("muestra_hisopado") not in ("", "0", "NO", "False")
+    mapped["muestra_hisopado_fecha"] = canonical.get("fecha_HN", "")
+    mapped["muestra_orina"] = _val("muestra_orina") not in ("", "0", "NO", "False")
+    mapped["muestra_orina_fecha"] = canonical.get("fecha_orina", "")
+    mapped["antigeno"] = _val("antigeno_prueba")
+    mapped["antigeno_code"] = canonical.get("slc_antigeno", "")
+    mapped["resultado_lab"] = _val("resultado_prueba")
+    mapped["resultado_lab_code"] = canonical.get("slc_resul_lab", "")
+    mapped["fecha_recep_lab"] = canonical.get("fecha_recep", "")
+    mapped["fecha_resul_lab"] = canonical.get("fecha_resul_lab", "")
+
+    # Tab 6 — Clasificacion Final (from canonical field_map)
+    mapped["clasificacion_code"] = canonical.get("slc_clas_final", "")
+    mapped["clasificacion_fecha"] = canonical.get("txt_fecha_final", "")
+    mapped["clasificacion_responsable"] = canonical.get("txt_nom_resp_clas", "")
+    mapped["clasificacion_observaciones"] = canonical.get("observaciones_clas", "")
+
+    # Tab 6 — Conditional fields (confirmado_por, fuente_infeccion)
     if HAS_FIELD_MAP:
-        _gc = lambda mapping, key, default="": get_code(mapping, _val(key), default)
+        mapped["confirmado_por_code"] = get_code(
+            CONFIRMADO_POR_CODES, _val("confirmado_por"), "")
+        mapped["fuente_infeccion_code"] = get_code(
+            FUENTE_INFECCION_CODES, _val("fuente_infeccion"), "")
+        mapped["criterio_descarte_code"] = get_code(
+            CRITERIO_DESCARTE_CODES, _val("criterio_descarte"), "")
     else:
-        _gc = lambda mapping, key, default="": _val(key) or default
+        mapped["confirmado_por_code"] = ""
+        mapped["fuente_infeccion_code"] = ""
+        mapped["criterio_descarte_code"] = ""
 
-    mapped = {
-        # Tab 1 — Datos Generales
-        "fecha_not": _date("fecha_notificacion"),
-        "nom_responsable": _val("nom_responsable"),
-        "cargo_responsable": _val("cargo_responsable"),
-        "tel_responsable": _val("telefono_responsable"),
-        "centro_partial": _val("unidad_medica") or _val("centro_externo"),
+    mapped["investigador_nombre"] = _val("responsable_clasificacion")
+    mapped["investigador_cargo"] = _val("cargo_responsable")
 
-        # Tab 2 — Datos Paciente
-        "nombres": _val("nombres"),
-        "apellidos": _val("apellidos"),
-        "genero": _val("sexo"),
-        "genero_code": _gc(SEX_CODES, "sexo") if HAS_FIELD_MAP else "",
-        "etnia": _val("pueblo_etnia"),
-        "etnia_code": _gc(ETNIA_CODES, "pueblo_etnia") if HAS_FIELD_MAP else "",
-        "ocupacion": _val("ocupacion"),
-        "escolaridad": _val("escolaridad"),
-        "escolaridad_code": _gc(ESCOLARIDAD_CODES, "escolaridad") if HAS_FIELD_MAP else "",
-        "departamento": _val("departamento_residencia"),
-        "departamento_code": _gc(DEPT_CODES, "departamento_residencia") if HAS_FIELD_MAP else "",
-        "municipio": _val("municipio_residencia"),
-        "poblado": _val("poblado"),
-        "direccion": _val("direccion_exacta"),
-        "fecha_nac": _date("fecha_nacimiento"),
-        "nombre_madre": _val("nombre_encargado"),
-        "embarazada": _radio("esta_embarazada"),
-        "lactando": _radio("lactando"),
-        "sem_embarazo": _val("semanas_embarazo"),
-
-        # Tab 3 — Info Clinica
-        "fecha_ini_sint": _date("fecha_inicio_sintomas"),
-        "fecha_captacion": _date("fecha_captacion"),
-        "fuente_noti": _val("fuente_notificacion"),
-        "fuente_noti_code": _gc(FUENTE_NOTI_CODES, "fuente_notificacion") if HAS_FIELD_MAP else "",
-        "fecha_domiciliaria": _date("fecha_visita_domiciliaria"),
-        "fecha_investigacion": _date("fecha_inicio_investigacion"),
-        "busqueda_activa": _val("busqueda_activa"),
-        "busqueda_activa_code": _gc(BUSQUEDA_ACTIVA_CODES, "busqueda_activa") if HAS_FIELD_MAP else "",
-        "fecha_erupcion": _date("fecha_inicio_erupcion"),
-        "sitio_erupcion": _val("sitio_inicio_erupcion"),
-        "sitio_erupcion_code": _gc(ERUPCION_CODES, "sitio_inicio_erupcion") if HAS_FIELD_MAP else "",
-        "fecha_fiebre": _date("fecha_inicio_fiebre"),
-        "temperatura": _val("temperatura_celsius"),
-        "signo_tos": _radio("signo_tos"),
-        "signo_coriza": _radio("signo_coriza"),
-        "signo_conjuntivitis": _radio("signo_conjuntivitis"),
-        "signo_adenopatias": _radio("signo_adenopatias"),
-        "signo_artralgia": _radio("signo_artralgia"),
-        "vacunado": _radio("vacunado"),
-        "fuente_vacuna": _val("fuente_info_vacuna"),
-        "fuente_vacuna_code": _gc(FUENTE_VACUNA_CODES, "fuente_info_vacuna") if HAS_FIELD_MAP else "",
-        "tipo_vacuna": _val("tipo_vacuna"),
-        "tipo_vacuna_code": _gc(VACUNA_TIPO_CODES, "tipo_vacuna") if HAS_FIELD_MAP else "",
-        "no_dosis": _val("numero_dosis_spr"),
-        "no_dosis_code": _gc(DOSIS_CODES, "numero_dosis_spr") if HAS_FIELD_MAP else "",
-        "fecha_ult_dosis": _date("fecha_ultima_dosis"),
-        "hospitalizado": _radio("hospitalizado"),
-        "hosp_nombre": _val("hosp_nombre"),
-        "hosp_fecha": _date("hosp_fecha"),
-        "hosp_reg_med": _val("no_registro_medico"),
-        "condicion_egreso": _val("condicion_egreso"),
-        "condicion_egreso_code": _gc(EGRESO_CODES, "condicion_egreso") if HAS_FIELD_MAP else "",
-        "fecha_egreso": _date("fecha_egreso"),
-
-        # Tab 4 — Factores de Riesgo
-        "contacto_sospechoso": _radio("contacto_sospechoso_7_23"),
-        "casos_comunidad": _radio("caso_sospechoso_comunidad_3m"),
-        "viajo": _radio("viajo_7_23_previo"),
-        "donde_viajo": _val("destino_viaje"),
-
-        # Tab 5 — Laboratorio
-        "recolecto_muestra": _radio("recolecto_muestra"),
-        "muestra_suero": _val("muestra_suero") not in ("", "0", "NO", "False"),
-        "muestra_suero_fecha": _date("muestra_suero_fecha"),
-        "muestra_hisopado": _val("muestra_hisopado") not in ("", "0", "NO", "False"),
-        "muestra_hisopado_fecha": _date("muestra_hisopado_fecha"),
-        "muestra_orina": _val("muestra_orina") not in ("", "0", "NO", "False"),
-        "muestra_orina_fecha": _date("muestra_orina_fecha"),
-        "antigeno": _val("antigeno_prueba"),
-        "antigeno_code": _gc(ANTIGENO_CODES, "antigeno_prueba") if HAS_FIELD_MAP else "",
-        "resultado_lab": _val("resultado_prueba"),
-        "resultado_lab_code": _gc(RESULTADO_CODES, "resultado_prueba") if HAS_FIELD_MAP else "",
-        "fecha_recep_lab": _date("fecha_recepcion_laboratorio"),
-        "fecha_resul_lab": _date("fecha_resultado_laboratorio"),
-    }
     return mapped
 
 
@@ -1360,6 +1365,109 @@ class MSPASBot:
 
         self._screenshot(page, "tab5_laboratorio")
 
+    # ── Tab 6: Clasificacion Final ────────────────────────────────────────
+
+    def fill_tab6_clasificacion(self, page, data: dict):
+        """Fill Tab 6 — Clasificacion Final."""
+        logger.info("Filling Tab 6: Clasificacion Final")
+        self._click_tab(page, "Clasific")  # partial match: "Clasificación"
+
+        # Classification select (slc_clas_final: 1=Sarampion, 2=Rubeola, 3=Descartado)
+        if data.get("clasificacion_code"):
+            self._safe_select(
+                page,
+                '#slc_clas_final, select[name="slc_clas_final"]',
+                "",
+                "clasificacion_final",
+                code=data["clasificacion_code"],
+            )
+            page.wait_for_timeout(1000)
+
+            # Conditional fields based on classification
+            clas_code = data["clasificacion_code"]
+
+            # If confirmed (Sarampion=1 or Rubeola=2): show confirmado_por + fuente_infeccion
+            if clas_code in ("1", "2"):
+                if data.get("confirmado_por_code"):
+                    self._safe_select(
+                        page,
+                        '#slc_confirmado, select[name="slc_confirmado"]',
+                        "",
+                        "confirmado_por",
+                        code=data["confirmado_por_code"],
+                    )
+                if data.get("fuente_infeccion_code"):
+                    self._safe_select(
+                        page,
+                        '#slc_fuente_infect, select[name="slc_fuente_infect"]',
+                        "",
+                        "fuente_infeccion",
+                        code=data["fuente_infeccion_code"],
+                    )
+
+            # If discarded (3): show criterio_descarte
+            if clas_code == "3" and data.get("criterio_descarte_code"):
+                self._safe_select(
+                    page,
+                    '#slc_crit_desc, select[name="slc_crit_desc"]',
+                    "",
+                    "criterio_descarte",
+                    code=data["criterio_descarte_code"],
+                )
+
+        # Classification date
+        if data.get("clasificacion_fecha"):
+            page.evaluate("""
+                () => {
+                    const el = document.querySelector('#txt_fecha_final, input[name="txt_fecha_final"]');
+                    if (el) { el.removeAttribute('readonly'); }
+                }
+            """)
+            self._safe_fill(
+                page,
+                '#txt_fecha_final, input[name="txt_fecha_final"]',
+                data["clasificacion_fecha"],
+                "fecha_clasificacion"
+            )
+
+        # Investigator name
+        if data.get("investigador_nombre"):
+            self._safe_fill(
+                page,
+                '#txt_nom_invest, input[name="txt_nom_invest"]',
+                data["investigador_nombre"],
+                "investigador_nombre"
+            )
+
+        # Investigator position
+        if data.get("investigador_cargo"):
+            self._safe_fill(
+                page,
+                '#txt_cargo_invest, input[name="txt_cargo_invest"]',
+                data["investigador_cargo"],
+                "investigador_cargo"
+            )
+
+        # Classification observations
+        if data.get("clasificacion_observaciones"):
+            self._safe_fill(
+                page,
+                '#observaciones_clas, textarea[name="observaciones_clas"], input[name="observaciones_clas"]',
+                data["clasificacion_observaciones"],
+                "observaciones_clas"
+            )
+
+        # Responsible for classification
+        if data.get("clasificacion_responsable"):
+            self._safe_fill(
+                page,
+                '#txt_nom_resp_clas, input[name="txt_nom_resp_clas"]',
+                data["clasificacion_responsable"],
+                "responsable_clasificacion"
+            )
+
+        self._screenshot(page, "tab6_clasificacion")
+
     # ── Submit ───────────────────────────────────────────────────────────
 
     def submit_form(self, page) -> dict:
@@ -1557,33 +1665,56 @@ class MSPASBot:
                     }
 
                 # Step 4: Fill all tabs (with session checks between each)
-                self.fill_tab1_datos_generales(page, mapped)
+                # If session expires mid-fill, restart ALL tabs from scratch (max 2 retries)
+                MAX_SESSION_RETRIES = 2
+                session_retries = 0
 
-                for tab_fill_fn in [
+                all_tab_fns = [
+                    self.fill_tab1_datos_generales,
                     self.fill_tab2_datos_paciente,
                     self.fill_tab3_info_clinica,
                     self.fill_tab4_factores_riesgo,
                     self.fill_tab5_laboratorio,
-                ]:
-                    if not self._check_session_alive(page):
-                        self.errors.append("MSPAS session expired, re-logging in...")
-                        if not self.login(page):
-                            return {
-                                "success": False, "production_mode": PRODUCTION_MODE,
-                                "submitted": False, "mspas_ficha_id": None,
-                                "screenshots": self.screenshots,
-                                "errors": self.errors + ["Re-login failed after session expiry"],
-                                "duration_seconds": time.time() - self._start_time,
-                            }
-                        if not self.navigate_to_form(page):
-                            return {
-                                "success": False, "production_mode": PRODUCTION_MODE,
-                                "submitted": False, "mspas_ficha_id": None,
-                                "screenshots": self.screenshots,
-                                "errors": self.errors + ["Re-navigation failed after session expiry"],
-                                "duration_seconds": time.time() - self._start_time,
-                            }
-                    tab_fill_fn(page, mapped)
+                    self.fill_tab6_clasificacion,
+                ]
+
+                restart_needed = True
+                while restart_needed:
+                    restart_needed = False
+                    for i, tab_fill_fn in enumerate(all_tab_fns):
+                        if i > 0 and not self._check_session_alive(page):
+                            session_retries += 1
+                            self.errors.append(
+                                f"MSPAS session expired at tab {i+1}, restarting ALL tabs "
+                                f"(retry {session_retries}/{MAX_SESSION_RETRIES})..."
+                            )
+                            if session_retries > MAX_SESSION_RETRIES:
+                                return {
+                                    "success": False, "production_mode": PRODUCTION_MODE,
+                                    "submitted": False, "mspas_ficha_id": None,
+                                    "screenshots": self.screenshots,
+                                    "errors": self.errors + [f"Max session retries ({MAX_SESSION_RETRIES}) exceeded"],
+                                    "duration_seconds": time.time() - self._start_time,
+                                }
+                            if not self.login(page):
+                                return {
+                                    "success": False, "production_mode": PRODUCTION_MODE,
+                                    "submitted": False, "mspas_ficha_id": None,
+                                    "screenshots": self.screenshots,
+                                    "errors": self.errors + ["Re-login failed after session expiry"],
+                                    "duration_seconds": time.time() - self._start_time,
+                                }
+                            if not self.navigate_to_form(page):
+                                return {
+                                    "success": False, "production_mode": PRODUCTION_MODE,
+                                    "submitted": False, "mspas_ficha_id": None,
+                                    "screenshots": self.screenshots,
+                                    "errors": self.errors + ["Re-navigation failed after session expiry"],
+                                    "duration_seconds": time.time() - self._start_time,
+                                }
+                            restart_needed = True
+                            break  # break inner for-loop to restart from tab 1
+                        tab_fill_fn(page, mapped)
 
                 # Step 5: Submit or stop
                 # Don't submit if too many errors accumulated during form filling

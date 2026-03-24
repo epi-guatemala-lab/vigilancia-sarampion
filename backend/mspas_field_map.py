@@ -576,19 +576,30 @@ def parse_date(date_str: Optional[str]) -> tuple[str, str, str]:
     if not date_str:
         return ("", "", "")
 
+    def _validate_date_parts(dd: str, mm: str, yyyy: str) -> tuple[str, str, str]:
+        """Validate that month is 1-12 and day is 1-31. Returns ('','','') if invalid."""
+        try:
+            mm_int = int(mm)
+            dd_int = int(dd)
+            if not (1 <= mm_int <= 12 and 1 <= dd_int <= 31):
+                return ('', '', '')
+        except ValueError:
+            return ('', '', '')
+        return (dd.zfill(2), mm.zfill(2), yyyy)
+
     # YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
     if len(date_str) >= 10 and date_str[4] == "-":
         parts = date_str[:10].split("-")
         if len(parts) == 3 and all(p.isdigit() for p in parts):
             yyyy, mm, dd = parts
-            return (dd.zfill(2), mm.zfill(2), yyyy)
+            return _validate_date_parts(dd, mm, yyyy)
 
     # DD/MM/YYYY
     if "/" in date_str:
         parts = date_str.split("/")
         if len(parts) == 3 and all(p.strip().isdigit() for p in parts):
             dd, mm, yyyy = [p.strip() for p in parts]
-            return (dd.zfill(2), mm.zfill(2), yyyy)
+            return _validate_date_parts(dd, mm, yyyy)
 
     # DD-MM-YYYY (alternate separator)
     if date_str.count("-") == 2 and len(date_str) <= 10:
@@ -597,7 +608,7 @@ def parse_date(date_str: Optional[str]) -> tuple[str, str, str]:
             # Distinguish from YYYY-MM-DD by checking first part length
             if len(parts[0]) == 2:
                 dd, mm, yyyy = parts
-                return (dd.zfill(2), mm.zfill(2), yyyy)
+                return _validate_date_parts(dd, mm, yyyy)
 
     return ("", "", "")
 
@@ -785,7 +796,10 @@ def map_record_to_mspas(record: dict) -> dict:
     mapped["cbox_erupciones"] = get_code(ERUPCION_CODES, g("sitio_inicio_erupcion"))
     mapped["txt_otra_erup"] = g("sitio_inicio_erupcion_otro")
     mapped["txt_fecha_fiebre"] = format_date_mspas(g("fecha_inicio_fiebre"))
-    mapped["txt_temperatura"] = g("temperatura_celsius")
+    temp = g("temperatura_celsius")
+    if temp:
+        temp = temp.replace(',', '.')
+    mapped["txt_temperatura"] = temp
 
     # Signos y Sintomas (radio SI/NO)
     mapped["tos"] = normalize_si_no(g("signo_tos"))

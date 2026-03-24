@@ -176,13 +176,24 @@ def get_queue_counts() -> dict:
         conn.close()
 
 
+_ALLOWED_UPDATE_COLS = {
+    'revisado_por', 'fecha_revision', 'aprobado_por', 'fecha_aprobacion',
+    'mspas_ficha_id', 'fecha_envio', 'intentos', 'ultimo_error', 'screenshot_path',
+}
+
+
 def update_estado(registro_id: str, estado: str, **kwargs):
-    """Update the state of a queue entry."""
+    """Update the state of a queue entry. Only whitelisted columns are accepted."""
     conn = get_connection()
     try:
         sets = ["estado = ?", "updated_at = ?"]
         params = [estado, datetime.now().isoformat()]
-        for key, val in kwargs.items():
+        # Filter kwargs to only allowed columns to prevent SQL injection
+        safe_kwargs = {k: v for k, v in kwargs.items() if k in _ALLOWED_UPDATE_COLS}
+        if len(safe_kwargs) != len(kwargs):
+            rejected = set(kwargs.keys()) - _ALLOWED_UPDATE_COLS
+            logger.warning("update_estado: rejected non-whitelisted columns: %s", rejected)
+        for key, val in safe_kwargs.items():
             sets.append(f"{key} = ?")
             params.append(val)
         params.append(registro_id)
@@ -261,6 +272,19 @@ def recover_stuck_submissions(timeout_minutes: int = 10):
         )
         conn.commit()
         return cursor.rowcount
+    finally:
+        conn.close()
+
+
+def get_status_by_id(registro_id: str) -> dict:
+    """Get the MSPAS queue status for a single record by its ID."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM mspas_envios WHERE registro_id = ?",
+            (registro_id,)
+        ).fetchone()
+        return dict(row) if row else None
     finally:
         conn.close()
 

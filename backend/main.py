@@ -38,7 +38,7 @@ from mspas_queue import (
     enqueue_record, enqueue_all_pending, get_queue, get_queue_counts,
     approve_records, update_estado, get_approved_for_submission,
     mark_sent, mark_error, mark_duplicate, try_claim_for_submission,
-    recover_stuck_submissions,
+    recover_stuck_submissions, get_status_by_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -987,6 +987,11 @@ def mspas_submit_one(registro_id: str, x_api_key: str = Header(None)):
     """Submit a single record to MSPAS (or test-fill in non-production mode)."""
     verify_api_key(x_api_key)
 
+    # Auto-recover any stuck submissions before processing
+    recovered = recover_stuck_submissions(timeout_minutes=10)
+    if recovered:
+        logger.info(f"Auto-recovered {recovered} stuck MSPAS submissions before submit")
+
     username, password = get_credentials()
     if not username:
         raise HTTPException(400, "MSPAS credentials not configured")
@@ -1021,11 +1026,10 @@ def mspas_submit_one(registro_id: str, x_api_key: str = Header(None)):
 def mspas_get_status(registro_id: str, x_api_key: str = Header(None)):
     """Get MSPAS submission status for a record."""
     verify_api_key(x_api_key)
-    items = get_queue()
-    for item in items:
-        if item.get("registro_id") == registro_id:
-            return item
-    raise HTTPException(404, "Record not in MSPAS queue")
+    item = get_status_by_id(registro_id)
+    if not item:
+        raise HTTPException(404, "Record not in MSPAS queue")
+    return item
 
 
 @app.get("/api/mspas/screenshot/{filename}")
