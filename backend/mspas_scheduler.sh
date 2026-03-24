@@ -11,7 +11,8 @@ VENV="/opt/vigilancia-sarampion/venv/bin/python3"
 LOG="/var/log/igss-mspas-scheduler.log"
 API_URL="http://localhost:8510/api"
 API_KEY=$(grep API_SECRET $BACKEND/.env | cut -d= -f2 | tr -d '"' | tr -d "'")
-MAX_PER_RUN=20
+MAX_PER_RUN=200
+DELAY_BETWEEN=3  # seconds between submissions (no rate limit on MSPAS)
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') — MSPAS scheduler started" >> $LOG
 
@@ -57,7 +58,7 @@ for RID in $RECORDS; do
         echo "  ERROR: $ERR" >> $LOG
     fi
 
-    sleep 5
+    sleep $DELAY_BETWEEN
 done
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') — Done: $SUCCESS ok, $ERRORS errors" >> $LOG
