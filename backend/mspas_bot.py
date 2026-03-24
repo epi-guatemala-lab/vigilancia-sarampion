@@ -211,17 +211,63 @@ class MSPASBot:
             logger.warning("Screenshot failed (%s): %s", name, e)
         return path
 
+    def _dismiss_datepicker(self, page):
+        """Dismiss any open jQuery UI datepicker overlay."""
+        try:
+            page.evaluate("""
+                () => {
+                    const dp = document.getElementById('ui-datepicker-div');
+                    if (dp) dp.style.display = 'none';
+                    // Also blur any focused element to close datepicker
+                    if (document.activeElement) document.activeElement.blur();
+                }
+            """)
+        except Exception:
+            pass
+
     def _safe_fill(self, page, selector: str, value: str, label: str = ""):
-        """Fill a text input, logging errors instead of crashing."""
+        """Fill a text input, logging errors instead of crashing.
+
+        Dismisses any open datepicker before interacting to avoid overlay
+        blocking the click.
+        """
         if not value:
             return
         try:
+            # Dismiss any datepicker that might be covering the element
+            self._dismiss_datepicker(page)
+
             el = page.query_selector(selector)
             if el:
-                el.click()
-                el.fill("")  # clear first
-                el.fill(value)
-                logger.debug("Filled %s = %s", label or selector, value)
+                # For datepicker fields, use JS to set value directly
+                is_datepicker = page.evaluate(f"""
+                    () => {{
+                        const el = document.querySelector('{selector.split(",")[0]}');
+                        return el ? el.classList.contains('hasDatepicker') : false;
+                    }}
+                """)
+                if is_datepicker:
+                    # Set value via JS (bypasses datepicker overlay issues)
+                    page.evaluate(f"""
+                        (val) => {{
+                            const el = document.querySelector('{selector.split(",")[0]}');
+                            if (!el) return;
+                            el.removeAttribute('readonly');
+                            el.removeAttribute('disabled');
+                            el.value = val;
+                            el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            el.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                            // Hide datepicker
+                            const dp = document.getElementById('ui-datepicker-div');
+                            if (dp) dp.style.display = 'none';
+                        }}
+                    """, value)
+                    logger.debug("Filled %s = %s (via JS/datepicker)", label or selector, value)
+                else:
+                    el.click()
+                    el.fill("")  # clear first
+                    el.fill(value)
+                    logger.debug("Filled %s = %s", label or selector, value)
             else:
                 msg = f"Element not found: {selector} ({label})"
                 logger.warning(msg)
@@ -252,11 +298,41 @@ class MSPASBot:
                 self.errors.append(msg)
                 return
 
+            # Enable the select if disabled (some fields are disabled until a
+            # radio or other field triggers JS to enable them)
+            is_disabled = el.get_attribute("disabled") is not None
+            if is_disabled:
+                css_sel = selector.split(",")[0].strip()
+                page.evaluate(f"""
+                    () => {{
+                        const el = document.querySelector('{css_sel}');
+                        if (el) el.removeAttribute('disabled');
+                    }}
+                """)
+                logger.debug("Enabled disabled select: %s", label or selector)
+
             # Strategy 1: Select by numeric code (most reliable for MSPAS forms)
             if code:
                 try:
-                    page.select_option(selector, value=code)
+                    page.select_option(selector, value=code, timeout=3000)
                     logger.debug("Selected %s = code '%s' (by value)", label or selector, code)
+                    return
+                except Exception:
+                    pass
+                # Fallback: set via JS if Playwright can't interact
+                try:
+                    css_sel = selector.split(",")[0].strip()
+                    page.evaluate(f"""
+                        (code) => {{
+                            const el = document.querySelector('{css_sel}');
+                            if (el) {{
+                                el.removeAttribute('disabled');
+                                el.value = code;
+                                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            }}
+                        }}
+                    """, code)
+                    logger.debug("Selected %s = code '%s' (via JS)", label or selector, code)
                     return
                 except Exception:
                     pass
@@ -264,7 +340,7 @@ class MSPASBot:
             # Strategy 2: Select by exact label text
             if value:
                 try:
-                    page.select_option(selector, label=value)
+                    page.select_option(selector, label=value, timeout=3000)
                     logger.debug("Selected %s = %s (by label)", label or selector, value)
                     return
                 except Exception:
@@ -278,7 +354,21 @@ class MSPASBot:
                     if val_upper in text or text in val_upper:
                         opt_value = opt.get_attribute("value")
                         if opt_value:
-                            page.select_option(selector, value=opt_value)
+                            try:
+                                page.select_option(selector, value=opt_value, timeout=3000)
+                            except Exception:
+                                # JS fallback for partial match
+                                css_sel = selector.split(",")[0].strip()
+                                page.evaluate(f"""
+                                    (val) => {{
+                                        const el = document.querySelector('{css_sel}');
+                                        if (el) {{
+                                            el.removeAttribute('disabled');
+                                            el.value = val;
+                                            el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                        }}
+                                    }}
+                                """, opt_value)
                             logger.debug("Selected %s = %s (partial match)", label or selector, text)
                             return
 
@@ -373,14 +463,16 @@ class MSPASBot:
                         logger.debug("Radio %s = %s (case match)", label or name, value)
                         return
 
-                # Try alternate SI/NO <-> 1/2 mapping
-                alt_map = {"SI": "1", "NO": "2", "1": "SI", "2": "NO",
-                           "NA": "3", "3": "NA"}
-                alt_value = alt_map.get(value.upper(), "")
-                if alt_value:
+                # Try alternate SI/NO <-> 1/2 <-> s/n mapping
+                alt_map = {"SI": ["1", "s", "S"], "NO": ["2", "n", "N"],
+                           "1": ["SI", "s"], "2": ["NO", "n"],
+                           "S": ["SI", "1"], "N": ["NO", "2"],
+                           "NA": ["3"], "3": ["NA"]}
+                alt_values = alt_map.get(value.upper(), [])
+                for alt_value in alt_values:
                     for radio in radios:
-                        radio_val = (radio.get_attribute("value") or "").strip().upper()
-                        if radio_val == alt_value.upper():
+                        radio_val = (radio.get_attribute("value") or "").strip()
+                        if radio_val == alt_value or radio_val.upper() == alt_value.upper():
                             radio.click(force=True)
                             logger.debug("Radio %s = %s (alt value %s)", label or name, value, alt_value)
                             return
@@ -826,7 +918,16 @@ class MSPASBot:
             self._safe_radio(page, "vacunado", data["vacunado"], "vacunado")
 
             if data["vacunado"] == "SI":
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(1000)
+                # Force-enable vaccine selects in case the radio click didn't trigger JS
+                page.evaluate("""
+                    () => {
+                        ['cb_fuente', 'cb_vacuna', 'no_dosis', 'fecha_ult_dosis'].forEach(id => {
+                            const el = document.getElementById(id) || document.querySelector('[name="' + id + '"]');
+                            if (el) el.removeAttribute('disabled');
+                        });
+                    }
+                """)
 
                 if data.get("fuente_vacuna"):
                     self._safe_select(
@@ -926,9 +1027,15 @@ class MSPASBot:
                 "fecha_egreso"
             )
 
-        # Pregnancy in clinical tab (some MSPAS forms duplicate this here)
-        if data.get("embarazada"):
-            self._safe_radio(page, "rad_embarazada", data["embarazada"], "embarazada_clinica")
+        # Pregnancy in clinical tab — only attempt if patient is female and
+        # the radio is visible (some MSPAS forms duplicate this field here)
+        if data.get("embarazada") and data.get("genero", "").upper() in ("F", "FEMENINO", "MUJER", "2"):
+            try:
+                el = page.query_selector('input[name="rad_embarazada"]')
+                if el and el.is_visible():
+                    self._safe_radio(page, "rad_embarazada", data["embarazada"], "embarazada_clinica")
+            except Exception:
+                pass  # Not critical — already set in tab2
 
         self._screenshot(page, "tab3_info_clinica")
 
@@ -976,24 +1083,18 @@ class MSPASBot:
             if data["recolecto_muestra"] == "SI":
                 page.wait_for_timeout(500)
 
-                # Suero checkbox + date
+                # Suero checkbox + date (try multiple MSPAS naming patterns)
                 if data.get("muestra_suero"):
                     self._safe_checkbox(
                         page,
-                        '#suero, input[name="suero"], input[type="checkbox"][value="suero"]',
+                        '#chk_suero, input[name="chk_suero"], #suero, input[name="suero"], input[type="checkbox"][value="suero"]',
                         True,
                         "muestra_suero"
                     )
                     if data.get("muestra_suero_fecha"):
-                        page.evaluate("""
-                            () => {
-                                const el = document.querySelector('#suero_fecha, input[name="suero_fecha"]');
-                                if (el) { el.removeAttribute('readonly'); }
-                            }
-                        """)
                         self._safe_fill(
                             page,
-                            '#suero_fecha, input[name="suero_fecha"]',
+                            '#fecha_suero, input[name="fecha_suero"], #suero_fecha, input[name="suero_fecha"]',
                             data["muestra_suero_fecha"],
                             "suero_fecha"
                         )
@@ -1002,20 +1103,14 @@ class MSPASBot:
                 if data.get("muestra_hisopado"):
                     self._safe_checkbox(
                         page,
-                        '#hisopado, input[name="hisopado"], input[type="checkbox"][value="hisopado"]',
+                        '#chk_HN, input[name="chk_HN"], #hisopado, input[name="hisopado"], input[type="checkbox"][value="hisopado"]',
                         True,
                         "muestra_hisopado"
                     )
                     if data.get("muestra_hisopado_fecha"):
-                        page.evaluate("""
-                            () => {
-                                const el = document.querySelector('#hisopado_fecha, input[name="hisopado_fecha"]');
-                                if (el) { el.removeAttribute('readonly'); }
-                            }
-                        """)
                         self._safe_fill(
                             page,
-                            '#hisopado_fecha, input[name="hisopado_fecha"]',
+                            '#fecha_HN, input[name="fecha_HN"], #hisopado_fecha, input[name="hisopado_fecha"]',
                             data["muestra_hisopado_fecha"],
                             "hisopado_fecha"
                         )
@@ -1024,20 +1119,14 @@ class MSPASBot:
                 if data.get("muestra_orina"):
                     self._safe_checkbox(
                         page,
-                        '#orina, input[name="orina"], input[type="checkbox"][value="orina"]',
+                        '#chk_orina, input[name="chk_orina"], #orina, input[name="orina"], input[type="checkbox"][value="orina"]',
                         True,
                         "muestra_orina"
                     )
                     if data.get("muestra_orina_fecha"):
-                        page.evaluate("""
-                            () => {
-                                const el = document.querySelector('#orina_fecha, input[name="orina_fecha"]');
-                                if (el) { el.removeAttribute('readonly'); }
-                            }
-                        """)
                         self._safe_fill(
                             page,
-                            '#orina_fecha, input[name="orina_fecha"]',
+                            '#fecha_orina, input[name="fecha_orina"], #orina_fecha, input[name="orina_fecha"]',
                             data["muestra_orina_fecha"],
                             "orina_fecha"
                         )
@@ -1385,7 +1474,7 @@ def _test():
         "fecha_ultima_dosis": "2020-01-10",
 
         "hospitalizado": "NO",
-        "condicion_egreso": "Mejorado",
+        "condicion_egreso": "",  # Not applicable when hospitalizado=NO
 
         "contacto_sospechoso_7_23": "NO",
         "caso_sospechoso_comunidad_3m": "NO",
@@ -1398,8 +1487,8 @@ def _test():
         "muestra_hisopado": "SI",
         "muestra_hisopado_fecha": "2026-03-17",
         "muestra_orina": "NO",
-        "antigeno_prueba": "ELISA IGM",
-        "resultado_prueba": "PENDIENTE",
+        "antigeno_prueba": "Sarampión",
+        "resultado_prueba": "Negativo",
         "fecha_recepcion_laboratorio": "2026-03-18",
     }
 
