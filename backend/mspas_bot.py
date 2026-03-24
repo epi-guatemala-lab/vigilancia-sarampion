@@ -53,8 +53,8 @@ SCREENSHOT_DIR = os.environ.get(
 # Default timeouts (ms)
 NAV_TIMEOUT = 30_000
 ACTION_TIMEOUT = 10_000
-AJAX_WAIT = 1500  # after dept/muni selects
-PAGE_SETTLE = 2000
+AJAX_WAIT = 800  # after dept/muni selects (optimized from 1500)
+PAGE_SETTLE = 800  # optimized from 2000 (tabs load fast)
 
 
 # ── Field mapping: IGSS DB → MSPAS form ─────────────────────────────────────
@@ -600,8 +600,8 @@ class MSPASBot:
     def login(self, page) -> bool:
         """Login to MSPAS EPIWEB. Returns True on success."""
         logger.info("Navigating to EPIWEB login: %s", EPIWEB_URL)
-        page.goto(EPIWEB_URL, timeout=NAV_TIMEOUT, wait_until="networkidle")
-        page.wait_for_timeout(2000)
+        page.goto(EPIWEB_URL, timeout=NAV_TIMEOUT, wait_until="domcontentloaded")
+        page.wait_for_timeout(1000)
 
         # Fill credentials
         usuario_input = page.query_selector('input[name="usuario"]')
@@ -636,7 +636,7 @@ class MSPASBot:
             # Fallback: press Enter
             password_input.press("Enter")
 
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(2000)
 
         # Verify login success — expect redirect to sistema.php or similar
         current_url = page.url
@@ -666,8 +666,8 @@ class MSPASBot:
 
         # Step 1: Go directly to fichas list page (skip intermediate clicks)
         base_url = EPIWEB_URL.rstrip("/")
-        page.goto(f"{base_url}/fichas/paginas/fichas.php", timeout=NAV_TIMEOUT, wait_until="networkidle")
-        page.wait_for_timeout(2000)
+        page.goto(f"{base_url}/fichas/paginas/fichas.php", timeout=NAV_TIMEOUT, wait_until="domcontentloaded")
+        page.wait_for_timeout(1000)
         self._screenshot(page, "nav_fichas_list")
         logger.info("Navigated to fichas list")
 
@@ -689,12 +689,12 @@ class MSPASBot:
 
         if sarampion_link:
             sarampion_link.click()
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(1000)
             logger.info("Clicked sarampion entry")
         else:
             # Last resort: direct URL
-            page.goto(f"{base_url}/fichas/paginas/sar/sarampion.php", timeout=NAV_TIMEOUT, wait_until="networkidle")
-            page.wait_for_timeout(2000)
+            page.goto(f"{base_url}/fichas/paginas/sar/sarampion.php", timeout=NAV_TIMEOUT, wait_until="domcontentloaded")
+            page.wait_for_timeout(1000)
             logger.info("Navigated directly to sarampion list")
 
         self._screenshot(page, "nav_sarampion_list")
@@ -709,7 +709,7 @@ class MSPASBot:
         )
         if create_btn:
             create_btn.click()
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(1500)
             logger.info("Clicked create new form button")
         else:
             self.errors.append("'Crear Ficha Nueva' button not found")
@@ -744,9 +744,9 @@ class MSPASBot:
             page.goto(
                 f"{base_url}/fichas/paginas/sar/sarampion.php",
                 timeout=NAV_TIMEOUT,
-                wait_until="networkidle",
+                wait_until="domcontentloaded",
             )
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(1000)
 
             # Look for search/filter fields on the list page
             # Try apellidos search field
@@ -956,8 +956,7 @@ class MSPASBot:
             )
             # CRITICAL: Wait for municipios to load via AJAX
             logger.info("Waiting for municipios AJAX load...")
-            self._wait_for_ajax(page, 2000)
-            page.wait_for_timeout(AJAX_WAIT)
+            self._wait_for_ajax(page, 1200)
 
         if data.get("municipio"):
             self._safe_select(
@@ -968,8 +967,7 @@ class MSPASBot:
             )
             # Wait for poblados to load via AJAX
             logger.info("Waiting for poblados AJAX load...")
-            self._wait_for_ajax(page, 1500)
-            page.wait_for_timeout(1000)
+            self._wait_for_ajax(page, 1000)
 
         if data.get("poblado"):
             self._safe_select(
@@ -1393,7 +1391,7 @@ class MSPASBot:
                 "clasificacion_final",
                 code=data["clasificacion_code"],
             )
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(500)
 
             # Conditional fields based on classification
             clas_code = data["clasificacion_code"]
@@ -1461,44 +1459,48 @@ class MSPASBot:
             )
 
         # Classification observations — try multiple selectors since MSPAS
-        # form may use different field names/types across versions
+        # form may use different field names/types across versions.
+        # PERF: Use JS evaluate to fill (avoids click timeout on hidden
+        # #observaciones input that exists but is not interactable — saved 30s).
         if data.get("clasificacion_observaciones"):
             obs_filled = False
-            obs_selectors = [
-                '#observaciones_clas',
-                'textarea[name="observaciones_clas"]',
-                'input[name="observaciones_clas"]',
-                '#observaciones',
-                'textarea[name="observaciones"]',
-                'input[name="observaciones"]',
-            ]
-            for sel in obs_selectors:
-                el = page.query_selector(sel)
-                if el:
-                    try:
-                        el.click()
-                        el.fill(data["clasificacion_observaciones"])
-                        logger.debug("Filled observaciones via selector: %s", sel)
-                        obs_filled = True
-                        break
-                    except Exception as e:
-                        logger.debug("Selector %s found but fill failed: %s", sel, e)
-                        continue
+            obs_text = data["clasificacion_observaciones"]
+
+            # Fast path: fill via JS (avoids click timeout on hidden elements)
+            try:
+                obs_filled = page.evaluate("""
+                    (text) => {
+                        // Try specific clasificacion obs fields first
+                        const selectors = [
+                            '#observaciones_clas', 'textarea[name="observaciones_clas"]',
+                            'input[name="observaciones_clas"]',
+                        ];
+                        for (const sel of selectors) {
+                            const el = document.querySelector(sel);
+                            if (el) {
+                                el.value = text;
+                                el.dispatchEvent(new Event('change', {bubbles: true}));
+                                return true;
+                            }
+                        }
+                        // Fallback: last textarea on page
+                        const textareas = document.querySelectorAll('textarea');
+                        if (textareas.length > 0) {
+                            const ta = textareas[textareas.length - 1];
+                            ta.value = text;
+                            ta.dispatchEvent(new Event('change', {bubbles: true}));
+                            return true;
+                        }
+                        return false;
+                    }
+                """, obs_text)
+                if obs_filled:
+                    logger.debug("Filled observaciones via JS evaluate (fast path)")
+            except Exception as e:
+                logger.debug("JS observaciones fill failed: %s", e)
+
             if not obs_filled:
-                # Last resort: find last textarea on the visible tab
-                try:
-                    textareas = page.query_selector_all('textarea:visible')
-                    if not textareas:
-                        textareas = page.query_selector_all('textarea')
-                    if textareas:
-                        textareas[-1].click()
-                        textareas[-1].fill(data["clasificacion_observaciones"])
-                        logger.debug("Filled observaciones via last textarea fallback")
-                        obs_filled = True
-                except Exception as e:
-                    logger.debug("Textarea fallback failed: %s", e)
-            if not obs_filled:
-                msg = "Could not find observaciones field in Tab 6 (tried multiple selectors)"
+                msg = "Could not find observaciones field in Tab 6"
                 logger.warning(msg)
                 self.errors.append(msg)
 
@@ -1555,7 +1557,7 @@ class MSPASBot:
             })
 
         guardar_btn.click()
-        page.wait_for_timeout(5000)
+        page.wait_for_timeout(3000)
 
         self._screenshot(page, "post_submit")
 
@@ -2020,9 +2022,9 @@ class MSPASBot:
                             page.goto(
                                 f"{base_url}/fichas/paginas/sar/sarampion.php",
                                 timeout=NAV_TIMEOUT,
-                                wait_until="networkidle",
+                                wait_until="domcontentloaded",
                             )
-                            page.wait_for_timeout(1000)
+                            page.wait_for_timeout(500)
                         except Exception as nav_err:
                             logger.warning("Batch: failed to navigate back after record %s: %s", rid, nav_err)
 
@@ -2042,8 +2044,8 @@ class MSPASBot:
                             "duration_seconds": time.time() - record_start,
                         }))
 
-                    # Small delay between records to avoid overwhelming MSPAS
-                    page.wait_for_timeout(1000)
+                    # Small delay between records
+                    page.wait_for_timeout(500)
 
             finally:
                 context.close()
