@@ -336,13 +336,23 @@ RESULTADO_CODES: dict[str, str] = {
 # =============================================================================
 CLASIFICACION_FINAL_CODES: dict[str, str] = {
     "Sarampión": "1",
+    "Sarampion": "1",
     "SARAMPIÓN": "1",
     "SARAMPION": "1",
+    "CONFIRMADO": "1",  # Confirmed = Sarampión (this is a sarampion surveillance form)
+    "Confirmado": "1",
     "Rubéola": "2",
+    "Rubeola": "2",
     "RUBÉOLA": "2",
     "RUBEOLA": "2",
     "Descartado": "3",
     "DESCARTADO": "3",
+    # These IGSS statuses don't have MSPAS codes — Tab 6 will be left empty (correct)
+    # 'SOSPECHOSO': '',  # Pending classification
+    # 'SUSPENDIDO': '',  # Suspended
+    # 'CLÍNICO': '',     # Clinical confirmation
+    # 'FALSO': '',       # False case
+    # 'ERROR DIAGNÓSTICO': '',  # Diagnostic error
 }
 
 # =============================================================================
@@ -867,6 +877,7 @@ def map_record_to_mspas(record: dict) -> dict:
     mapped["conjuntivitis"] = normalize_si_no(g("signo_conjuntivitis"))
     mapped["adenopatias"] = normalize_si_no(g("signo_adenopatias"))
     mapped["artralgia"] = normalize_si_no(g("signo_artralgia"))
+    mapped["fiebre"] = normalize_si_no(g("signo_fiebre"))  # Fiebre radio in MSPAS signs grid
 
     # Vacunacion
     mapped["vacunado"] = normalize_si_no(g("vacunado"))

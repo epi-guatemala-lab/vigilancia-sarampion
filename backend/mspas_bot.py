@@ -144,6 +144,7 @@ def map_record_to_mspas(record: dict) -> dict:
     mapped["no_dosis"] = _val("numero_dosis_spr")
     mapped["no_dosis_code"] = canonical.get("no_dosis", "")
     mapped["fecha_ult_dosis"] = canonical.get("fecha_ult_dosis", "")
+    mapped["observaciones_vacuna"] = canonical.get("observaciones", "")
     mapped["hospitalizado"] = _radio("hospitalizado")
     mapped["hosp_nombre"] = _val("hosp_nombre")
     mapped["hosp_fecha"] = canonical.get("hosp_fecha", "")
@@ -1106,6 +1107,10 @@ class MSPASBot:
                 code=data.get("fuente_noti_code", ""),
             )
 
+        # Conditional "otra fuente" text (visible when fuente = Otra)
+        if data.get("fuente_otros"):
+            self._safe_fill(page, '#fuente_otros, input[name="fuente_otros"]', data['fuente_otros'], 'fuente_otros')
+
         # Active search
         if data.get("busqueda_activa"):
             self._safe_select(
@@ -1116,6 +1121,10 @@ class MSPASBot:
                 code=data.get("busqueda_activa_code", ""),
             )
 
+        # Conditional "otra busqueda" text (visible when busqueda = Otras)
+        if data.get("txt_activa_otros"):
+            self._safe_fill(page, '#txt_activa_otros, input[name="txt_activa_otros"]', data['txt_activa_otros'], 'txt_activa_otros')
+
         # Eruption type/site
         if data.get("sitio_erupcion"):
             self._safe_select(
@@ -1125,6 +1134,10 @@ class MSPASBot:
                 "sitio_erupcion",
                 code=data.get("sitio_erupcion_code", ""),
             )
+
+        # Conditional "otra erupcion" text (visible when sitio = Otro)
+        if data.get("txt_otra_erup"):
+            self._safe_fill(page, '#txt_otra_erup, input[name="txt_otra_erup"]', data['txt_otra_erup'], 'txt_otra_erup')
 
         # Temperature
         self._safe_fill(
@@ -1141,6 +1154,7 @@ class MSPASBot:
             ("conjuntivitis", "signo_conjuntivitis"),
             ("adenopatias", "signo_adenopatias"),
             ("artralgia", "signo_artralgia"),
+            ("fiebre", "fiebre"),  # Fiebre radio in MSPAS signs grid
         ]:
             val = data.get(key, "")
             if val:
@@ -1211,6 +1225,10 @@ class MSPASBot:
                         "fecha_ult_dosis"
                     )
 
+        # Vaccine observations
+        if data.get("observaciones_vacuna"):
+            self._safe_fill(page, '#observaciones, input[name="observaciones"]', data['observaciones_vacuna'], 'observaciones_vacuna')
+
         # Hospitalization section
         if data.get("hospitalizado"):
             self._safe_radio(page, "hospitalizacion", data["hospitalizado"], "hospitalizacion")
@@ -1268,6 +1286,12 @@ class MSPASBot:
                 "fecha_egreso"
             )
 
+        # Death fields (conditional on condicion_egreso = Muerto/Fallecido)
+        if data.get("txt_fecha_defuncion"):
+            self._safe_fill(page, '#txt_fecha_defuncion, input[name="txt_fecha_defuncion"]', data['txt_fecha_defuncion'], 'fecha_defuncion')
+        if data.get("txt_medic_defuncion"):
+            self._safe_fill(page, '#txt_medic_defuncion, input[name="txt_medic_defuncion"]', data['txt_medic_defuncion'], 'medico_defuncion')
+
         # Pregnancy in clinical tab — only attempt if patient is female and
         # the radio is visible (some MSPAS forms duplicate this field here)
         if data.get("embarazada") and data.get("genero", "").upper() in ("F", "FEMENINO", "MUJER", "2"):
@@ -1307,6 +1331,16 @@ class MSPASBot:
                     data["donde_viajo"],
                     "donde_viajo"
                 )
+
+        # Contact with sick person (always visible, not conditional on viajo)
+        _enfermo = data.get("rad_enfermo") or data.get("contacto_enfermo", "")
+        if _enfermo:
+            self._safe_radio(page, "rad_enfermo", _enfermo, "contacto_enfermo")
+
+        # Contact with pregnant woman
+        _cont_emb = data.get("rad_cont_emb") or data.get("contacto_embarazada", "")
+        if _cont_emb:
+            self._safe_radio(page, "rad_cont_emb", _cont_emb, "contacto_embarazada")
 
         self._screenshot(page, "tab4_factores_riesgo")
 
@@ -1372,6 +1406,15 @@ class MSPASBot:
                             "orina_fecha"
                         )
 
+                # Otra muestra checkbox + description + date
+                _chk_otra = data.get("chk_otra_m", "")
+                if _chk_otra and str(_chk_otra).upper() in ('SI', 'S', '1', 'TRUE'):
+                    self._safe_checkbox(page, '#chk_otra_m, input[name="chk_otra_m"]', True, 'otra_muestra')
+                    if data.get("txt_otra_muestra"):
+                        self._safe_fill(page, '#txt_otra_muestra, input[name="txt_otra_muestra"]', data['txt_otra_muestra'], 'otra_muestra_desc')
+                    if data.get("fecha_otra_m"):
+                        self._safe_fill(page, '#fecha_otra_m, input[name="fecha_otra_m"]', data['fecha_otra_m'], 'fecha_otra_muestra')
+
         # Antigen/test type
         if data.get("antigeno"):
             self._safe_select(
@@ -1381,6 +1424,10 @@ class MSPASBot:
                 "antigeno",
                 code=data.get("antigeno_code", ""),
             )
+
+        # Otro antigeno (conditional on antigeno = Otros)
+        if data.get("txt_otro_ant"):
+            self._safe_fill(page, '#txt_otro_ant, input[name="txt_otro_ant"]', data['txt_otro_ant'], 'otro_antigeno')
 
         # Reception date at lab
         if data.get("fecha_recep_lab"):
