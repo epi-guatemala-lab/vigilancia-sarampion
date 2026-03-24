@@ -834,6 +834,35 @@ async def export_fichas_bulk(request: Request, x_api_key: str = Header(None)):
         )
 
 
+@app.get("/api/ficha-publica/{registro_id}")
+def export_ficha_publica(registro_id: str):
+    """Public endpoint for downloading ficha PDF (only for recent records, <30 min old)."""
+    reg = get_registro_by_id(registro_id)
+    if not reg:
+        raise HTTPException(status_code=404, detail="Registro no encontrado")
+
+    # Security: only allow download of records created in the last 30 minutes
+    created = reg.get("created_at", "")
+    if created:
+        try:
+            created_dt = datetime.fromisoformat(created)
+            age_minutes = (datetime.now() - created_dt).total_seconds() / 60
+            if age_minutes > 30:
+                raise HTTPException(status_code=403, detail="El PDF solo está disponible dentro de los 30 minutos posteriores al envío")
+        except (ValueError, TypeError):
+            pass
+
+    from pdf_ficha import generar_ficha_pdf
+    pdf_bytes = generar_ficha_pdf(reg)
+
+    filename = f"ficha_{registro_id.replace('/', '_')}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=True)

@@ -28,11 +28,11 @@ PAGE_W, PAGE_H = LETTER  # 612 x 792 pt
 MARGIN = 25
 CONTENT_W = PAGE_W - 2 * MARGIN  # ~562 pt
 
-SECTION_BG = Color(0.25, 0.25, 0.25, 1)
+SECTION_BG = Color(0.20, 0.20, 0.20, 1)   # darker for contrast (MSPAS style)
 LIGHT_GRAY = Color(0.92, 0.92, 0.92, 1)
 
 # Heights
-SECTION_H = 16       # section header bars (taller for breathing room)
+SECTION_H = 18       # section header bars (taller for breathing room, MSPAS style)
 RH = 21              # standard field row (label + value, no dates)
 RH_DATE = 27         # rows containing date boxes (need room for digits + label)
 RH_TALL = 36         # observaciones
@@ -41,7 +41,7 @@ CB_SIZE = 8          # checkbox side
 DATE_BOX = 9         # individual date digit box size
 
 # Fonts
-F_SECTION    = ("Helvetica-Bold", 9)
+F_SECTION    = ("Helvetica-Bold", 9.5)
 F_LABEL      = ("Helvetica-Bold", 6)
 F_VALUE      = ("Helvetica", 7.5)
 F_BOLD6      = ("Helvetica-Bold", 6)
@@ -50,7 +50,7 @@ F_TITLE_LG   = ("Helvetica-Bold", 9)
 F_TITLE_MD   = ("Helvetica-Bold", 7.5)
 F_TITLE_SM   = ("Helvetica-Bold", 7)
 F_ITALIC     = ("Helvetica-Oblique", 5)
-F_CHECK      = ("Helvetica-Bold", 10)
+F_CHECK      = ("Helvetica-Bold", 11)
 F_DATE_DIGIT = ("Helvetica", 6.5)
 F_CB_LABEL   = ("Helvetica", 5.5)
 F_FACTOR     = ("Helvetica", 5.5)
@@ -133,13 +133,19 @@ class FichaBuilder:
     def _section(self, title):
         h = SECTION_H
         y = self.y - h
+        # Gradient simulation: thin lighter strip at top of section bar
+        self.c.setFillColor(Color(0.30, 0.30, 0.30, 1))
+        self.c.rect(MARGIN, y + h * 0.6, CONTENT_W, h * 0.4, fill=1, stroke=0)
         self.c.setFillColor(SECTION_BG)
+        self.c.rect(MARGIN, y, CONTENT_W, h * 0.6, fill=1, stroke=0)
+        # Full border around entire section header
         self.c.setStrokeColor(black)
         self.c.setLineWidth(0.5)
-        self.c.rect(MARGIN, y, CONTENT_W, h, fill=1, stroke=1)
+        self.c.rect(MARGIN, y, CONTENT_W, h, fill=0, stroke=1)
+        # Title text centered with padding
         self.c.setFillColor(white)
         self._sf(F_SECTION)
-        self.c.drawCentredString(MARGIN + CONTENT_W / 2, y + (h - F_SECTION[1]) / 2, title)
+        self.c.drawCentredString(MARGIN + CONTENT_W / 2, y + (h - F_SECTION[1]) / 2 + 0.5, title)
         self.c.setFillColor(black)
         self.y -= h
 

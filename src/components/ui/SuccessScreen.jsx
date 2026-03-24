@@ -157,6 +157,21 @@ export default function SuccessScreen({ onNewForm, isOffline, registroId, pacien
           Imprimir
         </button>
 
+        {/* Download Ficha PDF */}
+        {registroId && (
+          <a
+            href={`${import.meta.env.VITE_API_URL || ''}/ficha-publica/${registroId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-red-600 text-white font-semibold text-sm rounded-xl hover:bg-red-700 transition-all duration-200 shadow-sm active:scale-95"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Descargar Ficha PDF
+          </a>
+        )}
+
         <button
           onClick={onNewForm}
           className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-igss-800 to-igss-700 text-white font-bold text-sm rounded-xl hover:from-igss-900 hover:to-igss-800 shadow-igss hover:shadow-igss-lg transition-all active:scale-95"
