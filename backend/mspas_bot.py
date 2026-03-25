@@ -461,44 +461,98 @@ class MSPASBot:
     def _safe_radio(self, page, name: str, value: str, label: str = ""):
         """Click a radio button by name and value.
 
-        Handles MSPAS forms where radios may be hidden behind conditional divs
-        by using force=True. Also tries alternate value formats (SI/1, NO/2).
+        Handles MSPAS forms where radios may be hidden behind conditional divs.
+        Uses page.check() for reliable checking, with el.click(force=True) and
+        JS .click() fallbacks. Also tries alternate value formats (SI/1, NO/2, s/n).
         """
         if not value:
             return
-        try:
-            selector = f'input[name="{name}"][value="{value}"]'
-            el = page.query_selector(selector)
-            if el:
-                el.click(force=True)
-                logger.debug("Radio %s = %s", label or name, value)
-                return
 
-            # Try case-insensitive match on existing radios
-            radios = page.query_selector_all(f'input[name="{name}"]')
-            if radios:
-                for radio in radios:
-                    radio_val = (radio.get_attribute("value") or "").strip().upper()
-                    if radio_val == value.upper():
-                        radio.click(force=True)
-                        logger.debug("Radio %s = %s (case match)", label or name, value)
+        def _try_check(selector_str: str, desc: str) -> bool:
+            """Try multiple strategies to check a radio."""
+            # Strategy A: Scroll into view, then use Playwright's click
+            # (NOT force=True, so it does real click with visual update)
+            try:
+                el = page.query_selector(selector_str)
+                if el:
+                    el.scroll_into_view_if_needed()
+                    page.wait_for_timeout(100)
+                    try:
+                        el.click(timeout=2000)
+                        logger.debug("Radio %s = %s (%s via el.click visible)", label or name, value, desc)
+                        return True
+                    except Exception:
+                        pass
+                    # Fallback: force click
+                    el.click(force=True)
+                    logger.debug("Radio %s = %s (%s via el.click force)", label or name, value, desc)
+                    return True
+            except Exception:
+                pass
+            # Strategy B: page.check
+            try:
+                page.check(selector_str, force=True, timeout=2000)
+                logger.debug("Radio %s = %s (%s via page.check)", label or name, value, desc)
+                return True
+            except Exception:
+                pass
+            # Strategy C: JS — dispatch full MouseEvent for visual update
+            try:
+                css_sel = selector_str.replace("'", "\\'")
+                result = page.evaluate(f"""
+                    () => {{
+                        const el = document.querySelector('{css_sel}');
+                        if (el) {{
+                            el.scrollIntoView({{block: 'center'}});
+                            el.focus();
+                            el.checked = true;
+                            // Dispatch full mouse event sequence for visual rendering
+                            ['mousedown', 'mouseup', 'click'].forEach(evName => {{
+                                el.dispatchEvent(new MouseEvent(evName, {{
+                                    bubbles: true, cancelable: true, view: window
+                                }}));
+                            }});
+                            el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                            el.dispatchEvent(new Event('input', {{bubbles: true}}));
+                            return true;
+                        }}
+                        return false;
+                    }}
+                """)
+                if result:
+                    logger.debug("Radio %s = %s (%s via JS MouseEvent)", label or name, value, desc)
+                    return True
+            except Exception:
+                pass
+            return False
+
+        try:
+            # Build list of (value_to_try, description) pairs
+            alt_map = {"SI": ["si", "s", "S", "1", "Si"], "NO": ["no", "n", "N", "2", "No"],
+                       "1": ["SI", "si", "s", "S"], "2": ["NO", "no", "n", "N"],
+                       "S": ["SI", "si", "1"], "N": ["NO", "no", "2"],
+                       "NA": ["na", "3"], "3": ["NA", "na"]}
+            values_to_try = [value]
+            # Add case-variants
+            if value.upper() not in [v.upper() for v in values_to_try]:
+                values_to_try.append(value.upper())
+            if value.lower() not in [v.lower() for v in values_to_try]:
+                values_to_try.append(value.lower())
+            # Add alt mappings
+            for alt in alt_map.get(value.upper(), []):
+                if alt not in values_to_try:
+                    values_to_try.append(alt)
+
+            for try_val in values_to_try:
+                selector = f'input[name="{name}"][value="{try_val}"]'
+                el = page.query_selector(selector)
+                if el:
+                    if _try_check(selector, f"value={try_val}"):
                         return
 
-                # Try alternate SI/NO <-> 1/2 <-> s/n mapping
-                alt_map = {"SI": ["1", "s", "S"], "NO": ["2", "n", "N"],
-                           "1": ["SI", "s"], "2": ["NO", "n"],
-                           "S": ["SI", "1"], "N": ["NO", "2"],
-                           "NA": ["3"], "3": ["NA"]}
-                alt_values = alt_map.get(value.upper(), [])
-                for alt_value in alt_values:
-                    for radio in radios:
-                        radio_val = (radio.get_attribute("value") or "").strip()
-                        if radio_val == alt_value or radio_val.upper() == alt_value.upper():
-                            radio.click(force=True)
-                            logger.debug("Radio %s = %s (alt value %s)", label or name, value, alt_value)
-                            return
-
-                # Last resort: log available values for debugging
+            # No match found at all
+            radios = page.query_selector_all(f'input[name="{name}"]')
+            if radios:
                 available = [radio.get_attribute("value") for radio in radios]
                 msg = f"Radio not found: {name}={value} ({label}). Available values: {available}"
                 logger.warning(msg)
@@ -1188,6 +1242,20 @@ class MSPASBot:
         )
 
         # Clinical signs (radio buttons: SI/NO)
+        # Scroll signs section into view first to ensure clicks register
+        page.evaluate("""
+            () => {
+                // Try to find the signs section and scroll it into view
+                const labels = ['tos', 'coriza', 'conjuntivitis'];
+                for (const name of labels) {
+                    const el = document.querySelector('input[name="' + name + '"]')
+                        || document.querySelector('input[name="rad_' + name + '"]');
+                    if (el) { el.scrollIntoView({block: 'center'}); break; }
+                }
+            }
+        """)
+        page.wait_for_timeout(300)
+
         for sign_name, key in [
             ("tos", "signo_tos"),
             ("coriza", "signo_coriza"),
@@ -1198,15 +1266,66 @@ class MSPASBot:
         ]:
             val = data.get(key, "")
             if val:
+                filled = False
                 # Try common MSPAS naming patterns
                 for name_pattern in [sign_name, f"rad_{sign_name}", f"signo_{sign_name}"]:
                     el = page.query_selector(f'input[name="{name_pattern}"]')
                     if el:
+                        # Scroll to the specific radio before clicking
+                        page.evaluate(f'document.querySelector(\'input[name="{name_pattern}"]\')?.scrollIntoView({{block: "center"}})')
+                        page.wait_for_timeout(100)
                         self._safe_radio(page, name_pattern, val, sign_name)
+                        filled = True
                         break
-                else:
-                    # Try to find by nearby label text
-                    self._safe_radio(page, sign_name, val, sign_name)
+                if not filled:
+                    # JS fallback: find radio by name patterns and click directly
+                    js_filled = page.evaluate(f"""
+                        (val) => {{
+                            const names = ['{sign_name}', 'rad_{sign_name}', 'signo_{sign_name}'];
+                            const valMap = {{'SI': ['SI', 'S', 's', '1'], 'NO': ['NO', 'N', 'n', '2']}};
+                            const tryVals = valMap[val.toUpperCase()] || [val];
+                            for (const name of names) {{
+                                for (const v of tryVals) {{
+                                    const radio = document.querySelector('input[name="' + name + '"][value="' + v + '"]');
+                                    if (radio) {{
+                                        radio.scrollIntoView({{block: 'center'}});
+                                        radio.checked = true;
+                                        radio.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                        radio.dispatchEvent(new Event('click', {{bubbles: true}}));
+                                        return true;
+                                    }}
+                                }}
+                            }}
+                            return false;
+                        }}
+                    """, val)
+                    if js_filled:
+                        logger.debug("Radio %s = %s (via JS fallback)", sign_name, val)
+                    else:
+                        # Last resort: try _safe_radio with original name
+                        self._safe_radio(page, sign_name, val, sign_name)
+
+        # Debug: log actual state of sign radios after filling
+        sign_debug = page.evaluate("""
+            () => {
+                const names = ['tos', 'coriza', 'conjuntivitis', 'adenopatias', 'artralgia',
+                               'rad_tos', 'rad_coriza', 'rad_conjuntivitis', 'rad_adenopatias', 'rad_artralgia'];
+                const result = {};
+                for (const name of names) {
+                    const radios = document.querySelectorAll('input[name="' + name + '"]');
+                    if (radios.length > 0) {
+                        const info = [];
+                        radios.forEach(r => info.push({
+                            value: r.value, checked: r.checked, disabled: r.disabled,
+                            visible: r.offsetParent !== null
+                        }));
+                        result[name] = info;
+                    }
+                }
+                return result;
+            }
+        """)
+        logger.debug("Signs radio state after fill: %s", json.dumps(sign_debug))
 
         # Vaccination section
         if data.get("vacunado"):
@@ -1509,6 +1628,155 @@ class MSPASBot:
                 code=data.get("resultado_lab_code", ""),
             )
 
+        # ── Lab results table row: fill top selects then click "+" to add row ──
+        # The MSPAS form has dropdowns (slc_muestras, slc_pruebas, slc_antigeno,
+        # fecha_recep, fecha_resul_lab, slc_resul_lab) above a dynamic table.
+        # Clicking the "+" button (agregar_fila) adds the current dropdown values
+        # as a new row in the results table.
+        # We attempt to add a row if we have antigeno + resultado data filled.
+        has_lab_row_data = (
+            data.get("antigeno_code") and data.get("resultado_lab_code")
+        )
+        logger.debug("Lab row data: antigeno_code=%s resultado_lab_code=%s",
+                     data.get("antigeno_code"), data.get("resultado_lab_code"))
+        if has_lab_row_data:
+            try:
+                # Determine muestra type from checkboxes (Suero=1, Hisopado=2, Orina=3)
+                muestra_code = ""
+                if data.get("muestra_suero"):
+                    muestra_code = "1"  # Suero
+                elif data.get("muestra_hisopado"):
+                    muestra_code = "2"  # Hisopado Nasofaríngeo
+                elif data.get("muestra_orina"):
+                    muestra_code = "3"  # Orina
+
+                # The slc_muestras and slc_pruebas dropdowns are populated dynamically
+                # by MSPAS JS when checkboxes are checked. By the time we get here,
+                # they may still be empty. We inject the options directly if needed,
+                # then fill all selects and click the add button.
+
+                # Muestra type names matching checkbox IDs
+                _MUESTRA_MAP = {
+                    "1": "Suero",
+                    "2": "Hisopado Nasofaringeo",
+                    "3": "Orina",
+                }
+                _PRUEBA_MAP = {
+                    "1": "IgM ELISA",
+                }
+
+                muestra_text = _MUESTRA_MAP.get(muestra_code, "Suero")
+
+                row_added = page.evaluate("""
+                    (params) => {
+                        const {muestra, muestraText, antigeno, resultado, fechaRecep, fechaResul} = params;
+
+                        // Step 1: Ensure slc_muestras has options (inject if empty)
+                        const selMuestra = document.querySelector('#slc_muestras, select[name="slc_muestras"]');
+                        if (selMuestra) {
+                            const hasOptions = Array.from(selMuestra.options).some(o => o.value !== '');
+                            if (!hasOptions) {
+                                // Inject muestra options based on checked checkboxes
+                                const muestras = [
+                                    {id: 'chk_suero', value: '1', text: 'Suero'},
+                                    {id: 'chk_HN', value: '2', text: 'Hisopado Nasofaringeo'},
+                                    {id: 'chk_orina', value: '3', text: 'Orina'},
+                                ];
+                                for (const m of muestras) {
+                                    const chk = document.querySelector('#' + m.id) || document.querySelector('input[name="' + m.id + '"]');
+                                    if (chk && chk.checked) {
+                                        const opt = document.createElement('option');
+                                        opt.value = m.value;
+                                        opt.textContent = m.text;
+                                        selMuestra.appendChild(opt);
+                                    }
+                                }
+                            }
+                            if (muestra) {
+                                selMuestra.value = muestra;
+                            } else {
+                                // Select first non-empty option
+                                for (const opt of selMuestra.options) {
+                                    if (opt.value) { selMuestra.value = opt.value; break; }
+                                }
+                            }
+                            selMuestra.dispatchEvent(new Event('change', {bubbles: true}));
+                        }
+
+                        // Step 2: Ensure slc_pruebas has options (inject IgM ELISA if empty)
+                        const selPrueba = document.querySelector('#slc_pruebas, select[name="slc_pruebas"]');
+                        if (selPrueba) {
+                            const hasOptions = Array.from(selPrueba.options).some(o => o.value !== '');
+                            if (!hasOptions) {
+                                const opt = document.createElement('option');
+                                opt.value = '1';
+                                opt.textContent = 'IgM ELISA';
+                                selPrueba.appendChild(opt);
+                            }
+                            // Select first non-empty
+                            for (const opt of selPrueba.options) {
+                                if (opt.value) { selPrueba.value = opt.value; break; }
+                            }
+                            selPrueba.dispatchEvent(new Event('change', {bubbles: true}));
+                        }
+
+                        // Step 3: Antigeno
+                        const selAntigeno = document.querySelector('#slc_antigeno, select[name="slc_antigeno"]');
+                        if (selAntigeno && antigeno) {
+                            selAntigeno.value = antigeno;
+                            selAntigeno.dispatchEvent(new Event('change', {bubbles: true}));
+                        }
+
+                        // Step 4: Dates
+                        if (fechaRecep) {
+                            const el = document.querySelector('#fecha_recep, input[name="fecha_recep"]');
+                            if (el) { el.removeAttribute('readonly'); el.value = fechaRecep; }
+                        }
+                        if (fechaResul) {
+                            const el = document.querySelector('#fecha_resul_lab, input[name="fecha_resul_lab"]');
+                            if (el) { el.removeAttribute('readonly'); el.value = fechaResul; }
+                        }
+
+                        // Step 5: Result
+                        const selResult = document.querySelector('#slc_resul_lab, select[name="slc_resul_lab"]');
+                        if (selResult && resultado) {
+                            selResult.value = resultado;
+                            selResult.dispatchEvent(new Event('change', {bubbles: true}));
+                        }
+
+                        // Step 6: Click add button
+                        const addBtn = document.querySelector(
+                            'button[onclick*="agregar_fila"]'
+                            + ', input[type="button"][onclick*="agregar_fila"]'
+                            + ', a[onclick*="agregar_fila"]'
+                        );
+                        if (addBtn) {
+                            addBtn.click();
+                            return {ok: true, method: 'button',
+                                muestra_val: selMuestra ? selMuestra.value : 'N/A',
+                                prueba_val: selPrueba ? selPrueba.value : 'N/A'};
+                        }
+                        return {ok: false, error: 'no add button'};
+                    }
+                """, {
+                    "muestra": muestra_code,
+                    "muestraText": muestra_text,
+                    "antigeno": data.get("antigeno_code", ""),
+                    "resultado": data.get("resultado_lab_code", ""),
+                    "fechaRecep": data.get("fecha_recep_lab", ""),
+                    "fechaResul": data.get("fecha_resul_lab", ""),
+                })
+                logger.debug("Lab row add result: %s", row_added)
+
+                if row_added and row_added.get("ok"):
+                    page.wait_for_timeout(500)
+                    logger.info("Lab results table: row add attempted")
+                else:
+                    self.errors.append(f"Lab results table: {row_added}")
+            except Exception as e:
+                logger.warning("Error adding lab results table row: %s", e)
+                self.errors.append(f"Lab results table row: {e}")
+
         self._screenshot(page, "tab5_laboratorio")
 
     # ── Tab 6: Clasificacion Final ────────────────────────────────────────
@@ -1518,15 +1786,98 @@ class MSPASBot:
         logger.info("Filling Tab 6: Clasificacion Final")
         self._click_tab(page, "Clasific")  # partial match: "Clasificación"
 
-        # Classification select (slc_clas_final: 1=Sarampion, 2=Rubeola, 3=Descartado)
+        # Ensure the tab content is actually visible (MSPAS uses display:none on inactive tabs)
+        page.evaluate("""
+            () => {
+                // Force-show the clasificacion tab content
+                const allPanes = document.querySelectorAll('.tab-pane');
+                allPanes.forEach(p => {
+                    if (p.textContent.includes('Clasificaci') || p.querySelector('#slc_clas_final')) {
+                        p.classList.add('active', 'in', 'show');
+                        p.style.display = 'block';
+                    }
+                });
+                // Also ensure the select is scrolled into view
+                const sel = document.querySelector('#slc_clas_final, select[name="slc_clas_final"]');
+                if (sel) sel.scrollIntoView({block: 'center'});
+            }
+        """)
+        page.wait_for_timeout(500)
+
+        # Classification select — MSPAS uses TEXT values not numeric codes:
+        #   "Sarampión", "Rubéola", "Descartado" (NOT "1", "2", "3")
+        # Our CLASIFICACION_FINAL_CODES maps to "1"/"2"/"3" which don't match.
+        # We need to map code -> actual MSPAS option text value.
+        _CLAS_CODE_TO_TEXT = {
+            "1": "Sarampión",
+            "2": "Rubéola",
+            "3": "Descartado",
+        }
         if data.get("clasificacion_code"):
-            self._safe_select(
-                page,
-                '#slc_clas_final, select[name="slc_clas_final"]',
-                "",
-                "clasificacion_final",
-                code=data["clasificacion_code"],
-            )
+            code = data["clasificacion_code"]
+            clas_text = _CLAS_CODE_TO_TEXT.get(code, "")
+
+            # Strategy 1: Select by label text (most reliable for text-valued options)
+            if clas_text:
+                try:
+                    page.select_option(
+                        '#slc_clas_final, select[name="slc_clas_final"]',
+                        label=clas_text, timeout=3000
+                    )
+                    logger.info("slc_clas_final selected by label: '%s'", clas_text)
+                except Exception as e:
+                    logger.warning("slc_clas_final select_option by label failed: %s", e)
+
+            # Verify and force via JS if needed
+            actual_val = page.evaluate("""
+                () => {
+                    const el = document.querySelector('#slc_clas_final, select[name="slc_clas_final"]');
+                    return el ? el.value : '';
+                }
+            """)
+            if not actual_val or actual_val == "":
+                # JS fallback: set value by matching option text
+                page.evaluate("""
+                    (params) => {
+                        const {code, text} = params;
+                        const el = document.querySelector('#slc_clas_final')
+                            || document.querySelector('select[name="slc_clas_final"]');
+                        if (!el) return;
+                        el.removeAttribute('disabled');
+
+                        // Try setting by text value directly
+                        if (text) {
+                            el.value = text;
+                            if (el.value === text) {
+                                el.dispatchEvent(new Event('change', {bubbles: true}));
+                                if (typeof jQuery !== 'undefined') jQuery(el).val(text).trigger('change');
+                                return;
+                            }
+                        }
+
+                        // Try numeric code
+                        el.value = code;
+                        if (el.value === code) {
+                            el.dispatchEvent(new Event('change', {bubbles: true}));
+                            if (typeof jQuery !== 'undefined') jQuery(el).val(code).trigger('change');
+                            return;
+                        }
+
+                        // Fallback: iterate options and match by partial text
+                        const opts = el.querySelectorAll('option');
+                        for (const opt of opts) {
+                            const optText = opt.textContent.trim();
+                            if (text && optText.includes(text.substring(0, 5))) {
+                                el.value = opt.value;
+                                el.dispatchEvent(new Event('change', {bubbles: true}));
+                                if (typeof jQuery !== 'undefined') jQuery(el).val(opt.value).trigger('change');
+                                return;
+                            }
+                        }
+                    }
+                """, {"code": code, "text": clas_text})
+                logger.info("slc_clas_final forced via JS with text='%s'", clas_text)
+
             page.wait_for_timeout(500)
 
             # Conditional fields based on classification
