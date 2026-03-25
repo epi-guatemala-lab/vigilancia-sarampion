@@ -21,8 +21,16 @@ import re
 import time
 import json
 import logging
+import unicodedata
 from datetime import datetime
 from typing import Optional
+
+
+def _strip_accents(text: str) -> str:
+    """Remove diacritics/accents from text for fuzzy matching.
+    E.g., 'Médicos' -> 'Medicos', 'enfermería' -> 'enfermeria'."""
+    nfkd = unicodedata.normalize('NFKD', text)
+    return ''.join(c for c in nfkd if not unicodedata.combining(c))
 
 try:
     from mspas_field_map import (
@@ -367,12 +375,13 @@ class MSPASBot:
                 except Exception:
                     pass
 
-                # Strategy 3: Partial match on option text
+                # Strategy 3: Partial match on option text (accent-insensitive)
                 options = el.query_selector_all("option")
-                val_upper = value.upper().strip()
+                val_upper = _strip_accents(value.upper().strip())
                 for opt in options:
                     text = (opt.text_content() or "").strip().upper()
-                    if val_upper in text or text in val_upper:
+                    text_clean = _strip_accents(text)
+                    if val_upper in text_clean or text_clean in val_upper:
                         opt_value = opt.get_attribute("value")
                         if opt_value:
                             try:
@@ -1075,12 +1084,15 @@ class MSPASBot:
             self._safe_select(page, '#cbox_etnia, select[name="cbox_etnia"]', data["etnia"], "etnia",
                               code=data.get("etnia_code", ""))
 
-        # Occupation (searchable, 441 options — type partial text)
-        if data.get("ocupacion"):
+        # Occupation (searchable, 441 CIUO-08 options — type partial search text)
+        # Use cbox_ocup_search (mapped search term) for better matching,
+        # falling back to raw ocupacion text
+        _ocup_search = data.get("cbox_ocup_search") or data.get("cbox_ocup") or data.get("ocupacion", "")
+        if _ocup_search:
             self._safe_searchable_select(
                 page,
                 '#cbox_ocup, select[name="cbox_ocup"]',
-                data["ocupacion"],
+                _ocup_search,
                 "ocupacion"
             )
 
@@ -1114,10 +1126,19 @@ class MSPASBot:
             self._wait_for_ajax(page, 1000)
 
         if data.get("poblado"):
+            # Strip common type suffixes (CIUDAD, ALDEA, etc.) to improve matching
+            # MSPAS poblado options may not include the type suffix
+            _poblado = data["poblado"]
+            for _suf in [' - CIUDAD', ' - ALDEA', ' - CASERIO', ' - CASERÍO',
+                         ' - COLONIA', ' - FINCA', ' - PUEBLO', ' - S/C',
+                         ' - CANTON', ' - CANTÓN', ' - PARAJE', ' - VILLA']:
+                if _poblado.upper().endswith(_suf):
+                    _poblado = _poblado[:len(_poblado) - len(_suf)].strip()
+                    break
             self._safe_select(
                 page,
                 '#cbox_idlp, select[name="cbox_idlp"]',
-                data["poblado"],
+                _poblado,
                 "poblado"
             )
 
@@ -1262,7 +1283,9 @@ class MSPASBot:
             ("conjuntivitis", "signo_conjuntivitis"),
             ("adenopatias", "signo_adenopatias"),
             ("artralgia", "signo_artralgia"),
-            ("fiebre", "fiebre"),  # Fiebre radio in MSPAS signs grid
+            # NOTE: Fiebre does NOT have a radio button in MSPAS. It is captured
+            # via txt_fecha_fiebre (date) and txt_temperatura (text), both already
+            # filled above.
         ]:
             val = data.get(key, "")
             if val:
