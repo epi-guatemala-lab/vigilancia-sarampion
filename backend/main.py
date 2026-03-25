@@ -37,8 +37,8 @@ from mspas_queue import (
     init_mspas_tables, save_credentials, get_credentials,
     enqueue_record, enqueue_all_pending, get_queue, get_queue_counts,
     approve_records, update_estado, get_approved_for_submission,
-    mark_sent, mark_error, mark_duplicate, try_claim_for_submission,
-    recover_stuck_submissions, get_status_by_id,
+    mark_sent, mark_error, mark_duplicate, mark_possible_duplicate,
+    try_claim_for_submission, recover_stuck_submissions, get_status_by_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -1008,8 +1008,11 @@ def mspas_submit_one(registro_id: str, x_api_key: str = Header(None)):
     result = bot.process_record(reg)
 
     if result.get("duplicate"):
-        # Patient already exists in MSPAS — mark as duplicate
-        mark_duplicate(registro_id, mspas_ficha_id=result.get("mspas_ficha_id", ""))
+        # Patient already exists in MSPAS — mark as duplicate (confirmed or possible)
+        if result.get("duplicate_type") == "possible":
+            mark_possible_duplicate(registro_id, result.get("details", ""))
+        else:
+            mark_duplicate(registro_id, mspas_ficha_id=result.get("mspas_ficha_id", ""))
     elif result.get("success"):
         if result.get("submitted"):
             mark_sent(registro_id, result.get("mspas_ficha_id", ""),
@@ -1084,7 +1087,10 @@ def mspas_submit_batch(x_api_key: str = Header(None)):
         nonlocal success_count, error_count, duplicate_count
         try:
             if result.get('duplicate'):
-                mark_duplicate(rid, mspas_ficha_id=result.get('mspas_ficha_id', ''))
+                if result.get('duplicate_type') == 'possible':
+                    mark_possible_duplicate(rid, result.get('details', ''))
+                else:
+                    mark_duplicate(rid, mspas_ficha_id=result.get('mspas_ficha_id', ''))
                 duplicate_count += 1
             elif result.get('success'):
                 if result.get('submitted'):

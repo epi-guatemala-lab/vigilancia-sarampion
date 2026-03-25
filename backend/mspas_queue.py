@@ -1,6 +1,6 @@
 """
 MSPAS Submission Queue — Manages the pipeline of records to submit to EPIWEB.
-States: pendiente -> revisado -> aprobado -> enviando -> enviado | error | duplicado
+States: pendiente -> revisado -> aprobado -> enviando -> enviado | error | duplicado | posible_duplicado
 """
 import sqlite3
 import os
@@ -213,7 +213,7 @@ def approve_records(registro_ids: list, aprobado_por: str = 'api'):
         now = datetime.now().isoformat()
         for rid in registro_ids:
             conn.execute(
-                "UPDATE mspas_envios SET estado = 'aprobado', aprobado_por = ?, fecha_aprobacion = ?, updated_at = ? WHERE registro_id = ? AND estado IN ('pendiente', 'revisado', 'error', 'duplicado')",
+                "UPDATE mspas_envios SET estado = 'aprobado', aprobado_por = ?, fecha_aprobacion = ?, updated_at = ? WHERE registro_id = ? AND estado IN ('pendiente', 'revisado', 'error', 'duplicado', 'posible_duplicado')",
                 (aprobado_por, now, now, rid)
             )
         conn.commit()
@@ -233,6 +233,11 @@ def mark_sent(registro_id: str, mspas_ficha_id: str, screenshot_path: str = ''):
 def mark_duplicate(registro_id: str, mspas_ficha_id: str = ''):
     """Mark a record as duplicate (already exists in MSPAS)."""
     update_estado(registro_id, 'duplicado', mspas_ficha_id=mspas_ficha_id)
+
+
+def mark_possible_duplicate(registro_id: str, match_details: str = ''):
+    """Mark a record as possible duplicate (name matches but date/depto don't confirm)."""
+    update_estado(registro_id, 'posible_duplicado', ultimo_error=match_details)
 
 
 def mark_error(registro_id: str, error_msg: str):

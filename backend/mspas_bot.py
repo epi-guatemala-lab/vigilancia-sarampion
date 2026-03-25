@@ -734,27 +734,28 @@ class MSPASBot:
                 continue
         return None
 
-    def check_duplicate_in_mspas(self, page, data: dict) -> bool:
-        """Check if a patient already has a ficha in MSPAS.
+    def check_duplicate_in_mspas(self, page, data: dict) -> dict:
+        """Check if a patient already has a ficha in MSPAS (2-level detection).
 
         Searches by apellidos + nombres on the sarampion list page, then
-        verifies any name match also has a fecha_notificacion within 30 days
-        of our record (if dates are visible in the results table). If dates
-        are not visible, a name-only match is treated as a potential duplicate
-        with a warning logged about false-positive risk.
+        verifies any name match also has a fecha_notificacion within the same
+        month AND matching departamento. Returns a dict with detection level:
+
+        - {"status": "clean"} — no match found
+        - {"status": "confirmed_duplicate", "details": "..."} — name+date+depto match
+        - {"status": "possible_duplicate", "details": "..."} — name-only match
 
         Must be called BEFORE navigate_to_form() clicks "Crear Ficha Nueva".
-
-        Returns True if duplicate found, False if safe to create.
         """
         nombres = (data.get("nombres") or "").strip()
         apellidos = (data.get("apellidos") or "").strip()
         our_fecha_str = (data.get("fecha_notificacion") or "").strip()
         our_fecha = self._parse_date_loose(our_fecha_str)
+        our_depto = (data.get("departamento_residencia") or "").strip().upper()
 
         if not apellidos and not nombres:
             logger.warning("Duplicate check skipped: no name data available")
-            return False
+            return {"status": "clean"}
 
         logger.info("Checking for duplicate in MSPAS: %s %s", apellidos, nombres)
 
@@ -814,7 +815,7 @@ class MSPASBot:
                     "Duplicate check: no search fields found on list page"
                 )
                 self._screenshot(page, "dup_check_no_fields")
-                return False
+                return {"status": "clean"}
 
             # Click search/filter button
             search_btn = page.query_selector(
@@ -868,51 +869,90 @@ class MSPASBot:
                     nombres_match = search_nombres and search_nombres in row_text
 
                     if apellidos_match and nombres_match:
-                        # Name matches — now check date proximity if possible
-                        # Try to extract a date from the row cells
+                        # Level 1 check: try to confirm with date + departamento
                         row_cells = row.query_selector_all("td")
                         row_fecha = None
+                        row_depto = ""
                         for cell in row_cells:
                             cell_text = (cell.text_content() or "").strip()
-                            row_fecha = self._parse_date_loose(cell_text)
-                            if row_fecha:
-                                break
+                            # Try to extract a date
+                            if not row_fecha:
+                                parsed = self._parse_date_loose(cell_text)
+                                if parsed:
+                                    row_fecha = parsed
+                                    continue
+                            # Try to detect departamento (all-caps text, no digits)
+                            upper_text = cell_text.upper()
+                            if (len(cell_text) > 3 and not any(c.isdigit() for c in cell_text)
+                                    and upper_text not in (search_apellidos, search_nombres)):
+                                if not row_depto:
+                                    row_depto = upper_text
 
+                        # Determine match level
+                        same_month = False
                         if row_fecha and our_fecha:
-                            days_diff = abs((row_fecha - our_fecha).days)
-                            if days_diff > 30:
-                                logger.info(
-                                    "Name match for %s %s but dates differ by %d days "
-                                    "(ours=%s, theirs=%s) — NOT a duplicate",
-                                    apellidos, nombres, days_diff,
-                                    our_fecha_str, row_fecha.strftime('%d/%m/%Y'),
-                                )
-                                continue  # Check next row
-                            logger.warning(
-                                "DUPLICATE FOUND in MSPAS for: %s %s "
-                                "(date match: ours=%s, theirs=%s, diff=%d days)",
-                                apellidos, nombres,
-                                our_fecha_str, row_fecha.strftime('%d/%m/%Y'), days_diff,
+                            same_month = (row_fecha.year == our_fecha.year
+                                          and row_fecha.month == our_fecha.month)
+
+                        depto_match = False
+                        if row_depto and our_depto:
+                            depto_match = (row_depto in our_depto or our_depto in row_depto)
+
+                        if same_month and depto_match:
+                            # LEVEL 1: Confirmed duplicate — name + date + depto all match
+                            details = (
+                                f"Nombre+fecha+depto coinciden: {apellidos} {nombres}, "
+                                f"fecha MSPAS={row_fecha.strftime('%d/%m/%Y')} vs nuestro={our_fecha_str}, "
+                                f"depto MSPAS={row_depto} vs nuestro={our_depto}"
                             )
+                            logger.warning(
+                                "CONFIRMED DUPLICATE in MSPAS: %s", details,
+                            )
+                            self._screenshot(page, "dup_check_CONFIRMED")
+                            return {"status": "confirmed_duplicate", "details": details}
+
+                        elif same_month and not row_depto:
+                            # Date matches but no depto visible — confirmed (conservative)
+                            details = (
+                                f"Nombre+fecha coinciden (depto no visible): {apellidos} {nombres}, "
+                                f"fecha MSPAS={row_fecha.strftime('%d/%m/%Y')} vs nuestro={our_fecha_str}"
+                            )
+                            logger.warning(
+                                "CONFIRMED DUPLICATE in MSPAS (no depto): %s", details,
+                            )
+                            self._screenshot(page, "dup_check_CONFIRMED")
+                            return {"status": "confirmed_duplicate", "details": details}
+
                         else:
-                            # No date visible in results — name-only match
-                            logger.warning(
-                                "POTENTIAL DUPLICATE in MSPAS for: %s %s "
-                                "(name-only match, dates not visible in list — "
-                                "false positive possible)",
-                                apellidos, nombres,
+                            # LEVEL 2: Name matches but date/depto don't confirm
+                            date_info = (
+                                f"fecha MSPAS={row_fecha.strftime('%d/%m/%Y')}" if row_fecha
+                                else "fecha no visible"
                             )
-                        self._screenshot(page, "dup_check_DUPLICATE")
-                        return True
+                            depto_info = (
+                                f"depto MSPAS={row_depto}" if row_depto
+                                else "depto no visible"
+                            )
+                            details = (
+                                f"Solo nombre coincide: {apellidos} {nombres}, "
+                                f"{date_info} vs nuestro={our_fecha_str}, "
+                                f"{depto_info} vs nuestro={our_depto}"
+                            )
+                            logger.warning(
+                                "POSSIBLE DUPLICATE in MSPAS: %s", details,
+                            )
+                            self._screenshot(page, "dup_check_POSSIBLE")
+                            return {"status": "possible_duplicate", "details": details}
 
                     # Partial match: if only apellidos was searched and matches
                     if apellidos_match and not nombres:
+                        details = f"Solo apellidos coinciden: {apellidos}"
                         logger.warning(
-                            "POTENTIAL DUPLICATE in MSPAS (apellidos match): %s",
+                            "POSSIBLE DUPLICATE in MSPAS (apellidos only): %s",
                             apellidos,
                         )
-                        self._screenshot(page, "dup_check_DUPLICATE")
-                        return True
+                        self._screenshot(page, "dup_check_POSSIBLE")
+                        return {"status": "possible_duplicate", "details": details}
 
                 logger.info(
                     "Search returned %d rows but no exact name match found",
@@ -920,12 +960,12 @@ class MSPASBot:
                 )
 
             logger.info("No duplicate found in MSPAS for: %s %s", apellidos, nombres)
-            return False
+            return {"status": "clean"}
 
         except Exception as e:
             logger.warning("Duplicate check failed (proceeding anyway): %s", e)
             self._screenshot(page, "dup_check_error")
-            return False
+            return {"status": "clean"}
 
     # ── Tab 1: Datos Generales ───────────────────────────────────────────
 
@@ -1801,9 +1841,10 @@ class MSPASBot:
                     })
 
                 # Step 2: Check for duplicates in MSPAS before creating ficha
-                if self.check_duplicate_in_mspas(page, record):
+                dup = self.check_duplicate_in_mspas(page, record)
+                if dup["status"] == "confirmed_duplicate":
                     logger.warning(
-                        "Duplicate detected in MSPAS for %s. Skipping.",
+                        "Confirmed duplicate in MSPAS for %s. Skipping.",
                         record.get("registro_id", "?"),
                     )
                     return self._enrich_result({
@@ -1811,9 +1852,28 @@ class MSPASBot:
                         "production_mode": PRODUCTION_MODE,
                         "submitted": False,
                         "duplicate": True,
+                        "duplicate_type": "confirmed",
+                        "details": dup.get("details", ""),
                         "mspas_ficha_id": None,
                         "screenshots": self.screenshots,
-                        "errors": ["Duplicado: paciente ya tiene ficha en MSPAS"],
+                        "errors": ["Duplicado confirmado: paciente ya tiene ficha en MSPAS"],
+                        "duration_seconds": time.time() - self._start_time,
+                    })
+                elif dup["status"] == "possible_duplicate":
+                    logger.warning(
+                        "Possible duplicate in MSPAS for %s. Flagging for review.",
+                        record.get("registro_id", "?"),
+                    )
+                    return self._enrich_result({
+                        "success": False,
+                        "production_mode": PRODUCTION_MODE,
+                        "submitted": False,
+                        "duplicate": True,
+                        "duplicate_type": "possible",
+                        "details": dup.get("details", ""),
+                        "mspas_ficha_id": None,
+                        "screenshots": self.screenshots,
+                        "errors": ["Posible duplicado: nombre coincide, requiere revisión humana"],
                         "duration_seconds": time.time() - self._start_time,
                     })
 
@@ -2056,17 +2116,22 @@ class MSPASBot:
                                     on_complete(rid, result)
                                 continue
 
-                        # Check for duplicates in MSPAS
-                        if self.check_duplicate_in_mspas(page, record):
-                            logger.warning("Batch: duplicate detected for %s", rid)
+                        # Check for duplicates in MSPAS (2-level detection)
+                        dup = self.check_duplicate_in_mspas(page, record)
+                        if dup["status"] in ("confirmed_duplicate", "possible_duplicate"):
+                            dup_type = "confirmed" if dup["status"] == "confirmed_duplicate" else "possible"
+                            dup_label = "Duplicado confirmado" if dup_type == "confirmed" else "Posible duplicado"
+                            logger.warning("Batch: %s detected for %s", dup_label.lower(), rid)
                             result = self._enrich_result({
                                 "success": False,
                                 "production_mode": PRODUCTION_MODE,
                                 "submitted": False,
                                 "duplicate": True,
+                                "duplicate_type": dup_type,
+                                "details": dup.get("details", ""),
                                 "mspas_ficha_id": None,
                                 "screenshots": self.screenshots,
-                                "errors": ["Duplicado: paciente ya tiene ficha en MSPAS"],
+                                "errors": [f"{dup_label}: {dup.get('details', 'paciente ya tiene ficha en MSPAS')}"],
                                 "duration_seconds": time.time() - record_start,
                             })
                             results.append(result)
