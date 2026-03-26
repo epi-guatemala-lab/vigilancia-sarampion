@@ -2,8 +2,12 @@
 Mapeo de campos: BD unificada → GoData Guatemala API payload.
 Convierte un registro de nuestra BD SQLite al formato esperado por GoData Guatemala.
 
-GoData Guatemala usa variables en español con underscore, valores en MAYUSCULAS
-sin acentos, y fechas ISO 8601 con tiempo (YYYY-MM-DDT00:00:00.000Z).
+GoData Guatemala usa variables en español con underscore, valores en MAYUSCULAS,
+y fechas ISO 8601 con tiempo (YYYY-MM-DDT00:00:00.000Z).
+
+IMPORTANTE: Los valores de OPCIONES (dropdowns, multi-answer) REQUIEREN acentos
+(ej: "SARAMPIÓN", "RUBÉOLA", "BÚSQUEDA ACTIVA INSTITUCIONAL").
+Solo los campos de TEXTO LIBRE (nombres, direcciones) se normalizan sin acentos.
 
 Diferencias clave vs template WHO genérico:
 - Autenticación: Bearer token (access_token), NO id-based
@@ -147,6 +151,36 @@ _GUATEMALA_DMS_MAP = {
     "BOCA DEL MONTE": "distrito_municipal_de_salud_dms7",
 }
 
+# Guatemala municipio → DAS name (for direccion_de_area_de_salud option value)
+_GUATEMALA_MUNICIPIO_TO_DAS = {
+    # GUATEMALA CENTRAL (DMS4)
+    "GUATEMALA": "GUATEMALA CENTRAL",
+    "ZONA 1": "GUATEMALA CENTRAL", "ZONA 3": "GUATEMALA CENTRAL",
+    "BETHANIA": "GUATEMALA CENTRAL", "CENTRO AMERICA": "GUATEMALA CENTRAL",
+    "EL AMPARO": "GUATEMALA CENTRAL",
+    # GUATEMALA NOR OCCIDENTE (DMS5)
+    "MIXCO": "GUATEMALA NOR OCCIDENTE",
+    "CHUARRANCHO": "GUATEMALA NOR OCCIDENTE",
+    "SAN JUAN SACATEPEQUEZ": "GUATEMALA NOR OCCIDENTE",
+    "SAN PEDRO SACATEPEQUEZ": "GUATEMALA NOR OCCIDENTE",
+    "SAN RAYMUNDO": "GUATEMALA NOR OCCIDENTE",
+    "CIUDAD QUETZAL": "GUATEMALA NOR OCCIDENTE",
+    # GUATEMALA NOR ORIENTE (DMS6)
+    "CHINAUTLA": "GUATEMALA NOR ORIENTE",
+    "FRAIJANES": "GUATEMALA NOR ORIENTE",
+    "PALENCIA": "GUATEMALA NOR ORIENTE",
+    "SAN JOSE DEL GOLFO": "GUATEMALA NOR ORIENTE",
+    "SAN JOSE PINULA": "GUATEMALA NOR ORIENTE",
+    "SAN PEDRO AYAMPUC": "GUATEMALA NOR ORIENTE",
+    "SANTA CATARINA PINULA": "GUATEMALA NOR ORIENTE",
+    # GUATEMALA SUR (DMS7)
+    "AMATITLAN": "GUATEMALA SUR",
+    "VILLA NUEVA": "GUATEMALA SUR",
+    "SAN MIGUEL PETAPA": "GUATEMALA SUR",
+    "VILLA CANALES": "GUATEMALA SUR",
+    "BOCA DEL MONTE": "GUATEMALA SUR",
+}
+
 # Municipio variable suffix por departamento
 _MUNICIPIO_VARIABLE_MAP = {
     "ALTA VERAPAZ": "municipio_de_residencia_",
@@ -179,31 +213,31 @@ _MUNICIPIO_VARIABLE_MAP = {
 # Servicio de Salud suffix por departamento (matches DMS pattern)
 _SERVICIO_SALUD_VARIABLE_MAP = {
     "ALTA VERAPAZ": "servicio_de_salud",
-    "BAJA VERAPAZ": "servicio_de_salud_1",
-    "CHIMALTENANGO": "servicio_de_salud_2",
+    "BAJA VERAPAZ": "servicio_de_salud_",
+    "CHIMALTENANGO": "servicio_de_salud_CHI",
     "CHIQUIMULA": "servicio_de_salud_CH",
-    "EL PROGRESO": "servicio_de_salud_3",
-    "ESCUINTLA": "servicio_de_salud_5",
-    "GUATEMALA": "servicio_de_salud_7",
-    "HUEHUETENANGO": "servicio_de_salud_8",
-    "IXCAN": "servicio_de_salud_9",
-    "IXIL": "servicio_de_salud_10",
-    "IZABAL": "servicio_de_salud_11",
-    "JALAPA": "servicio_de_salud_12",
-    "JUTIAPA": "servicio_de_salud_13",
-    "PETEN NORTE": "servicio_de_salud_14",
-    "PETEN SUR OCCIDENTE": "servicio_de_salud_15",
-    "PETEN SUR ORIENTE": "servicio_de_salud_16",
-    "QUETZALTENANGO": "servicio_de_salud_17",
-    "QUICHE": "servicio_de_salud_18",
-    "RETALHULEU": "servicio_de_salud_19",
-    "SACATEPEQUEZ": "servicio_de_salud_20",
-    "SAN MARCOS": "servicio_de_salud_21",
-    "SANTA ROSA": "servicio_de_salud_22",
-    "SOLOLA": "servicio_de_salud_23",
-    "SUCHITEPEQUEZ": "servicio_de_salud_24",
-    "TOTONICAPAN": "servicio_de_salud_25",
-    "ZACAPA": "servicio_de_salud_26",
+    "EL PROGRESO": "servicio_de_salud1",
+    "ESCUINTLA": "servicio_de_salud3",
+    "GUATEMALA": "servicio_de_salud4",
+    "HUEHUETENANGO": "servicio_de_salud8",
+    "IXCAN": "servicio_de_salud9",
+    "IXIL": "servicio_de_salud10",
+    "IZABAL": "servicio_de_salud11",
+    "JALAPA": "servicio_de_salud12",
+    "JUTIAPA": "servicio_de_salud13",
+    "PETEN NORTE": "servicio_de_salud14",
+    "PETEN SUR OCCIDENTE": "servicio_de_salud15",
+    "PETEN SUR ORIENTE": "servicio_de_salud16",
+    "QUETZALTENANGO": "servicio_de_salud17",
+    "QUICHE": "servicio_de_salud18",
+    "RETALHULEU": "servicio_de_salud19",
+    "SACATEPEQUEZ": "servicio_de_salud20",
+    "SAN MARCOS": "servicio_de_salud21",
+    "SANTA ROSA": "servicio_de_salud22",
+    "SOLOLA": "servicio_de_salud23",
+    "SUCHITEPEQUEZ": "servicio_de_salud24",
+    "TOTONICAPAN": "servicio_de_salud25",
+    "ZACAPA": "servicio_de_salud26",
 }
 
 # Clasificación final Guatemala: códigos numéricos
@@ -306,19 +340,20 @@ _SYMPTOM_LABEL_MAP = {
     "signo_conjuntivitis": "Conjuntivitis",
     "signo_coriza": "Coriza / Catarro",
     "signo_manchas_koplik": "Manchas de Koplik",
-    "signo_adenopatias": "Adenopatías/ Ganglios inflamados",
-    "signo_artralgia": "Artralgia/ Dolor articular",
+    "signo_adenopatias": "Adenopatías",
+    "signo_artralgia": "Artralgia / Artritis",
 }
 
 # Diagnóstico de sospecha
 _DIAGNOSTICO_MAP = {
-    "SARAMPIÓN": "SARAMPION",
-    "SARAMPION": "SARAMPION",
-    "RUBÉOLA": "RUBEOLA",
-    "RUBEOLA": "RUBEOLA",
+    "SARAMPIÓN": "SARAMPIÓN",
+    "SARAMPION": "SARAMPIÓN",
+    "RUBÉOLA": "RUBÉOLA",
+    "RUBEOLA": "RUBÉOLA",
     "DENGUE": "DENGUE",
-    "OTRA FEBRIL EXANTEMATICA": "OTRA FEBRIL EXANTEMATICA",
-    "CASO ALTAMENTE SOSPECHOSO": "SARAMPION",
+    "OTRA FEBRIL EXANTEMATICA": "OTRA FEBRIL EXANTEMÁTICA",
+    "OTRA FEBRIL EXANTEMÁTICA": "OTRA FEBRIL EXANTEMÁTICA",
+    "CASO ALTAMENTE SOSPECHOSO": "SARAMPIÓN",
 }
 
 # Fuente de notificación Guatemala (texto directo)
@@ -326,18 +361,18 @@ _FUENTE_NOTIFICACION_MAP = {
     "SERVICIO DE SALUD": "SERVICIO DE SALUD",
     "PUBLICA": "SERVICIO DE SALUD",
     "PRIVADA": "SERVICIO DE SALUD",
-    "LABORATORIO": "BUSQUEDA ACTIVA LABORATORIAL",
-    "COMUNIDAD": "BUSQUEDA ACTIVA COMUNITARIA",
-    "BÚSQUEDA ACTIVA LABORATORIAL": "BUSQUEDA ACTIVA LABORATORIAL",
-    "BUSQUEDA ACTIVA LABORATORIAL": "BUSQUEDA ACTIVA LABORATORIAL",
-    "BÚSQUEDA ACTIVA COMUNITARIA": "BUSQUEDA ACTIVA COMUNITARIA",
-    "BUSQUEDA ACTIVA COMUNITARIA": "BUSQUEDA ACTIVA COMUNITARIA",
-    "BÚSQUEDA ACTIVA INSTITUCIONAL": "BUSQUEDA ACTIVA INSTITUCIONAL",
-    "BUSQUEDA ACTIVA INSTITUCIONAL": "BUSQUEDA ACTIVA INSTITUCIONAL",
-    "INVESTIGACIÓN DE CONTACTOS": "INVESTIGACION DE CONTACTOS",
-    "INVESTIGACION DE CONTACTOS": "INVESTIGACION DE CONTACTOS",
-    "DEFUNCIÓN": "DEFUNCION",
-    "DEFUNCION": "DEFUNCION",
+    "LABORATORIO": "BÚSQUEDA ACTIVA LABORATORIAL",
+    "COMUNIDAD": "BÚSQUEDA ACTIVA COMUNITARIA",
+    "BÚSQUEDA ACTIVA LABORATORIAL": "BÚSQUEDA ACTIVA LABORATORIAL",
+    "BUSQUEDA ACTIVA LABORATORIAL": "BÚSQUEDA ACTIVA LABORATORIAL",
+    "BÚSQUEDA ACTIVA COMUNITARIA": "BÚSQUEDA ACTIVA COMUNITARIA",
+    "BUSQUEDA ACTIVA COMUNITARIA": "BÚSQUEDA ACTIVA COMUNITARIA",
+    "BÚSQUEDA ACTIVA INSTITUCIONAL": "BÚSQUEDA ACTIVA INSTITUCIONAL",
+    "BUSQUEDA ACTIVA INSTITUCIONAL": "BÚSQUEDA ACTIVA INSTITUCIONAL",
+    "INVESTIGACIÓN DE CONTACTOS": "INVESTIGACIÓN DE CONTACTOS",
+    "INVESTIGACION DE CONTACTOS": "INVESTIGACIÓN DE CONTACTOS",
+    "DEFUNCIÓN": "DEFUNCIÓN",
+    "DEFUNCION": "DEFUNCIÓN",
 }
 
 # Tipo de vacuna Guatemala (texto para multi-answer)
@@ -397,10 +432,25 @@ def _strip_accents(text: str) -> str:
 
 
 def _godata_text(text: str) -> str:
-    """Normaliza texto para GoData: MAYUSCULAS sin tildes."""
+    """Normaliza texto libre para GoData: MAYUSCULAS sin tildes.
+
+    Usar SOLO para campos de texto libre: nombres, direcciones, observaciones.
+    Para valores de opciones/dropdowns, usar _godata_option().
+    """
     if not text:
         return text
     return _strip_accents(text).upper()
+
+
+def _godata_option(text: str) -> str:
+    """Normaliza texto de opción para GoData: MAYÚSCULAS pero CON tildes.
+
+    GoData Guatemala REQUIERE acentos en valores de opciones/dropdowns
+    (ej: "SARAMPIÓN", "RUBÉOLA", "BÚSQUEDA ACTIVA INSTITUCIONAL").
+    """
+    if not text:
+        return text
+    return text.upper()
 
 
 def _to_iso_date(date_str: str) -> Optional[str]:
@@ -484,11 +534,25 @@ def _resolve_municipio_variable(departamento: str) -> Optional[str]:
     return _MUNICIPIO_VARIABLE_MAP.get(dept)
 
 
-def _resolve_servicio_variable(departamento: str) -> Optional[str]:
-    """Resuelve la variable de servicio de salud correcta para un departamento."""
+def _resolve_servicio_variable(departamento: str, municipio: str = "") -> Optional[str]:
+    """Resuelve la variable de servicio de salud correcta para un departamento.
+
+    Para Guatemala, resuelve a la sub-DAS correcta basándose en municipio.
+    """
     dept = _strip_accents(departamento).upper().strip() if departamento else ""
     if not dept:
         return None
+    if dept == "GUATEMALA" and municipio:
+        muni_upper = municipio.upper().strip()
+        das = _GUATEMALA_MUNICIPIO_TO_DAS.get(muni_upper, "GUATEMALA CENTRAL")
+        # Map DAS name back to suffix: CENTRAL=4, NOR OCCIDENTE=5, NOR ORIENTE=6, SUR=7
+        _GUATEMALA_DAS_SERVICIO = {
+            "GUATEMALA CENTRAL": "servicio_de_salud4",
+            "GUATEMALA NOR OCCIDENTE": "servicio_de_salud5",
+            "GUATEMALA NOR ORIENTE": "servicio_de_salud6",
+            "GUATEMALA SUR": "servicio_de_salud7",
+        }
+        return _GUATEMALA_DAS_SERVICIO.get(das, "servicio_de_salud4")
     return _SERVICIO_SALUD_VARIABLE_MAP.get(dept)
 
 
@@ -620,19 +684,26 @@ def map_record_to_godata(record: dict) -> Dict:
     dx_sospecha = _get(d, "diagnostico_sospecha").upper()
     dx_mapped = _DIAGNOSTICO_MAP.get(dx_sospecha)
     if dx_mapped:
-        qa["diagnostico_de_sospecha_"] = _qa_val(_godata_text(dx_mapped))
+        qa["diagnostico_de_sospecha_"] = _qa_val(dx_mapped)
     elif _get(d, "diagnostico_registrado").upper().startswith("B05"):
-        qa["diagnostico_de_sospecha_"] = _qa_val("SARAMPION")
+        qa["diagnostico_de_sospecha_"] = _qa_val("SARAMPIÓN")
     elif _get(d, "diagnostico_registrado").upper().startswith("B06"):
-        qa["diagnostico_de_sospecha_"] = _qa_val("RUBEOLA")
+        qa["diagnostico_de_sospecha_"] = _qa_val("RUBÉOLA")
     else:
-        qa["diagnostico_de_sospecha_"] = _qa_val("SARAMPION")
+        qa["diagnostico_de_sospecha_"] = _qa_val("SARAMPIÓN")
 
     # ─── Sección 1: Unidad Notificadora ─────────────────
     # Dirección de Área de Salud (departamento)
     dept_das = _get(d, "departamento_das") or _get(d, "departamento_residencia")
     if dept_das:
-        qa["direccion_de_area_de_salud"] = _qa_val(_godata_text(dept_das))
+        # Bug 2: Guatemala has 4 sub-DAS areas — resolve based on municipality
+        dept_upper = dept_das.upper().strip()
+        if dept_upper == "GUATEMALA":
+            muni_for_das = (_get(d, "municipio_residencia") or "").upper().strip()
+            das_value = _GUATEMALA_MUNICIPIO_TO_DAS.get(muni_for_das, "GUATEMALA CENTRAL")
+            qa["direccion_de_area_de_salud"] = _qa_val(das_value)
+        else:
+            qa["direccion_de_area_de_salud"] = _qa_val(_godata_option(dept_das))
 
     # DMS (cascadeado por departamento)
     distrito = _get(d, "distrito_salud") or _get(d, "municipio_residencia")
@@ -644,7 +715,8 @@ def map_record_to_godata(record: dict) -> Dict:
     # Servicio de Salud (cascadeado por departamento)
     servicio = _get(d, "servicio_salud_mspas") or _get(d, "unidad_medica")
     if dept_das and servicio:
-        serv_var = _resolve_servicio_variable(dept_das)
+        muni_for_serv = _get(d, "municipio_residencia")
+        serv_var = _resolve_servicio_variable(dept_das, muni_for_serv)
         if serv_var:
             qa[serv_var] = _qa_val(_godata_text(servicio))
 
@@ -683,7 +755,7 @@ def map_record_to_godata(record: dict) -> Dict:
     fuente = _get(d, "fuente_notificacion")
     if fuente:
         fuente_upper = fuente.upper()
-        mapped = _FUENTE_NOTIFICACION_MAP.get(fuente_upper, _godata_text(fuente))
+        mapped = _FUENTE_NOTIFICACION_MAP.get(fuente_upper, _godata_option(fuente))
         qa["fuente_de_notificacion_"] = _qa_val(mapped)
 
     # ─── Sección 2: Información del Paciente ────────────
@@ -700,14 +772,14 @@ def map_record_to_godata(record: dict) -> Dict:
         qa["nombre_del_tutor_"] = _qa_val("SI")
         parentesco = _get(d, "parentesco_encargado")
         if parentesco:
-            qa["parentesco_"] = _qa_val(_godata_text(parentesco))
+            qa["parentesco_"] = _qa_val(_godata_option(parentesco))
     else:
         qa["nombre_del_tutor_"] = _qa_val("NO")
 
     # Pueblo / etnia
     pueblo = _get(d, "pueblo") or _get(d, "etnia")
     if pueblo:
-        qa["pueblo"] = _qa_val(_godata_text(pueblo))
+        qa["pueblo"] = _qa_val(_godata_option(pueblo))
 
     # Extranjero / Migrante
     extranjero = _get(d, "es_extranjero").upper()
@@ -718,10 +790,10 @@ def map_record_to_godata(record: dict) -> Dict:
     # Ocupación y escolaridad
     ocupacion = _get(d, "ocupacion")
     if ocupacion:
-        qa["ocupacion_"] = _qa_val(_godata_text(ocupacion))
+        qa["ocupacion_"] = _qa_val(_godata_option(ocupacion))
     escolaridad = _get(d, "escolaridad")
     if escolaridad:
-        qa["escolaridad_"] = _qa_val(_godata_text(escolaridad))
+        qa["escolaridad_"] = _qa_val(_godata_option(escolaridad))
 
     # Teléfono del paciente
     tel_pac = _get(d, "telefono_paciente") or _get(d, "telefono_encargado")
@@ -859,11 +931,11 @@ def map_record_to_godata(record: dict) -> Dict:
         qa["complicaciones_"] = _qa_val("SI")
         comp_types = []
         comp_map = {
-            "comp_neumonia": "NEUMONIA",
+            "comp_neumonia": "NEUMONÍA",
             "comp_encefalitis": "ENCEFALITIS",
             "comp_diarrea": "DIARREA",
             "comp_trombocitopenia": "TROMBOCITOPENIA",
-            "comp_otitis": "OTITIS MEDIA",
+            "comp_otitis": "OTITIS MEDIA AGUDA",
             "comp_ceguera": "CEGUERA",
         }
         for field, label in comp_map.items():
@@ -871,7 +943,9 @@ def map_record_to_godata(record: dict) -> Dict:
                 comp_types.append(label)
         otra = _get(d, "comp_otra_texto")
         if otra:
-            comp_types.append(_godata_text(otra))
+            comp_types.append("OTRA (ESPECIFIQUE)")
+            # Also add the specific text as a separate observation if needed
+            qa["especifique_otra_complicacion"] = _qa_val(_godata_text(otra))
         if comp_types:
             qa["especifique_complicaciones_"] = _qa_val(comp_types)
     else:
@@ -955,7 +1029,7 @@ def map_record_to_godata(record: dict) -> Dict:
     fuente_contagio = _get(d, "fuente_posible_contagio")
     if fuente_contagio:
         contagio_upper = fuente_contagio.upper()
-        mapped_contagio = _FUENTE_CONTAGIO_MAP.get(contagio_upper, fuente_contagio)
+        mapped_contagio = _FUENTE_CONTAGIO_MAP.get(contagio_upper, _godata_option(fuente_contagio))
         qa["fuente_posible_de_contagio1"] = _qa_val([mapped_contagio])
 
     # ─── Sección 6: Acciones de Respuesta ───────────────
@@ -1024,13 +1098,15 @@ def map_record_to_godata(record: dict) -> Dict:
     if clas_estado in ("CLASIFICADO", "CONFIRMADO", "CONFIRMADO SARAMPIÓN", "CONFIRMADO SARAMPION",
                        "CONFIRMADO RUBÉOLA", "CONFIRMADO RUBEOLA", "DESCARTADO"):
         qa["clasificacion"] = _qa_val("CLASIFICADO")
+        # Clasificación final solo se envía cuando está CLASIFICADO
+        clas_final = _CLASIFICACION_FINAL_MAP.get(clas_estado)
+        if clas_final:
+            qa["clasificacion_final"] = _qa_val(clas_final)
     elif clas_estado in ("SOSPECHOSO", "PENDIENTE"):
-        qa["clasificacion"] = _qa_val("PENDIENTE")
-
-    # Clasificación final (código numérico)
-    clas_final = _CLASIFICACION_FINAL_MAP.get(clas_estado)
-    if clas_final:
-        qa["clasificacion_final"] = _qa_val(clas_final)
+        qa["clasificacion"] = _qa_val("2")
+        clas_final = None  # No enviar clasificacion_final para pendientes
+    else:
+        clas_final = None
 
     # Criterio de confirmación (depende de sarampión vs rubéola)
     criterio_conf = _get(d, "criterio_confirmacion").upper()

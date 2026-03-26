@@ -15,9 +15,8 @@
  */
 
 import { unidadesMedicasNombres } from './unidadesMedicas.js'
-import { etniasOptions } from './mspasEtnias.js'
+// etniasOptions and escolaridadOptions now inlined in formFields (aligned with MSPAS/GoData 2026)
 import { ocupacionesOptions } from './mspasOcupaciones.js'
-import { escolaridadOptions } from './mspasEscolaridad.js'
 import { departamentos, getMunicipios } from './mspasMunicipios.js'
 import { getPoblados } from './mspasPoblados.js'
 import { getSubgerencias } from './igssOrganizacion.js'
@@ -172,7 +171,7 @@ export const formFields = [
     label: 'Fecha de Registro de Diagnóstico',
     type: 'date',
     page: 1,
-    required: true,
+    required: false,
     colSpan: 'half',
     validation: { noFuture: true },
   },
@@ -195,7 +194,7 @@ export const formFields = [
     label: 'Servicio que Reporta',
     type: 'select',
     page: 1,
-    required: true,
+    required: false,
     options: ['EMERGENCIA', 'CONSULTA EXTERNA', 'ENCAMAMIENTO', 'OTRO'],
     colSpan: 'half',
   },
@@ -242,7 +241,7 @@ export const formFields = [
     label: '¿Enviaron Ficha Epidemiológica?',
     type: 'radio',
     page: 1,
-    required: true,
+    required: false,
     options: ['SI', 'NO'],
     colSpan: 'full',
   },
@@ -256,15 +255,13 @@ export const formFields = [
     required: true,
     options: [
       'Servicio de Salud',
-      'Privada',
       'Laboratorio',
-      'Comunidad',
       'Búsqueda Activa Institucional',
       'Búsqueda Activa Comunitaria',
       'Búsqueda Activa Laboratorial',
       'Investigación de Contactos',
-      'Auto Notificación',
-      'Defunción',
+      'Caso Reportado por la Comunidad',
+      'Auto Notificación por Número Gratuito',
       'Otra',
     ],
     colSpan: 'half',
@@ -288,6 +285,7 @@ export const formFields = [
     required: false,
     colSpan: 'half',
     validation: { noFuture: true },
+    hidden: true,
   },
   {
     id: 'fecha_inicio_investigacion',
@@ -297,6 +295,7 @@ export const formFields = [
     required: false,
     colSpan: 'half',
     validation: { noFuture: true },
+    hidden: true,
   },
   {
     id: 'busqueda_activa',
@@ -310,6 +309,7 @@ export const formFields = [
       'Otras',
     ],
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'busqueda_activa_otra',
@@ -320,6 +320,7 @@ export const formFields = [
     placeholder: 'Especifique',
     conditional: { dependsOn: 'busqueda_activa', showWhen: 'Otras' },
     colSpan: 'half',
+    hidden: true,
   },
 
   // ═══════════════════════════════════════════════════
@@ -437,7 +438,14 @@ export const formFields = [
     type: 'select',
     page: 2,
     required: true,
-    options: etniasOptions,
+    options: [
+      'Ladino',
+      'Maya',
+      'Garífuna',
+      'Xinca',
+      'Extranjero',
+      'Desconocido',
+    ],
     colSpan: 'half',
     sectionTitle: 'Datos Sociodemográficos',
   },
@@ -475,7 +483,17 @@ export const formFields = [
     type: 'select',
     page: 2,
     required: true,
-    options: escolaridadOptions,
+    options: [
+      'No aplica',
+      'Pre Primaria',
+      'Primaria',
+      'Básicos',
+      'Diversificado',
+      'Universitario',
+      'Postgrado',
+      'Ninguna',
+      'Desconocida',
+    ],
     colSpan: 'half',
   },
   {
@@ -536,7 +554,7 @@ export const formFields = [
     label: 'Nombre de la madre, padre o encargado',
     type: 'text',
     page: 2,
-    required: true,
+    required: false,
     placeholder: 'Nombre del encargado(a) del paciente',
     colSpan: 'half',
     sectionTitle: 'Encargado',
@@ -675,7 +693,7 @@ export const formFields = [
     type: 'radio',
     page: 4,
     required: true,
-    options: ['SI', 'NO', 'DESCONOCIDO'],
+    options: ['SI', 'NO', 'DESCONOCIDO/VERBAL'],
     colSpan: 'half',
     sectionTitle: 'Antecedentes de Vacunación',
   },
@@ -1370,6 +1388,7 @@ export const formFields = [
     required: false,
     options: ['SI', 'NO'],
     colSpan: 'full',
+    hidden: true,
   },
   {
     id: 'contacto_embarazada',
@@ -1445,6 +1464,7 @@ export const formFields = [
     required: false,
     options: ['SI', 'NO'],
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'bac_casos_sospechosos',
@@ -1456,6 +1476,7 @@ export const formFields = [
     conditional: { dependsOn: 'bac_realizada', showWhen: 'SI' },
     colSpan: 'half',
     validation: { min: 0, max: 9999 },
+    hidden: true,
   },
 
   // Vacunación de Respuesta
@@ -1468,6 +1489,7 @@ export const formFields = [
     options: ['SI', 'NO'],
     colSpan: 'half',
     sectionTitle: 'Vacunación de Respuesta',
+    hidden: true,
   },
   {
     id: 'monitoreo_rapido_vacunacion',
@@ -1477,6 +1499,7 @@ export const formFields = [
     required: false,
     options: ['SI', 'NO'],
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'vacunacion_barrido',
@@ -1486,6 +1509,7 @@ export const formFields = [
     required: false,
     options: ['SI', 'NO'],
     colSpan: 'half',
+    hidden: true,
   },
 
   // Vitamina A
@@ -1810,11 +1834,7 @@ export const formFields = [
       'CONFIRMADO RUBÉOLA',
       'DESCARTADO',
       'PENDIENTE',
-      'NO CUMPLE DEFINICIÓN',
-      'CLÍNICO',
-      'FALSO',
-      'ERROR DIAGNÓSTICO',
-      'SUSPENDIDO',
+      'NO CUMPLE DEFINICIÓN DE CASO',
     ],
     helpText: 'Clasificación del caso según protocolo MSPAS 2026',
     colSpan: 'half',
