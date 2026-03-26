@@ -254,6 +254,10 @@ export default function FormWizard() {
 
     // Clean hidden field data before submission
     const cleanedData = cleanHiddenFieldData(formData, formFields)
+    // Hardcode IGSS values: siempre Seguro Social, nunca privado
+    cleanedData.es_seguro_social = 'SI'
+    cleanedData.establecimiento_privado = 'NO'
+    cleanedData.establecimiento_privado_nombre = ''
     const result = await submit(cleanedData)
     if (result?.success) {
       setRegistroId(result.registro_id)

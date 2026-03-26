@@ -128,6 +128,9 @@ export function prepareSubmissionData(formData, fields) {
     if (value !== undefined && value !== null && String(value).trim() !== '') {
       if (field.type === 'date') {
         prepared[field.id] = formatDate(value)
+      } else if (Array.isArray(value)) {
+        // Checkbox multi-select: join as comma-separated string
+        prepared[field.id] = value.join(', ')
       } else {
         prepared[field.id] = String(value).trim()
       }

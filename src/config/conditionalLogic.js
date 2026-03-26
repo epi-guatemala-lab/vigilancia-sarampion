@@ -16,12 +16,16 @@ export function isFieldVisible(field, formData) {
     return false
   }
 
+  // dependValue puede ser array (checkbox multi-select) o string
+  const depValues = Array.isArray(dependValue) ? dependValue : [String(dependValue).trim()]
+  if (depValues.length === 0) return false
+
   // showWhen puede ser un valor único o un array de valores
   if (Array.isArray(showWhen)) {
-    return showWhen.includes(dependValue)
+    return depValues.some(v => showWhen.includes(v))
   }
 
-  return String(dependValue).trim() === String(showWhen).trim()
+  return depValues.includes(String(showWhen).trim())
 }
 
 /**

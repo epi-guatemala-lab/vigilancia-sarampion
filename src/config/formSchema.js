@@ -91,7 +91,7 @@ export const formFields = [
   {
     id: 'diagnostico_sospecha',
     label: 'Diagnóstico de Sospecha',
-    type: 'select',
+    type: 'checkbox',
     page: 1,
     required: true,
     options: [
@@ -102,8 +102,8 @@ export const formFields = [
       'Otra febril exantemática',
       'Caso altamente sospechoso de Sarampión',
     ],
-    helpText: 'Diagnóstico de sospecha clínica al momento de la notificación',
-    colSpan: 'half',
+    helpText: 'Puede seleccionar una o más opciones',
+    colSpan: 'full',
   },
   {
     id: 'diagnostico_sospecha_otro',
@@ -136,33 +136,27 @@ export const formFields = [
     conditional: { dependsOn: 'unidad_medica', showWhen: 'OTRA' },
     colSpan: 'half',
   },
+  // es_seguro_social y establecimiento_privado se hardcodean automáticamente al enviar
+  // IGSS siempre es Seguro Social (SI) y nunca establecimiento privado (NO)
   {
     id: 'es_seguro_social',
-    label: '¿Es unidad del Seguro Social?',
     type: 'radio',
     page: 1,
-    required: false,
     options: ['SI', 'NO'],
-    colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'establecimiento_privado',
-    label: '¿Es establecimiento privado?',
     type: 'radio',
     page: 1,
-    required: false,
     options: ['SI', 'NO'],
-    colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'establecimiento_privado_nombre',
-    label: 'Nombre del establecimiento privado',
     type: 'text',
     page: 1,
-    required: false,
-    placeholder: 'Nombre del establecimiento',
-    conditional: { dependsOn: 'establecimiento_privado', showWhen: 'SI' },
-    colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'fecha_notificacion',
