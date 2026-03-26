@@ -56,10 +56,13 @@ class GoDataClient:
             )
             resp.raise_for_status()
             data = resp.json()
-            self._token = data["id"]
-            ttl = data.get("ttl", 600)
+            # GoData Guatemala uses {"access_token": "..."} format (OAuth2)
+            # Standard GoData uses {"id": "..."} format
+            self._token = data.get("access_token") or data.get("id", "")
+            ttl = data.get("expires_in") or data.get("ttl", 600)
             self._token_expires = time.time() + ttl
-            self._session.params = {"access_token": self._token}
+            # Use Bearer header (works for both Guatemala and standard GoData)
+            self._session.headers["Authorization"] = f"Bearer {self._token}"
             logger.info("GoData: token obtenido (TTL=%ds)", ttl)
         except requests.ConnectionError:
             raise ConnectionError(f"No se puede conectar a GoData en {self.base_url}")

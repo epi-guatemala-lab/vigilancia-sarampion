@@ -1,13 +1,17 @@
 """
-Mapeo de campos: BD unificada → GoData API payload.
-Convierte un registro de nuestra BD SQLite al formato esperado por GoData.
+Mapeo de campos: BD unificada → GoData Guatemala API payload.
+Convierte un registro de nuestra BD SQLite al formato esperado por GoData Guatemala.
 
-GoData Measles/Rubella template tiene 28 questionnaire questions +
-campos estándar del modelo Person/Case.
+GoData Guatemala usa variables en español con underscore, valores en MAYUSCULAS
+sin acentos, y fechas ISO 8601 con tiempo (YYYY-MM-DDT00:00:00.000Z).
 
-Referencia:
-- Go.Data Metadata Overview - Measles (WHO, 2022)
-- Template: WorldHealthOrganization/GoDataSource-API measles.json
+Diferencias clave vs template WHO genérico:
+- Autenticación: Bearer token (access_token), NO id-based
+- Variables en español con underscores y trailing underscores
+- Síntomas: campo único multi-answer (que_sintomas_) con array
+- Clasificación final: códigos numéricos (1=Sarampión, 2=Rubéola, etc.)
+- DMS y municipio: variables cascadeadas por departamento con sufijos
+- Acciones de respuesta: "1"/"2" en vez de "SI"/"NO"
 """
 import json
 import logging
@@ -36,14 +40,12 @@ CLASSIFICATION_MAP = {
     "CONFIRMADO RUBÉOLA": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_CONFIRMED",
     "CONFIRMADO RUBEOLA": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_CONFIRMED",
     "CONFIRMADO": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_CONFIRMED",
+    "CLASIFICADO": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_CONFIRMED",
     "CLÍNICO": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_PROBABLE",
     "CLINICO": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_PROBABLE",
     "DESCARTADO": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_NOT_A_CASE_DISCARDED",
     "NO CUMPLE DEFINICIÓN": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_NOT_A_CASE_DISCARDED",
     "NO CUMPLE DEFINICION": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_NOT_A_CASE_DISCARDED",
-    "FALSO": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_NOT_A_CASE_DISCARDED",
-    "ERROR DIAGNÓSTICO": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_NOT_A_CASE_DISCARDED",
-    "ERROR DIAGNOSTICO": "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_NOT_A_CASE_DISCARDED",
 }
 
 OUTCOME_MAP = {
@@ -52,28 +54,11 @@ OUTCOME_MAP = {
     "FALLECIDO": "LNG_REFERENCE_DATA_CATEGORY_OUTCOME_DECEASED",
     "MEJORADO": "LNG_REFERENCE_DATA_CATEGORY_OUTCOME_RECOVERED",
     "MUERTO": "LNG_REFERENCE_DATA_CATEGORY_OUTCOME_DECEASED",
-}
-
-VACCINE_TYPE_MAP = {
-    "SPR": "mmr",
-    "SRP": "mmr",
-    "SRP Sarampion Rubeola Paperas": "mmr",
-    "SR": "mr",
-    "SR Sarampion Rubeola": "mr",
-    "SPRV": "mmrv",
-    "Antisarampinosa": "measles",
-    "Antirubéolica": "rubella",
-}
-
-VACCINE_DOSE_MAP = {
-    "1": "one_dose",
-    "1 dosis": "one_dose",
-    "2": "two_doses",
-    "2 dosis": "two_doses",
-    "3": "three_doses",
-    "3 dosis": "three_doses",
-    "Mas de 3 dosis": "three_doses",
-    "No recuerda": "unknown",
+    # Códigos numéricos Guatemala
+    "1": "LNG_REFERENCE_DATA_CATEGORY_OUTCOME_RECOVERED",
+    "2": "LNG_REFERENCE_DATA_CATEGORY_OUTCOME_ALIVE",       # Con Secuelas
+    "3": "LNG_REFERENCE_DATA_CATEGORY_OUTCOME_DECEASED",
+    "4": "LNG_REFERENCE_DATA_CATEGORY_OUTCOME_ALIVE",       # Desconocido
 }
 
 DOCUMENT_TYPE_MAP = {
@@ -108,66 +93,285 @@ TEST_TYPE_MAP = {
     "pcr": "PCR",
 }
 
-DETECTED_BY_MAP = {
-    "Servicio de Salud": "Spontaneous consultation",
-    "Publica": "Spontaneous consultation",
-    "Privada": "Spontaneous consultation",
-    "Laboratorio": "Laboratory",
-    "Búsqueda Activa Laboratorial": "Laboratory",
-    "Comunidad": "Community report",
-    "Búsqueda Activa Comunitaria": "Community case search",
-    "Búsqueda Activa Institucional": "Institutional search",
-    "Investigación de Contactos": "Contact investigation",
-    "Defunción": "Spontaneous consultation",
+
+# ═══════════════════════════════════════════════════════════
+# GUATEMALA: MAPEO DE VARIABLES CASCADEADAS POR DEPARTAMENTO
+# ═══════════════════════════════════════════════════════════
+
+# DMS variable suffix por departamento
+# Ej: CHIQUIMULA → "distrito_municipal_de_salud_dms_CH"
+_DMS_VARIABLE_MAP = {
+    "ALTA VERAPAZ": "distrito_municipal_de_salud_dms",
+    "BAJA VERAPAZ": "distrito_municipal_de_salud_dms_",
+    "CHIMALTENANGO": "distrito_municipal_de_salud_dms_CHI",
+    "CHIQUIMULA": "distrito_municipal_de_salud_dms_CH",
+    "EL PROGRESO": "distrito_municipal_de_salud_dms1",
+    "ESCUINTLA": "distrito_municipal_de_salud_dms3",
+    # Guatemala tiene 4 DAS — se resuelve con _resolve_guatemala_dms()
+    "GUATEMALA": "distrito_municipal_de_salud_dms4",
+    "HUEHUETENANGO": "distrito_municipal_de_salud_dms8",
+    "IXCAN": "distrito_municipal_de_salud_dms9",
+    "IXIL": "distrito_municipal_de_salud_dms10",
+    "IZABAL": "distrito_municipal_de_salud_dms11",
+    "JALAPA": "distrito_municipal_de_salud_dms12",
+    "JUTIAPA": "distrito_municipal_de_salud_dms13",
+    "PETEN NORTE": "distrito_municipal_de_salud_dms14",
+    "PETEN SUR OCCIDENTE": "distrito_municipal_de_salud_dms15",
+    "PETEN SUR ORIENTE": "distrito_municipal_de_salud_dms16",
+    "QUETZALTENANGO": "distrito_municipal_de_salud_dms17",
+    "QUICHE": "distrito_municipal_de_salud_dms18",
+    "RETALHULEU": "distrito_municipal_de_salud_dms19",
+    "SACATEPEQUEZ": "distrito_municipal_de_salud_dms20",
+    "SAN MARCOS": "distrito_municipal_de_salud_dms21",
+    "SANTA ROSA": "distrito_municipal_de_salud_dms22",
+    "SOLOLA": "distrito_municipal_de_salud_dms23",
+    "SUCHITEPEQUEZ": "distrito_municipal_de_salud_dms24",
+    "TOTONICAPAN": "distrito_municipal_de_salud_dms25",
+    "ZACAPA": "distrito_municipal_de_salud_dms26",
 }
 
-SETTING_INFECTED_MAP = {
-    "Contacto en el hogar": "Household",
-    "Servicio de Salud": "Health center",
-    "Comunidad": "Community",
-    "Espacio Público": "Community",
-    "Desconocido": "Unknown",
-    "Otro": "Others",
+# Guatemala tiene 4 DAS con diferentes DMS variables
+_GUATEMALA_DMS_MAP = {
+    # DAS Nor Occidente/Central → dms4
+    "BETHANIA": "distrito_municipal_de_salud_dms4",
+    "CENTRO": "distrito_municipal_de_salud_dms4",
+    # DAS Nor Oriente → dms5
+    "CHUARRANCHO": "distrito_municipal_de_salud_dms5",
+    "MIXCO": "distrito_municipal_de_salud_dms5",
+    # DAS Sur → dms6
+    "CHINAUTLA": "distrito_municipal_de_salud_dms6",
+    "FRAIJANES": "distrito_municipal_de_salud_dms6",
+    # DAS → dms7
+    "AMATITLAN": "distrito_municipal_de_salud_dms7",
+    "BOCA": "distrito_municipal_de_salud_dms7",
+    "BOCA DEL MONTE": "distrito_municipal_de_salud_dms7",
 }
 
-CONFIRMATION_BASIS_MAP = {
-    "Laboratorio": "Laboratory",
-    "Nexo Epidemiológico": "Epidemiological Link",
-    "Nexo epidemiologico": "Epidemiological Link",
-    "Diagnóstico Clínico": "Clinical",
-    "Clinico": "Clinical",
-    "Clínico": "Clinical",
+# Municipio variable suffix por departamento
+_MUNICIPIO_VARIABLE_MAP = {
+    "ALTA VERAPAZ": "municipio_de_residencia_",
+    "BAJA VERAPAZ": "municipio_de_residencia1",
+    "CHIMALTENANGO": "municipio_de_residencia2",
+    "CHIQUIMULA": "municipio_de_residencia3",
+    "EL PROGRESO": "municipio_de_residencia4",
+    "ESCUINTLA": "municipio_de_residencia5",
+    "GUATEMALA": "municipio_de_residencia6",
+    "HUEHUETENANGO": "municipio_de_residencia7",
+    "IZABAL": "municipio_de_residencia8",
+    "JALAPA": "municipio_de_residencia9",
+    "JUTIAPA": "municipio_de_residencia10",
+    "PETEN": "municipio_de_residencia11",
+    "PETEN NORTE": "municipio_de_residencia11",
+    "PETEN SUR OCCIDENTE": "municipio_de_residencia11",
+    "PETEN SUR ORIENTE": "municipio_de_residencia11",
+    "QUETZALTENANGO": "municipio_de_residencia12",
+    "QUICHE": "municipio_de_residencia13",
+    "RETALHULEU": "municipio_de_residencia14",
+    "SACATEPEQUEZ": "municipio_de_residencia15",
+    "SAN MARCOS": "municipio_de_residencia16",
+    "SANTA ROSA": "municipio_de_residencia17",
+    "SOLOLA": "municipio_de_residencia18",
+    "SUCHITEPEQUEZ": "municipio_de_residencia19",
+    "TOTONICAPAN": "municipio_de_residencia20",
+    "ZACAPA": "municipio_de_residencia21",
 }
 
-DISCARD_BASIS_MAP = {
-    "Laboratorial": "IgM-neg",
-    "IgM Negativo": "IgM-neg",
-    "Reacción Vacunal": "Vaccine reaction",
-    "Dengue": "Dengue",
-    "Parvovirus B19": "Parvovirus B19",
-    "Herpes 6": "Herpes 6",
-    "Reacción Alérgica": "Allergic reaction",
-    "Otro Diagnóstico": "Other",
-    "Clínico": "Other",
+# Servicio de Salud suffix por departamento (matches DMS pattern)
+_SERVICIO_SALUD_VARIABLE_MAP = {
+    "ALTA VERAPAZ": "servicio_de_salud",
+    "BAJA VERAPAZ": "servicio_de_salud_1",
+    "CHIMALTENANGO": "servicio_de_salud_2",
+    "CHIQUIMULA": "servicio_de_salud_CH",
+    "EL PROGRESO": "servicio_de_salud_3",
+    "ESCUINTLA": "servicio_de_salud_5",
+    "GUATEMALA": "servicio_de_salud_7",
+    "HUEHUETENANGO": "servicio_de_salud_8",
+    "IXCAN": "servicio_de_salud_9",
+    "IXIL": "servicio_de_salud_10",
+    "IZABAL": "servicio_de_salud_11",
+    "JALAPA": "servicio_de_salud_12",
+    "JUTIAPA": "servicio_de_salud_13",
+    "PETEN NORTE": "servicio_de_salud_14",
+    "PETEN SUR OCCIDENTE": "servicio_de_salud_15",
+    "PETEN SUR ORIENTE": "servicio_de_salud_16",
+    "QUETZALTENANGO": "servicio_de_salud_17",
+    "QUICHE": "servicio_de_salud_18",
+    "RETALHULEU": "servicio_de_salud_19",
+    "SACATEPEQUEZ": "servicio_de_salud_20",
+    "SAN MARCOS": "servicio_de_salud_21",
+    "SANTA ROSA": "servicio_de_salud_22",
+    "SOLOLA": "servicio_de_salud_23",
+    "SUCHITEPEQUEZ": "servicio_de_salud_24",
+    "TOTONICAPAN": "servicio_de_salud_25",
+    "ZACAPA": "servicio_de_salud_26",
 }
 
-SOURCE_INFECTION_MAP = {
-    "Importado": "Imported",
-    "Relacionado con Importación": "Import-Related",
-    "Relacionado con la importacion": "Import-Related",
-    "Endémico": "Endemic",
-    "Endemico": "Endemic",
-    "Autóctono": "Endemic",
-    "Autoctono": "Endemic",
-    "Desconocido": "Unknown",
-    "Fuente desconocida": "Unknown",
+# Clasificación final Guatemala: códigos numéricos
+_CLASIFICACION_FINAL_MAP = {
+    "CONFIRMADO SARAMPIÓN": "1",
+    "CONFIRMADO SARAMPION": "1",
+    "SARAMPION": "1",
+    "SARAMPIÓN": "1",
+    "CONFIRMADO RUBÉOLA": "2",
+    "CONFIRMADO RUBEOLA": "2",
+    "RUBEOLA": "2",
+    "RUBÉOLA": "2",
+    "DESCARTADO": "3",
+    "PENDIENTE": "5",
+    "SOSPECHOSO": "5",
 }
 
-SI_NO_UNKNOWN_MAP = {
-    "SI": "YES",
-    "NO": "NO",
-    "DESCONOCIDO": "UNKNOWN",
-    "": "UNKNOWN",
+# Condición final Guatemala: códigos numéricos
+_CONDICION_FINAL_MAP = {
+    "RECUPERADO": "1",
+    "CON SECUELAS": "2",
+    "FALLECIDO": "3",
+    "MUERTO": "3",
+    "DESCONOCIDO": "4",
+}
+
+# Fuente de infección Guatemala: códigos numéricos
+_FUENTE_INFECCION_MAP = {
+    "IMPORTADO": "1",
+    "RELACIONADO CON IMPORTACION": "2",
+    "RELACIONADO CON IMPORTACIÓN": "2",
+    "RELACIONADO CON LA IMPORTACION": "2",
+    "ENDEMICO": "3",
+    "ENDÉMICO": "3",
+    "AUTOCTONO": "3",
+    "AUTÓCTONO": "3",
+    "FUENTE DESCONOCIDA": "4",
+    "DESCONOCIDO": "4",
+}
+
+# Caso analizado por Guatemala: códigos numéricos (MULTIPLE_ANSWERS)
+_CASO_ANALIZADO_MAP = {
+    "CONAPI": "1",
+    "DEGR": "2",
+    "COMISION NACIONAL": "3",
+    "COMISIÓN NACIONAL": "3",
+    "OTROS": "4",
+    "OTRO": "4",
+}
+
+# Criterio confirmación sarampión Guatemala
+_CRITERIO_CONFIRMACION_SARAMPION_MAP = {
+    "LABORATORIO": "LABSR",
+    "LAB": "LABSR",
+    "NEXO EPIDEMIOLOGICO": "NE",
+    "NEXO EPIDEMIOLÓGICO": "NE",
+    "CLINICO": "CX",
+    "CLÍNICO": "CX",
+    "DIAGNOSTICO CLINICO": "CX",
+    "DIAGNÓSTICO CLÍNICO": "CX",
+}
+
+# Criterio confirmación rubéola Guatemala
+_CRITERIO_CONFIRMACION_RUBEOLA_MAP = {
+    "LABORATORIO": "LABRB",
+    "LAB": "LABRB",
+    "NEXO EPIDEMIOLOGICO": "NERB",
+    "NEXO EPIDEMIOLÓGICO": "NERB",
+    "CLINICO": "CXRB",
+    "CLÍNICO": "CXRB",
+}
+
+# Criterio descarte Guatemala
+_CRITERIO_DESCARTE_MAP = {
+    "LABORATORIO": "LAB",
+    "LABORATORIAL": "LAB",
+    "IGM NEGATIVO": "LAB",
+    "REACCION VACUNAL": "RVAC",
+    "REACCIÓN VACUNAL": "RVAC",
+    "CLINICO": "CX2",
+    "CLÍNICO": "CX2",
+    "OTRO": "OTRO",
+    "OTRO DIAGNOSTICO": "OTRO",
+    "OTRO DIAGNÓSTICO": "OTRO",
+}
+
+# Vitamina A Guatemala: 1=SI, 2=NO, 3=Desconocido
+_VITAMINA_A_MAP = {
+    "SI": "1",
+    "SÍ": "1",
+    "NO": "2",
+    "DESCONOCIDO": "3",
+}
+
+# Síntomas: mapeo de nuestros campos individuales al array multi-answer de Guatemala
+_SYMPTOM_LABEL_MAP = {
+    "signo_fiebre": "Fiebre",
+    "signo_exantema": "Exantema/ Rash",
+    "signo_tos": "Tos",
+    "signo_conjuntivitis": "Conjuntivitis",
+    "signo_coriza": "Coriza / Catarro",
+    "signo_manchas_koplik": "Manchas de Koplik",
+    "signo_adenopatias": "Adenopatías/ Ganglios inflamados",
+    "signo_artralgia": "Artralgia/ Dolor articular",
+}
+
+# Diagnóstico de sospecha
+_DIAGNOSTICO_MAP = {
+    "SARAMPIÓN": "SARAMPION",
+    "SARAMPION": "SARAMPION",
+    "RUBÉOLA": "RUBEOLA",
+    "RUBEOLA": "RUBEOLA",
+    "DENGUE": "DENGUE",
+    "OTRA FEBRIL EXANTEMATICA": "OTRA FEBRIL EXANTEMATICA",
+    "CASO ALTAMENTE SOSPECHOSO": "SARAMPION",
+}
+
+# Fuente de notificación Guatemala (texto directo)
+_FUENTE_NOTIFICACION_MAP = {
+    "SERVICIO DE SALUD": "SERVICIO DE SALUD",
+    "PUBLICA": "SERVICIO DE SALUD",
+    "PRIVADA": "SERVICIO DE SALUD",
+    "LABORATORIO": "BUSQUEDA ACTIVA LABORATORIAL",
+    "COMUNIDAD": "BUSQUEDA ACTIVA COMUNITARIA",
+    "BÚSQUEDA ACTIVA LABORATORIAL": "BUSQUEDA ACTIVA LABORATORIAL",
+    "BUSQUEDA ACTIVA LABORATORIAL": "BUSQUEDA ACTIVA LABORATORIAL",
+    "BÚSQUEDA ACTIVA COMUNITARIA": "BUSQUEDA ACTIVA COMUNITARIA",
+    "BUSQUEDA ACTIVA COMUNITARIA": "BUSQUEDA ACTIVA COMUNITARIA",
+    "BÚSQUEDA ACTIVA INSTITUCIONAL": "BUSQUEDA ACTIVA INSTITUCIONAL",
+    "BUSQUEDA ACTIVA INSTITUCIONAL": "BUSQUEDA ACTIVA INSTITUCIONAL",
+    "INVESTIGACIÓN DE CONTACTOS": "INVESTIGACION DE CONTACTOS",
+    "INVESTIGACION DE CONTACTOS": "INVESTIGACION DE CONTACTOS",
+    "DEFUNCIÓN": "DEFUNCION",
+    "DEFUNCION": "DEFUNCION",
+}
+
+# Tipo de vacuna Guatemala (texto para multi-answer)
+_TIPO_VACUNA_MAP = {
+    "SPR": "SPR \u2013 Sarampión Paperas Rubéola",
+    "SRP": "SPR \u2013 Sarampión Paperas Rubéola",
+    "SRP SARAMPION RUBEOLA PAPERAS": "SPR \u2013 Sarampión Paperas Rubéola",
+    "SR": "SR \u2013 Sarampión Rubéola",
+    "SR SARAMPION RUBEOLA": "SR \u2013 Sarampión Rubéola",
+    "SPRV": "SPRV \u2013 Sarampión Paperas Rubéola Varicela",
+    "ANTISARAMPINOSA": "Antisarampionosa",
+    "ANTIRUBÉOLICA": "Antirubeólica",
+    "ANTIRUBEOLICA": "Antirubeólica",
+}
+
+# Fuente info vacunación Guatemala
+_FUENTE_INFO_VACUNA_MAP = {
+    "CARNÉ DE VACUNACIÓN": "CARNÉ DE VACUNACIÓN",
+    "CARNE DE VACUNACION": "CARNÉ DE VACUNACIÓN",
+    "EN CARNE": "CARNÉ DE VACUNACIÓN",
+    "SIGSA 5A CUADERNO": "SIGSA 5a/Cuaderno",
+    "EN SIGSA 5A": "SIGSA 5a/Cuaderno",
+    "VERBAL": "Verbal/Historia",
+}
+
+# Fuente posible de contagio Guatemala (multi-answer)
+_FUENTE_CONTAGIO_MAP = {
+    "CONTACTO EN EL HOGAR": "Hogar",
+    "SERVICIO DE SALUD": "Servicio de Salud",
+    "COMUNIDAD": "Comunidad",
+    "ESPACIO PUBLICO": "Espacio público",
+    "ESPACIO PÚBLICO": "Espacio público",
+    "DESCONOCIDO": "Desconocido",
+    "OTRO": "Otro",
 }
 
 
@@ -193,23 +397,33 @@ def _strip_accents(text: str) -> str:
 
 
 def _godata_text(text: str) -> str:
-    """Normaliza texto para GoData: MAYÚSCULAS sin tildes."""
+    """Normaliza texto para GoData: MAYUSCULAS sin tildes."""
     if not text:
         return text
     return _strip_accents(text).upper()
 
 
 def _to_iso_date(date_str: str) -> Optional[str]:
-    """Convierte fecha a formato YYYY-MM-DD (GoData)."""
+    """Convierte fecha a formato ISO 8601 con tiempo: YYYY-MM-DDT00:00:00.000Z (GoData Guatemala)."""
     if not date_str:
         return None
     date_str = date_str.strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+    # Si ya tiene el formato correcto, devolverlo
+    if len(date_str) >= 24 and date_str[10] == "T" and date_str.endswith("Z"):
+        return date_str
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%S.%f"):
         try:
-            dt = datetime.strptime(date_str[:10] if len(date_str) > 10 else date_str, fmt)
-            return dt.strftime("%Y-%m-%d")
+            dt = datetime.strptime(date_str[:19] if "T" in date_str else date_str[:10], fmt)
+            return dt.strftime("%Y-%m-%dT00:00:00.000Z")
         except ValueError:
             continue
+    # Último intento: solo primeros 10 caracteres como YYYY-MM-DD
+    try:
+        dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
+        return dt.strftime("%Y-%m-%dT00:00:00.000Z")
+    except ValueError:
+        pass
     return None
 
 
@@ -220,17 +434,73 @@ def _safe_int(val, default=0) -> int:
         return default
 
 
+def _safe_float(val, default=None):
+    """Convierte a float, devuelve None si no es posible."""
+    try:
+        return float(str(val).replace(",", "."))
+    except (ValueError, TypeError):
+        return default
+
+
 def _si_no_to_godata(val: str) -> str:
-    """Convierte SI/NO/DESCONOCIDO a YES/NO/UNKNOWN."""
-    return SI_NO_UNKNOWN_MAP.get(str(val).upper().strip(), "UNKNOWN")
+    """Convierte SI/NO/DESCONOCIDO a SI/NO (Guatemala usa español)."""
+    v = str(val).upper().strip()
+    if v in ("SI", "SÍ", "YES", "1"):
+        return "SI"
+    elif v in ("NO", "0", "2"):
+        return "NO"
+    return "NO"
+
+
+def _qa_val(value) -> list:
+    """Envuelve un valor en el formato questionnaireAnswers: [{"value": X}]."""
+    return [{"value": value}]
+
+
+def _resolve_dms_variable(departamento: str, distrito: str = "") -> Optional[str]:
+    """Resuelve la variable DMS correcta para un departamento.
+
+    Para Guatemala, intenta determinar la DAS area basándose en el distrito.
+    """
+    dept = _strip_accents(departamento).upper().strip() if departamento else ""
+    if not dept:
+        return None
+
+    if dept == "GUATEMALA" and distrito:
+        dist_upper = _strip_accents(distrito).upper().strip()
+        if dist_upper in _GUATEMALA_DMS_MAP:
+            return _GUATEMALA_DMS_MAP[dist_upper]
+        # Default para Guatemala si no podemos determinar la DAS
+        return "distrito_municipal_de_salud_dms4"
+
+    return _DMS_VARIABLE_MAP.get(dept)
+
+
+def _resolve_municipio_variable(departamento: str) -> Optional[str]:
+    """Resuelve la variable de municipio correcta para un departamento."""
+    dept = _strip_accents(departamento).upper().strip() if departamento else ""
+    if not dept:
+        return None
+    return _MUNICIPIO_VARIABLE_MAP.get(dept)
+
+
+def _resolve_servicio_variable(departamento: str) -> Optional[str]:
+    """Resuelve la variable de servicio de salud correcta para un departamento."""
+    dept = _strip_accents(departamento).upper().strip() if departamento else ""
+    if not dept:
+        return None
+    return _SERVICIO_SALUD_VARIABLE_MAP.get(dept)
 
 
 # ═══════════════════════════════════════════════════════════
-# MAPEO PRINCIPAL: record → GoData case payload
+# MAPEO PRINCIPAL: record → GoData Guatemala case payload
 # ═══════════════════════════════════════════════════════════
 
 def map_record_to_godata(record: dict) -> Dict:
-    """Convierte un registro de nuestra BD al formato GoData case.
+    """Convierte un registro de nuestra BD al formato GoData Guatemala case.
+
+    Produce questionnaireAnswers con variables en español, valores en MAYUSCULAS,
+    fechas ISO con tiempo, y variables cascadeadas por departamento.
 
     Returns:
         Dict listo para POST /api/outbreaks/{id}/cases
@@ -238,7 +508,6 @@ def map_record_to_godata(record: dict) -> Dict:
     d = record
 
     # ─── Campos base del modelo Person/Case ─────────────
-    # GoData requiere: MAYÚSCULAS, sin tildes, fechas YYYY-MM-DD
     case = {
         "firstName": _godata_text(_get(d, "nombres")),
         "lastName": _godata_text(_get(d, "apellidos")),
@@ -255,17 +524,19 @@ def map_record_to_godata(record: dict) -> Dict:
         "dateOfOnset": _to_iso_date(_get(d, "fecha_inicio_sintomas")),
     }
 
-    # Clasificación
+    # Clasificación (campo estándar GoData)
     clasificacion = _get(d, "clasificacion_caso").upper()
     if clasificacion in CLASSIFICATION_MAP:
         case["classification"] = CLASSIFICATION_MAP[clasificacion]
 
-    # Condición final / Outcome
+    # Condición final / Outcome (campo estándar GoData)
     condicion = _get(d, "condicion_final_paciente") or _get(d, "condicion_egreso")
-    if condicion and condicion.upper() in OUTCOME_MAP:
-        case["outcomeId"] = OUTCOME_MAP[condicion.upper()]
-        if condicion.upper() in ("FALLECIDO", "MUERTO"):
-            case["dateOfOutcome"] = _to_iso_date(_get(d, "fecha_defuncion"))
+    if condicion:
+        cond_upper = condicion.upper()
+        if cond_upper in OUTCOME_MAP:
+            case["outcomeId"] = OUTCOME_MAP[cond_upper]
+            if cond_upper in ("FALLECIDO", "MUERTO", "3"):
+                case["dateOfOutcome"] = _to_iso_date(_get(d, "fecha_defuncion"))
 
     # Embarazo
     embarazada = _get(d, "esta_embarazada").upper()
@@ -312,32 +583,8 @@ def map_record_to_godata(record: dict) -> Dict:
         address["addressLine2"] = _godata_text(depto)
     poblado = _get(d, "poblado")
     if poblado:
-        address["addressLine1"] = f"{poblado}, {address.get('addressLine1', '')}"
+        address["addressLine1"] = f"{_godata_text(poblado)}, {address.get('addressLine1', '')}"
     case["addresses"] = [address]
-
-    # ─── Vacunas ────────────────────────────────────────
-    vaccines = []
-    for prefix, vtype in [("spr", "mmr"), ("sr", "mr"), ("sprv", "mmrv")]:
-        dosis = _get(d, f"dosis_{prefix}")
-        fecha = _get(d, f"fecha_ultima_{prefix}")
-        if dosis:
-            vaccines.append({
-                "vaccine": vtype,
-                "date": _to_iso_date(fecha),
-                "status": VACCINE_DOSE_MAP.get(dosis, "unknown"),
-            })
-    # Fallback: campos legacy
-    if not vaccines and _get(d, "vacunado").upper() == "SI":
-        tipo = _get(d, "tipo_vacuna")
-        vtype = VACCINE_TYPE_MAP.get(tipo, "mmr")
-        dosis_legacy = _get(d, "numero_dosis_spr")
-        vaccines.append({
-            "vaccine": vtype,
-            "date": _to_iso_date(_get(d, "fecha_ultima_dosis")),
-            "status": VACCINE_DOSE_MAP.get(dosis_legacy, "unknown"),
-        })
-    if vaccines:
-        case["vaccinesReceived"] = vaccines
 
     # ─── Hospitalización ────────────────────────────────
     date_ranges = []
@@ -358,230 +605,496 @@ def map_record_to_godata(record: dict) -> Dict:
     if date_ranges:
         case["dateRanges"] = date_ranges
 
-    # ─── Questionnaire Answers (28 preguntas measles) ──
+    # ═════════════════════════════════════════════════════
+    # QUESTIONNAIRE ANSWERS — GoData Guatemala format
+    # ═════════════════════════════════════════════════════
     qa = {}
 
-    # Q1: initial_diagnosis
-    dx_sospecha = _get(d, "diagnostico_sospecha")
-    dx_map = {
-        "Sarampión": "MEASLES", "Rubéola": "RUBELLA", "Dengue": "DENGUE",
-        "Otra Arbovirosis": "OTHER_NON_RASH", "Otra febril exantemática": "OTHER_RASH",
-        "Caso altamente sospechoso": "MEASLES",
-    }
-    if dx_sospecha and dx_sospecha in dx_map:
-        qa["initial_diagnosis"] = [{"value": dx_map[dx_sospecha]}]
-    elif _get(d, "diagnostico_registrado").startswith("B05"):
-        qa["initial_diagnosis"] = [{"value": "MEASLES"}]
-    elif _get(d, "diagnostico_registrado").startswith("B06"):
-        qa["initial_diagnosis"] = [{"value": "RUBELLA"}]
+    # ─── Section headers (MARKUP fields) ────────────────
+    qa["fecha_de_notificacion"] = _qa_val("Fecha de Notificacion")
+    qa["informacion_del_paciente"] = _qa_val("DATOS GENERALES")
+    qa["antecedentes_medicos_y_de_vacunacion"] = _qa_val("ANTECEDENTES MEDICOS Y DE VACUNACION")
+    qa["datos_clinicos"] = _qa_val("DATOS CLINICOS")
 
-    # Q2: provider_type
-    if _get(d, "establecimiento_privado").upper() == "SI":
-        qa["provider_type"] = [{"value": "Private"}]
-    elif _get(d, "es_seguro_social").upper() == "SI" or _get(d, "unidad_medica"):
-        qa["provider_type"] = [{"value": "Other"}]
+    # ─── Sección 0: Diagnóstico de sospecha ─────────────
+    dx_sospecha = _get(d, "diagnostico_sospecha").upper()
+    dx_mapped = _DIAGNOSTICO_MAP.get(dx_sospecha)
+    if dx_mapped:
+        qa["diagnostico_de_sospecha_"] = _qa_val(_godata_text(dx_mapped))
+    elif _get(d, "diagnostico_registrado").upper().startswith("B05"):
+        qa["diagnostico_de_sospecha_"] = _qa_val("SARAMPION")
+    elif _get(d, "diagnostico_registrado").upper().startswith("B06"):
+        qa["diagnostico_de_sospecha_"] = _qa_val("RUBEOLA")
     else:
-        qa["provider_type"] = [{"value": "Public"}]
+        qa["diagnostico_de_sospecha_"] = _qa_val("SARAMPION")
 
-    # Q3: detected_by
-    fuente = _get(d, "fuente_notificacion")
-    if fuente and fuente in DETECTED_BY_MAP:
-        qa["detected_by"] = [{"value": DETECTED_BY_MAP[fuente]}]
+    # ─── Sección 1: Unidad Notificadora ─────────────────
+    # Dirección de Área de Salud (departamento)
+    dept_das = _get(d, "departamento_das") or _get(d, "departamento_residencia")
+    if dept_das:
+        qa["direccion_de_area_de_salud"] = _qa_val(_godata_text(dept_das))
 
-    # Q4-Q5: consultation/homevisit dates
-    fecha_consulta = _to_iso_date(_get(d, "fecha_registro_diagnostico"))
+    # DMS (cascadeado por departamento)
+    distrito = _get(d, "distrito_salud") or _get(d, "municipio_residencia")
+    if dept_das and distrito:
+        dms_var = _resolve_dms_variable(dept_das, distrito)
+        if dms_var:
+            qa[dms_var] = _qa_val(_godata_text(distrito))
+
+    # Servicio de Salud (cascadeado por departamento)
+    servicio = _get(d, "servicio_salud_mspas") or _get(d, "unidad_medica")
+    if dept_das and servicio:
+        serv_var = _resolve_servicio_variable(dept_das)
+        if serv_var:
+            qa[serv_var] = _qa_val(_godata_text(servicio))
+
+    # Fecha de consulta
+    fecha_consulta = _to_iso_date(_get(d, "fecha_registro_diagnostico") or _get(d, "fecha_consulta"))
     if fecha_consulta:
-        qa["consultation_date"] = [{"value": fecha_consulta}]
+        qa["fecha_de_consulta"] = _qa_val(fecha_consulta)
+
+    # Fecha de investigación domiciliaria
     fecha_visita = _to_iso_date(_get(d, "fecha_visita_domiciliaria"))
     if fecha_visita:
-        qa["homevisit_date"] = [{"value": fecha_visita}]
+        qa["fecha_de_investigacion_domiciliaria"] = _qa_val(fecha_visita)
 
-    # Q6: hcs_name
-    unidad = _get(d, "unidad_medica") or _get(d, "servicio_salud_mspas")
-    if unidad:
-        qa["hcs_name"] = [{"value": _godata_text(unidad)}]
+    # Investigador
+    investigador = _get(d, "nombre_investigador") or _get(d, "nombre_quien_investiga")
+    if investigador:
+        qa["nombre_de_quien_investiga"] = _qa_val(_godata_text(investigador))
+    cargo = _get(d, "cargo_investigador") or _get(d, "cargo_quien_investiga")
+    if cargo:
+        qa["cargo_de_quien_investiga"] = _qa_val(_godata_text(cargo))
 
-    # Q8: locality_type (Urban/Periurban/Rural — no tenemos, skip)
+    # Teléfono y correo del investigador
+    tel_inv = _get(d, "telefono_investigador")
+    if tel_inv:
+        tel_val = _safe_int(tel_inv)
+        qa["telefono"] = _qa_val(tel_val if tel_val else tel_inv)
+    correo_inv = _get(d, "correo_investigador")
+    if correo_inv:
+        qa["correo_electronico"] = _qa_val(correo_inv)
 
-    # Q10: HH_Next_of_kin
+    # Otro establecimiento (IGSS)
+    if _get(d, "es_seguro_social").upper() == "SI" or _get(d, "unidad_medica"):
+        qa["otro_establecimiento"] = _qa_val("Seguro Social (IGSS)")
+
+    # Fuente de notificación
+    fuente = _get(d, "fuente_notificacion")
+    if fuente:
+        fuente_upper = fuente.upper()
+        mapped = _FUENTE_NOTIFICACION_MAP.get(fuente_upper, _godata_text(fuente))
+        qa["fuente_de_notificacion_"] = _qa_val(mapped)
+
+    # ─── Sección 2: Información del Paciente ────────────
+    # Tipo de identificación
+    if tipo_id:
+        qa["codigo_unico_de_identificacion_dpi_pasaporte_otro"] = _qa_val(tipo_id.upper())
+    if num_id:
+        num_val = _safe_int(num_id)
+        qa["no_de_dpi"] = _qa_val(num_val if num_val else num_id)
+
+    # Encargado / tutor
     encargado = _get(d, "nombre_encargado")
     if encargado:
-        qa["HH_Next_of_kin"] = [{"value": _godata_text(encargado)}]
+        qa["nombre_del_tutor_"] = _qa_val("SI")
+        parentesco = _get(d, "parentesco_encargado")
+        if parentesco:
+            qa["parentesco_"] = _qa_val(_godata_text(parentesco))
+    else:
+        qa["nombre_del_tutor_"] = _qa_val("NO")
 
-    # Q11: vaccination_status
+    # Pueblo / etnia
+    pueblo = _get(d, "pueblo") or _get(d, "etnia")
+    if pueblo:
+        qa["pueblo"] = _qa_val(_godata_text(pueblo))
+
+    # Extranjero / Migrante
+    extranjero = _get(d, "es_extranjero").upper()
+    qa["extranjero_"] = _qa_val("SI" if extranjero == "SI" else "NO")
+    migrante = _get(d, "es_migrante").upper()
+    qa["migrante"] = _qa_val("SI" if migrante == "SI" else "NO")
+
+    # Ocupación y escolaridad
+    ocupacion = _get(d, "ocupacion")
+    if ocupacion:
+        qa["ocupacion_"] = _qa_val(_godata_text(ocupacion))
+    escolaridad = _get(d, "escolaridad")
+    if escolaridad:
+        qa["escolaridad_"] = _qa_val(_godata_text(escolaridad))
+
+    # Teléfono del paciente
+    tel_pac = _get(d, "telefono_paciente") or _get(d, "telefono_encargado")
+    if tel_pac:
+        tel_pac_val = _safe_int(tel_pac)
+        qa["telefono_"] = _qa_val(tel_pac_val if tel_pac_val else tel_pac)
+
+    # País/Departamento/Municipio de residencia
+    pais_res = _get(d, "pais_residencia") or "GUATEMALA"
+    qa["pais_de_residencia_"] = _qa_val(_godata_text(pais_res))
+
+    dept_res = _get(d, "departamento_residencia")
+    if dept_res:
+        qa["departamento_de_residencia_"] = _qa_val(_godata_text(dept_res))
+
+    muni_res = _get(d, "municipio_residencia")
+    if dept_res and muni_res:
+        muni_var = _resolve_municipio_variable(dept_res)
+        if muni_var:
+            qa[muni_var] = _qa_val(_godata_text(muni_res))
+
+    # Dirección y lugar poblado
+    direccion = _get(d, "direccion_exacta")
+    if direccion:
+        qa["direccion_de_residencia_"] = _qa_val(_godata_text(direccion))
+    lugar_poblado = _get(d, "poblado") or _get(d, "lugar_poblado")
+    if lugar_poblado:
+        qa["lugar_poblado_"] = _qa_val(_godata_text(lugar_poblado))
+
+    # ─── Sección 3: Antecedentes Médicos y Vacunación ───
     vacunado = _get(d, "vacunado").upper()
-    vac_map = {"SI": "YES", "NO": "NO", "DESCONOCIDO": "UNKNOWN", "DESCONOCIDO/VERBAL": "UNKNOWN"}
-    if vacunado in vac_map:
-        vac_answer = {"value": vac_map[vacunado]}
-        fuente_vac = _get(d, "fuente_info_vacuna")
-        if fuente_vac:
-            fuente_godata_map = {
-                "Carné de Vacunación": "Card", "En carne": "Card",
-                "SIGSA 5a Cuaderno": "SIGSA", "En SIGSA 5a": "SIGSA",
-                "Verbal": "Verbal",
-            }
-            if fuente_vac in fuente_godata_map:
-                vac_answer["vaccination_source"] = [{"value": fuente_godata_map[fuente_vac]}]
-        qa["vaccination_status"] = [vac_answer]
+    if vacunado in ("SI", "SÍ", "YES"):
+        qa["paciente_vacunado_"] = _qa_val("SI")
 
-    # Q13: signs_and_symptoms
-    symptoms_answer = {"value": "UNKNOWN"}
-    any_symptom = False
-    symptom_fields = [
-        ("signo_fiebre", "symp_fever"),
-        ("signo_exantema", "symp_rash"),
-        ("signo_tos", "symp_cough"),
-        ("signo_conjuntivitis", "symp_conjunctivitis"),
-        ("signo_coriza", "symp_coryza"),
-        ("signo_manchas_koplik", "symp_koplik_spots"),
-        ("signo_adenopatias", "symp_lymphadenopathy"),
-        ("signo_artralgia", "symp_arthralgia"),
-    ]
-    for db_field, godata_field in symptom_fields:
+        # Tipo de vacuna (multi-answer)
+        tipo_vac = _get(d, "tipo_vacuna").upper()
+        vac_label = _TIPO_VACUNA_MAP.get(tipo_vac)
+        if vac_label:
+            qa["tipo_de_vacuna_recibida_"] = _qa_val([vac_label])
+
+        # Número de dosis
+        n_dosis = _safe_int(_get(d, "numero_dosis_spr") or _get(d, "numero_dosis"))
+        if n_dosis:
+            qa["numero_de_dosis"] = _qa_val(n_dosis)
+
+        # Fecha última dosis
+        fecha_ult_dosis = _to_iso_date(_get(d, "fecha_ultima_dosis") or _get(d, "fecha_ultima_spr"))
+        if fecha_ult_dosis:
+            qa["fecha_de_la_ultima_dosis"] = _qa_val(fecha_ult_dosis)
+
+        # Fuente información vacunación
+        fuente_vac = _get(d, "fuente_info_vacuna").upper()
+        fuente_vac_mapped = _FUENTE_INFO_VACUNA_MAP.get(fuente_vac)
+        if fuente_vac_mapped:
+            qa["fuente_de_la_informacion_sobre_la_vacunacion_"] = _qa_val(fuente_vac_mapped)
+
+        # Sector de vacunación
+        sector = _get(d, "sector_vacunacion").upper()
+        if sector in ("MSPAS", "IGSS", "PRIVADO"):
+            qa["vacunacion_en_el_sector_"] = _qa_val(sector)
+    elif vacunado in ("NO",):
+        qa["paciente_vacunado_"] = _qa_val("NO")
+    else:
+        qa["paciente_vacunado_"] = _qa_val("NO")
+
+    # Antecedentes médicos
+    antecedentes = _get(d, "tiene_antecedentes_medicos").upper()
+    if antecedentes in ("SI", "SÍ"):
+        qa["antecedentes_medicos_"] = _qa_val("SI")
+        ant_especifico = _get(d, "antecedentes_medicos_detalle")
+        if ant_especifico:
+            # Multi-answer array
+            items = [_godata_text(x.strip()) for x in ant_especifico.split(",") if x.strip()]
+            if items:
+                qa["especifique_ant"] = _qa_val(items)
+    else:
+        qa["antecedentes_medicos_"] = _qa_val("NO")
+
+    # ─── Sección 4: Datos Clínicos ──────────────────────
+    # Fechas clínicas
+    fecha_sintomas = _to_iso_date(_get(d, "fecha_inicio_sintomas"))
+    if fecha_sintomas:
+        qa["fecha_de_inicio_de_sintomas_"] = _qa_val(fecha_sintomas)
+
+    fecha_fiebre = _to_iso_date(_get(d, "fecha_inicio_fiebre"))
+    if fecha_fiebre:
+        qa["fecha_de_inicio_de_fiebre_"] = _qa_val(fecha_fiebre)
+
+    fecha_exantema = _to_iso_date(_get(d, "fecha_inicio_erupcion") or _get(d, "fecha_inicio_exantema"))
+    if fecha_exantema:
+        qa["fecha_de_inicio_de_exantema_rash_"] = _qa_val(fecha_exantema)
+
+    # Síntomas: campo único multi-answer con array de labels
+    sintomas_list = []
+    for db_field, label in _SYMPTOM_LABEL_MAP.items():
         val = _get(d, db_field).upper()
-        if not val:
-            continue  # Campo vacío: no incluir
-        godata_val = _si_no_to_godata(val)
-        symptoms_answer[godata_field] = [{"value": godata_val}]
-        if godata_val == "YES":
-            any_symptom = True
+        if val == "SI":
+            sintomas_list.append(label)
 
-    # Agregar fechas de síntomas como sub-campos
-    fever_onset = _to_iso_date(_get(d, "fecha_inicio_fiebre"))
-    if fever_onset:
-        symptoms_answer["fever_onset"] = [{"value": fever_onset}]
-    rash_onset = _to_iso_date(_get(d, "fecha_inicio_erupcion"))
-    if rash_onset:
-        symptoms_answer["rash_onset"] = [{"value": rash_onset}]
+    if sintomas_list:
+        qa["sintomas_"] = _qa_val("SI")
+        qa["que_sintomas_"] = _qa_val(sintomas_list)
+    else:
+        qa["sintomas_"] = _qa_val("SI")  # Siempre SI para casos sospechosos
+        # Si no hay síntomas individuales, intentar campo directo
+        sintomas_texto = _get(d, "sintomas_texto")
+        if sintomas_texto:
+            items = [x.strip() for x in sintomas_texto.split(",") if x.strip()]
+            if items:
+                qa["que_sintomas_"] = _qa_val(items)
+
+    # Temperatura
     temp = _get(d, "temperatura_celsius").replace(",", ".")
     if temp:
-        symptoms_answer["fever_temp"] = [{"value": temp}]
+        temp_val = _safe_float(temp)
+        if temp_val is not None:
+            qa["temp_c"] = _qa_val(temp_val)
 
-    if any_symptom:
-        symptoms_answer["value"] = "YES"
-    elif any(_get(d, f) for f, _ in symptom_fields) and all(_get(d, f).upper() == "NO" for f, _ in symptom_fields if _get(d, f)):
-        symptoms_answer["value"] = "NO"
-    qa["signs_and_symptoms"] = [symptoms_answer]
+    # Hospitalización
+    hosp_val = _get(d, "hospitalizado").upper()
+    if hosp_val == "SI":
+        qa["hospitalizacion_"] = _qa_val("SI")
+        hosp_nombre = _get(d, "hosp_nombre")
+        if hosp_nombre:
+            qa["nombre_del_hospital_"] = _qa_val(_godata_text(hosp_nombre))
+        fecha_hosp = _to_iso_date(_get(d, "hosp_fecha"))
+        if fecha_hosp:
+            qa["fecha_de_hospitalizacion_"] = _qa_val(fecha_hosp)
+    else:
+        qa["hospitalizacion_"] = _qa_val("NO")
 
-    # Q14: Complications (not in standard GoData measles template but useful)
+    # Complicaciones
     comps_val = _get(d, "tiene_complicaciones").upper()
     if comps_val == "SI":
+        qa["complicaciones_"] = _qa_val("SI")
         comp_types = []
         comp_map = {
-            "comp_neumonia": "Neumonia", "comp_encefalitis": "Encefalitis",
-            "comp_diarrea": "Diarrea", "comp_trombocitopenia": "Trombocitopenia",
-            "comp_otitis": "Otitis Media", "comp_ceguera": "Ceguera",
+            "comp_neumonia": "NEUMONIA",
+            "comp_encefalitis": "ENCEFALITIS",
+            "comp_diarrea": "DIARREA",
+            "comp_trombocitopenia": "TROMBOCITOPENIA",
+            "comp_otitis": "OTITIS MEDIA",
+            "comp_ceguera": "CEGUERA",
         }
         for field, label in comp_map.items():
             if _get(d, field).upper() == "SI":
                 comp_types.append(label)
         otra = _get(d, "comp_otra_texto")
         if otra:
-            comp_types.append(otra)
+            comp_types.append(_godata_text(otra))
         if comp_types:
-            qa["complications"] = [{"value": ", ".join(comp_types)}]
+            qa["especifique_complicaciones_"] = _qa_val(comp_types)
+    else:
+        qa["complicaciones_"] = _qa_val("NO")
 
-    # Q15: active_searches
+    # Aislamiento respiratorio
+    aisl = _get(d, "aislamiento_respiratorio").upper()
+    if aisl == "SI":
+        qa["aislamiento_respiratorio"] = _qa_val("SI")
+        fecha_aisl = _to_iso_date(_get(d, "fecha_aislamiento"))
+        if fecha_aisl:
+            qa["fecha_de_aislamiento"] = _qa_val(fecha_aisl)
+    else:
+        qa["aislamiento_respiratorio"] = _qa_val("NO")
+
+    # ─── Sección 5: Factores de Riesgo ──────────────────
+    # Caso en municipio
+    caso_muni = _get(d, "caso_sospechoso_comunidad_3m").upper()
+    if caso_muni in ("SI", "SÍ"):
+        qa["Existe_caso_en_muni"] = _qa_val("Si")
+    elif caso_muni == "NO":
+        qa["Existe_caso_en_muni"] = _qa_val("No")
+    else:
+        qa["Existe_caso_en_muni"] = _qa_val("Desconocido")
+
+    # Contacto con caso sospechoso/confirmado
+    contacto_caso = _get(d, "contacto_caso_sospechoso").upper()
+    if contacto_caso in ("SI", "SÍ"):
+        qa["tuvo_contacto_con_un_caso_sospechoso_o_confirmado"] = _qa_val("Si")
+    elif contacto_caso == "NO":
+        qa["tuvo_contacto_con_un_caso_sospechoso_o_confirmado"] = _qa_val("No")
+
+    # Viaje 7-23 días previos
+    viajo = _get(d, "viajo_7_23_previo").upper()
+    if viajo in ("SI", "SÍ"):
+        qa["factores_de_riesgo"] = _qa_val("Si")
+        qa["viajo_durante_los_7_23_dias"] = _qa_val("Si")
+
+        # País/destino del viaje
+        viaje_pais = _get(d, "viaje_pais")
+        viaje_depto = _get(d, "viaje_departamento")
+        viaje_muni = _get(d, "viaje_municipio")
+        destino_legacy = _get(d, "destino_viaje")
+
+        if viaje_pais and viaje_pais.upper() not in ("GUATEMALA",):
+            qa["pais_departamento_y_municipio"] = _qa_val("OTRO")
+            qa["especifique_pais1"] = _qa_val(_godata_text(viaje_pais))
+            if viaje_muni:
+                qa["municipio"] = _qa_val(_godata_text(viaje_muni))
+        elif viaje_depto:
+            qa["pais_departamento_y_municipio"] = _qa_val(_godata_text(viaje_depto))
+            if viaje_muni:
+                qa["municipio"] = _qa_val(_godata_text(viaje_muni))
+        elif destino_legacy:
+            qa["pais_departamento_y_municipio"] = _qa_val(_godata_text(destino_legacy))
+
+        fecha_salida = _to_iso_date(_get(d, "viaje_fecha_salida"))
+        if fecha_salida:
+            qa["fecha_de_salida_viaje"] = _qa_val(fecha_salida)
+        fecha_entrada = _to_iso_date(_get(d, "viaje_fecha_entrada") or _get(d, "viaje_fecha_regreso"))
+        if fecha_entrada:
+            qa["fecha_de_entrada_viaje"] = _qa_val(fecha_entrada)
+    elif viajo == "NO":
+        qa["viajo_durante_los_7_23_dias"] = _qa_val("No")
+
+    # Persona de la casa viajó al exterior
+    familiar_viajo = _get(d, "familiar_viajo_exterior").upper()
+    if familiar_viajo in ("SI", "SÍ"):
+        qa["alguna_persona_de_su_casa_ha_viajado_al_exterior"] = _qa_val("Si")
+    else:
+        qa["alguna_persona_de_su_casa_ha_viajado_al_exterior"] = _qa_val("No")
+
+    # Contacto con embarazada
+    contacto_emb = _get(d, "contacto_embarazada").upper()
+    if contacto_emb in ("SI", "SÍ"):
+        qa["el_paciente_estuvo_en_contacto_con_una_mujer_embarazada1"] = _qa_val("Si")
+    else:
+        qa["el_paciente_estuvo_en_contacto_con_una_mujer_embarazada1"] = _qa_val("No")
+
+    # Fuente posible de contagio (multi-answer)
+    fuente_contagio = _get(d, "fuente_posible_contagio")
+    if fuente_contagio:
+        contagio_upper = fuente_contagio.upper()
+        mapped_contagio = _FUENTE_CONTAGIO_MAP.get(contagio_upper, fuente_contagio)
+        qa["fuente_posible_de_contagio1"] = _qa_val([mapped_contagio])
+
+    # ─── Sección 6: Acciones de Respuesta ───────────────
+    # Nota: Guatemala usa "1" = SI, "2" = NO para sub-preguntas de acciones
     bai = _get(d, "bai_realizada").upper()
     bac = _get(d, "bac_realizada").upper()
-    if bai == "SI" or bac == "SI":
-        search_answer = {"value": "YES"}
-        total_sospechosos = _safe_int(_get(d, "bai_casos_sospechosos")) + _safe_int(_get(d, "bac_casos_sospechosos"))
-        if total_sospechosos > 0:
-            search_answer["suspected_cases_detected"] = [{"value": total_sospechosos}]
-        qa["active_searches"] = [search_answer]
-    elif bai == "NO" and bac == "NO":
-        qa["active_searches"] = [{"value": "NO"}]
-
-    # Q16: contact_pregnant_woman
-    contacto_emb = _get(d, "contacto_embarazada").upper()
-    if contacto_emb:
-        qa["contact_pregnant_woman"] = [{"value": _si_no_to_godata(contacto_emb)}]
-
-    # Q17: additional_cases
-    caso_comunidad = _get(d, "caso_sospechoso_comunidad_3m").upper()
-    if caso_comunidad:
-        qa["additional_cases"] = [{"value": _si_no_to_godata(caso_comunidad)}]
-
-    # Q18: expo_travel
-    viajo = _get(d, "viajo_7_23_previo").upper()
-    if viajo:
-        travel_answer = {"value": _si_no_to_godata(viajo)}
-        if viajo == "SI":
-            destino_parts = []
-            for f in ["viaje_municipio", "viaje_departamento", "viaje_pais"]:
-                v = _get(d, f)
-                if v:
-                    destino_parts.append(v)
-            if not destino_parts:
-                destino_legacy = _get(d, "destino_viaje")
-                if destino_legacy:
-                    destino_parts = [destino_legacy]
-            if destino_parts:
-                travel_answer["city_country"] = [{"value": _godata_text(", ".join(destino_parts))}]
-            fecha_salida = _to_iso_date(_get(d, "viaje_fecha_salida"))
-            if fecha_salida:
-                travel_answer["departure_date"] = [{"value": fecha_salida}]
-        qa["expo_travel"] = [travel_answer]
-
-    # Q19: Setting_where_infected
-    fuente_contagio = _get(d, "fuente_posible_contagio")
-    if fuente_contagio and fuente_contagio in SETTING_INFECTED_MAP:
-        qa["Setting_where_infected"] = [{"value": SETTING_INFECTED_MAP[fuente_contagio]}]
-
-    # Q21: ring_vaccination
     vac_bloqueo = _get(d, "vacunacion_bloqueo").upper()
-    if vac_bloqueo:
-        qa["ring_vaccination"] = [{"value": _si_no_to_godata(vac_bloqueo)}]
-
-    # Q22: rapid_coverage_monitoring
     monitoreo = _get(d, "monitoreo_rapido_vacunacion").upper()
-    if monitoreo:
-        qa["rapid_coverage_monitoring"] = [{"value": _si_no_to_godata(monitoreo)}]
+    vac_barrido = _get(d, "vacunacion_barrido").upper()
 
-    # Q23: final_classification
-    clas = _get(d, "clasificacion_caso").upper()
-    final_clas_map = {
-        "CONFIRMADO SARAMPIÓN": "Measles", "CONFIRMADO SARAMPION": "Measles",
-        "CONFIRMADO RUBÉOLA": "Rubella", "CONFIRMADO RUBEOLA": "Rubella",
-        "DESCARTADO": "Discarded",
-    }
-    if clas in final_clas_map:
-        qa["final_classification"] = [{"value": final_clas_map[clas]}]
+    has_any_action = any(v in ("SI", "SÍ") for v in [bai, bac, vac_bloqueo, monitoreo, vac_barrido])
+    if has_any_action:
+        qa["acciones_de_respuesta"] = _qa_val("SI")
+    else:
+        qa["acciones_de_respuesta"] = [{}]
 
-    # Q24: basis_for_confirmation
-    criterio_conf = _get(d, "criterio_confirmacion")
-    if criterio_conf and criterio_conf in CONFIRMATION_BASIS_MAP:
-        qa["basis_for_confirmation"] = [{"value": CONFIRMATION_BASIS_MAP[criterio_conf]}]
+    # BAI
+    if bai in ("SI", "SÍ"):
+        qa["se_realizo_busqueda_activa_institucional_de_casos_bai"] = _qa_val("1")
+        bai_casos = _safe_int(_get(d, "bai_casos_sospechosos"))
+        if bai_casos:
+            qa["numero_de_casos_sospechosos_identificados_en_bai"] = _qa_val(bai_casos)
+    elif bai == "NO":
+        qa["se_realizo_busqueda_activa_institucional_de_casos_bai"] = _qa_val("2")
 
-    # Q25: basis_for_discarding
-    criterio_desc = _get(d, "criterio_descarte")
-    if criterio_desc and criterio_desc in DISCARD_BASIS_MAP:
-        qa["basis_for_discarding"] = [{"value": DISCARD_BASIS_MAP[criterio_desc]}]
+    # BAC
+    if bac in ("SI", "SÍ"):
+        qa["se_realizo_busqueda_activa_comunitaria_de_casos_bac"] = _qa_val("1")
+        bac_casos = _safe_int(_get(d, "bac_casos_sospechosos"))
+        if bac_casos:
+            qa["numero_de_casos_sospechosos_identificados_en_bac"] = _qa_val(bac_casos)
+    elif bac == "NO":
+        qa["se_realizo_busqueda_activa_comunitaria_de_casos_bac"] = _qa_val("2")
 
-    # Q26: source_of_infection
-    fuente_inf = _get(d, "fuente_infeccion")
-    if fuente_inf and fuente_inf in SOURCE_INFECTION_MAP:
-        src_answer = {"value": SOURCE_INFECTION_MAP[fuente_inf]}
-        pais_imp = _get(d, "pais_importacion")
-        if pais_imp:
-            src_answer["country"] = [{"value": _godata_text(pais_imp)}]
-        qa["source_of_infection"] = [src_answer]
+    # Vacunación de bloqueo
+    if vac_bloqueo in ("SI", "SÍ"):
+        qa["hubo_vacunacion_de_bloqueo"] = _qa_val("1")
+    elif vac_bloqueo == "NO":
+        qa["hubo_vacunacion_de_bloqueo"] = _qa_val("2")
 
-    # Q27: classified_by
-    analizado = _get(d, "caso_analizado_por")
+    # Monitoreo rápido de vacunación
+    if monitoreo in ("SI", "SÍ"):
+        qa["se_realizo_monitoreo_rapido_de_vacunacion"] = _qa_val("1")
+    elif monitoreo == "NO":
+        qa["se_realizo_monitoreo_rapido_de_vacunacion"] = _qa_val("2")
+
+    # Vacunación con barrido
+    if vac_barrido in ("SI", "SÍ"):
+        qa["hubo_vacunacion_con_barrido_documentado"] = _qa_val("1")
+    elif vac_barrido == "NO":
+        qa["hubo_vacunacion_con_barrido_documentado"] = _qa_val("2")
+
+    # Vitamina A
+    vitamina = _get(d, "vitamina_a").upper()
+    vit_code = _VITAMINA_A_MAP.get(vitamina)
+    if vit_code:
+        qa["se_le_administro_vitamina_a"] = _qa_val(vit_code)
+        if vit_code == "1":
+            n_dosis_vit = _safe_int(_get(d, "vitamina_a_dosis"))
+            if n_dosis_vit:
+                qa["numero_de_dosis_de_vitamina_a_recibidas"] = _qa_val(n_dosis_vit)
+
+    # ─── Sección 7: Clasificación ───────────────────────
+    # Estado de clasificación
+    clas_estado = _get(d, "clasificacion_caso").upper()
+    if clas_estado in ("CLASIFICADO", "CONFIRMADO", "CONFIRMADO SARAMPIÓN", "CONFIRMADO SARAMPION",
+                       "CONFIRMADO RUBÉOLA", "CONFIRMADO RUBEOLA", "DESCARTADO"):
+        qa["clasificacion"] = _qa_val("CLASIFICADO")
+    elif clas_estado in ("SOSPECHOSO", "PENDIENTE"):
+        qa["clasificacion"] = _qa_val("PENDIENTE")
+
+    # Clasificación final (código numérico)
+    clas_final = _CLASIFICACION_FINAL_MAP.get(clas_estado)
+    if clas_final:
+        qa["clasificacion_final"] = _qa_val(clas_final)
+
+    # Criterio de confirmación (depende de sarampión vs rubéola)
+    criterio_conf = _get(d, "criterio_confirmacion").upper()
+    if clas_final == "1":  # Sarampión
+        criterio_mapped = _CRITERIO_CONFIRMACION_SARAMPION_MAP.get(criterio_conf)
+        if criterio_mapped:
+            qa["criterio_de_confirmacion_sarampion"] = _qa_val(criterio_mapped)
+    elif clas_final == "2":  # Rubéola
+        criterio_mapped = _CRITERIO_CONFIRMACION_RUBEOLA_MAP.get(criterio_conf)
+        if criterio_mapped:
+            qa["criterio_de_confirmacion_rubeola"] = _qa_val(criterio_mapped)
+    elif clas_final == "3":  # Descartado
+        criterio_desc = _get(d, "criterio_descarte").upper()
+        criterio_desc_mapped = _CRITERIO_DESCARTE_MAP.get(criterio_desc)
+        if criterio_desc_mapped:
+            qa["criterio_de_descarte"] = _qa_val(criterio_desc_mapped)
+
+    # Contacto de otro caso
+    contacto_otro = _get(d, "contacto_otro_caso").upper()
+    if contacto_otro in ("SI", "SÍ"):
+        qa["contacto_de_otro_caso"] = _qa_val("SI")
+    else:
+        qa["contacto_de_otro_caso"] = _qa_val("NO")
+
+    # Fuente de infección (código numérico)
+    fuente_inf = _get(d, "fuente_infeccion").upper()
+    fuente_inf_code = _FUENTE_INFECCION_MAP.get(fuente_inf)
+    if fuente_inf_code:
+        qa["fuente_de_infeccion_de_los_casos_confirmados"] = _qa_val(fuente_inf_code)
+        # Si importado, incluir país
+        if fuente_inf_code == "1":
+            pais_imp = _get(d, "pais_importacion")
+            if pais_imp:
+                qa["importado_pais_de_importacion"] = _qa_val(_godata_text(pais_imp))
+
+    # Caso analizado por (multi-answer con códigos numéricos)
+    analizado = _get(d, "caso_analizado_por").upper()
     if analizado:
-        qa["classified_by"] = [{"value": _godata_text(analizado)}]
+        # Puede ser múltiple separado por comas
+        items = [x.strip() for x in analizado.split(",") if x.strip()]
+        codes = []
+        for item in items:
+            code = _CASO_ANALIZADO_MAP.get(item)
+            if code:
+                codes.append(code)
+            elif item in ("1", "2", "3", "4"):
+                codes.append(item)
+        if codes:
+            qa["caso_analizado_por"] = _qa_val(codes)
 
-    # Q28: final_classification_date
-    fecha_clas = _to_iso_date(_get(d, "fecha_clasificacion_final"))
+    # Fecha de clasificación
+    fecha_clas = _to_iso_date(_get(d, "fecha_clasificacion_final") or _get(d, "fecha_clasificacion"))
     if fecha_clas:
-        qa["final_classification_date"] = [{"value": fecha_clas}]
+        qa["fecha_de_clasificacion"] = _qa_val(fecha_clas)
 
-    # Causa de muerte
-    causa_muerte = _get(d, "causa_muerte_certificado")
-    if causa_muerte:
-        qa["cause_of_death"] = [{"value": _godata_text(causa_muerte)}]
+    # Condición final del paciente (código numérico)
+    condicion_final = _get(d, "condicion_final_paciente") or _get(d, "condicion_egreso")
+    if condicion_final:
+        cond_upper = condicion_final.upper()
+        cond_code = _CONDICION_FINAL_MAP.get(cond_upper)
+        if cond_code:
+            qa["condicion_final_del_paciente"] = _qa_val(cond_code)
+        elif cond_upper in ("1", "2", "3", "4"):
+            qa["condicion_final_del_paciente"] = _qa_val(cond_upper)
 
     case["questionnaireAnswers"] = qa
     return case
