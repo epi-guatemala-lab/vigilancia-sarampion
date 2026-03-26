@@ -40,6 +40,19 @@ from mspas_queue import (
     mark_sent, mark_error, mark_duplicate, mark_possible_duplicate,
     try_claim_for_submission, recover_stuck_submissions, get_status_by_id,
 )
+from godata_queue import (
+    init_godata_tables,
+    save_godata_config, get_godata_config, get_godata_credentials,
+    enqueue_pending_records as godata_enqueue_pending,
+    get_queue as godata_get_queue,
+    approve_records as godata_approve_records,
+    try_claim_for_sync, mark_synced, mark_error as godata_mark_error,
+    mark_duplicate as godata_mark_duplicate,
+    get_sync_status as godata_get_sync_status,
+    get_approved_for_sync, recover_stuck_syncs,
+)
+from godata_client import GoDataClient
+from godata_field_map import map_record_to_godata, map_lab_samples_to_godata
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +93,14 @@ def _cleanup_rate_limiter():
 
 
 # ─── Validación de datos ──────────────────────────────────
-VALID_CLASIFICACIONES = {"SOSPECHOSO", "CONFIRMADO", "DESCARTADO", "SUSPENDIDO", "CLÍNICO", "FALSO", "ERROR DIAGNÓSTICO"}
+VALID_CLASIFICACIONES = {
+    "SOSPECHOSO", "CONFIRMADO", "CONFIRMADO SARAMPIÓN", "CONFIRMADO SARAMPION",
+    "CONFIRMADO RUBÉOLA", "CONFIRMADO RUBEOLA", "DESCARTADO", "PENDIENTE",
+    "NO CUMPLE DEFINICIÓN", "NO CUMPLE DEFINICION", "SUSPENDIDO",
+    "CLÍNICO", "CLINICO", "FALSO", "ERROR DIAGNÓSTICO", "ERROR DIAGNOSTICO",
+}
 VALID_SEXO = {"M", "F", ""}
-VALID_SI_NO = {"SI", "NO", "N/A", "N/S", ""}
+VALID_SI_NO = {"SI", "NO", "N/A", "N/S", "DESCONOCIDO", ""}
 MAX_FIELD_LENGTH = 500
 
 
@@ -174,10 +192,14 @@ def startup():
     init_db()
     init_audit_table()
     init_mspas_tables()
+    init_godata_tables()
     # Auto-recover records stuck in 'enviando' state (e.g. from crashed processes)
     recovered = recover_stuck_submissions()
     if recovered:
         logger.info(f"Recovered {recovered} stuck MSPAS submissions")
+    recovered_gd = recover_stuck_syncs()
+    if recovered_gd:
+        logger.info(f"Recovered {recovered_gd} stuck GoData syncs")
     print(f"Vigilancia Sarampión API v2.0 iniciada en puerto {PORT}")
 
 
@@ -628,7 +650,7 @@ def export_excel(x_api_key: str = Header(None)):
         "resultado_pcr_orina", "resultado_pcr_hisopado",
         "fecha_recepcion_laboratorio", "fecha_resultado_laboratorio",
         "resultado_igg_numerico", "resultado_igm_numerico",
-        # Contactos y IGSS (106-113)
+        # Contactos y IGSS (106-121)
         "contactos_directos", "clasificacion_caso", "fecha_clasificacion_final",
         "responsable_clasificacion", "observaciones",
         "es_empleado_igss", "unidad_medica_trabaja", "puesto_desempena",
@@ -636,6 +658,39 @@ def export_excel(x_api_key: str = Header(None)):
         "direccion_igss", "direccion_igss_otra",
         "departamento_igss", "departamento_igss_otro",
         "seccion_igss", "seccion_igss_otra",
+        # Formato 2026 — Encabezado (122-123)
+        "diagnostico_sospecha", "diagnostico_sospecha_otro",
+        # Formato 2026 — Unidad (124-130)
+        "area_salud_mspas", "distrito_salud_mspas", "servicio_salud_mspas", "correo_responsable",
+        "es_seguro_social", "establecimiento_privado", "establecimiento_privado_nombre",
+        # Formato 2026 — Paciente (131-139)
+        "tipo_identificacion", "numero_identificacion", "parentesco_tutor", "tipo_id_tutor", "numero_id_tutor",
+        "es_migrante", "trimestre_embarazo", "telefono_paciente", "pais_residencia",
+        # Formato 2026 — Antecedentes (140-152)
+        "tiene_antecedentes_medicos", "antecedentes_medicos_detalle",
+        "antecedente_desnutricion", "antecedente_inmunocompromiso", "antecedente_enfermedad_cronica",
+        "dosis_spr", "fecha_ultima_spr", "dosis_sr", "fecha_ultima_sr", "dosis_sprv", "fecha_ultima_sprv",
+        "sector_vacunacion",
+        # Formato 2026 — Clínica (153-162)
+        "tiene_complicaciones",
+        "comp_neumonia", "comp_encefalitis", "comp_diarrea", "comp_trombocitopenia",
+        "comp_otitis", "comp_ceguera", "comp_otra_texto",
+        "aislamiento_respiratorio", "fecha_aislamiento",
+        # Formato 2026 — Factores de Riesgo (163-171)
+        "viaje_pais", "viaje_departamento", "viaje_municipio", "viaje_fecha_salida", "viaje_fecha_entrada",
+        "familiar_viajo_exterior", "familiar_fecha_retorno", "fuente_posible_contagio", "fuente_contagio_otro",
+        # Formato 2026 — Acciones de Respuesta (172-180)
+        "bai_realizada", "bai_casos_sospechosos", "bac_realizada", "bac_casos_sospechosos",
+        "vacunacion_bloqueo", "monitoreo_rapido_vacunacion", "vacunacion_barrido",
+        "vitamina_a_administrada", "vitamina_a_dosis",
+        # Formato 2026 — Laboratorio adicional (181-183)
+        "motivo_no_3_muestras", "secuenciacion_resultado", "secuenciacion_fecha",
+        # Formato 2026 — Clasificación (184-193)
+        "criterio_confirmacion", "contacto_otro_caso", "contacto_otro_caso_detalle",
+        "criterio_descarte", "fuente_infeccion", "pais_importacion",
+        "caso_analizado_por", "caso_analizado_por_otro", "condicion_final_paciente", "causa_muerte_certificado",
+        # GoData (194-197)
+        "godata_case_id", "godata_sync_status", "godata_last_sync", "form_version",
     ]
 
     COL_HEADERS = [
@@ -693,6 +748,39 @@ def export_excel(x_api_key: str = Header(None)):
         "Dirección IGSS", "Dirección Otra",
         "Depto. IGSS", "Depto. Otro",
         "Sección IGSS", "Sección Otra",
+        # Formato 2026 — Encabezado
+        "Diagnóstico Sospecha", "Diagnóstico Sospecha (otro)",
+        # Formato 2026 — Unidad
+        "Área Salud MSPAS", "Distrito Salud MSPAS", "Servicio Salud MSPAS", "Correo Responsable",
+        "¿Seguro Social?", "¿Estab. Privado?", "Nombre Estab. Privado",
+        # Formato 2026 — Paciente
+        "Tipo Identificación", "No. Identificación", "Parentesco Tutor", "Tipo ID Tutor", "No. ID Tutor",
+        "¿Migrante?", "Trimestre Embarazo", "Teléfono Paciente", "País Residencia",
+        # Formato 2026 — Antecedentes
+        "¿Antecedentes Médicos?", "Detalle Antecedentes",
+        "Desnutrición", "Inmunocompromiso", "Enf. Crónica",
+        "Dosis SPR", "Fecha Últ. SPR", "Dosis SR", "Fecha Últ. SR", "Dosis SPRv", "Fecha Últ. SPRv",
+        "Sector Vacunación",
+        # Formato 2026 — Clínica
+        "¿Tiene Complicaciones?",
+        "Comp. Neumonía", "Comp. Encefalitis", "Comp. Diarrea", "Comp. Trombocitopenia",
+        "Comp. Otitis", "Comp. Ceguera", "Comp. Otra (texto)",
+        "Aislamiento Respiratorio", "Fecha Aislamiento",
+        # Formato 2026 — Factores de Riesgo
+        "País Viaje", "Depto. Viaje", "Municipio Viaje", "Fecha Salida Viaje", "Fecha Entrada Viaje",
+        "¿Familiar Viajó?", "Fecha Retorno Familiar", "Fuente Posible Contagio", "Fuente Contagio (otro)",
+        # Formato 2026 — Acciones de Respuesta
+        "BAI Realizada", "BAI Casos Sosp.", "BAC Realizada", "BAC Casos Sosp.",
+        "Vac. Bloqueo", "Monitoreo Rápido Vac.", "Vac. Barrido",
+        "Vitamina A", "Dosis Vitamina A",
+        # Formato 2026 — Laboratorio adicional
+        "Motivo No 3 Muestras", "Result. Secuenciación", "Fecha Secuenciación",
+        # Formato 2026 — Clasificación
+        "Criterio Confirmación", "Contacto Otro Caso", "Detalle Contacto",
+        "Criterio Descarte", "Fuente Infección", "País Importación",
+        "Analizado Por", "Analizado Por (otro)", "Condición Final", "Causa Muerte (certificado)",
+        # GoData
+        "GoData Case ID", "GoData Sync Status", "GoData Últ. Sync", "Versión Formulario",
     ]
 
     # Category headers (row 1) — (start_col, end_col, label)  1-indexed within EXPORT_COLS
@@ -705,6 +793,17 @@ def export_excel(x_api_key: str = Header(None)):
         (78, 83, "FACTORES DE RIESGO"),
         (84, 105, "LABORATORIO"),
         (106, 121, "CONTACTOS Y DATOS IGSS"),
+        # Formato 2026
+        (122, 123, "FORMATO 2026 — ENCABEZADO"),
+        (124, 130, "FORMATO 2026 — UNIDAD"),
+        (131, 139, "FORMATO 2026 — PACIENTE"),
+        (140, 151, "FORMATO 2026 — ANTECEDENTES"),
+        (152, 161, "FORMATO 2026 — CLÍNICA"),
+        (162, 170, "FORMATO 2026 — FACTORES DE RIESGO"),
+        (171, 179, "FORMATO 2026 — ACCIONES DE RESPUESTA"),
+        (180, 182, "FORMATO 2026 — LABORATORIO"),
+        (183, 192, "FORMATO 2026 — CLASIFICACIÓN"),
+        (193, 196, "GODATA"),
     ]
 
     # Styles
@@ -825,6 +924,23 @@ def export_ficha_pdf(registro_id: str, x_api_key: str = Header(None)):
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.get("/api/export/ficha-v2/{registro_id}")
+def export_ficha_v2(registro_id: str, x_api_key: str = Header(None)):
+    """Genera PDF ficha epidemiológica formato MSPAS 2026."""
+    verify_api_key(x_api_key)
+    from database import get_registro_by_id
+    record = get_registro_by_id(registro_id)
+    if not record:
+        raise HTTPException(404, "Registro no encontrado")
+    from pdf_ficha_v2 import generar_ficha_v2_pdf
+    pdf_bytes = generar_ficha_v2_pdf(record)
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename=ficha_v2_{registro_id}.pdf"}
     )
 
 
@@ -1161,6 +1277,208 @@ def mspas_get_screenshot_by_record(registro_id: str, filename: str,
     if not os.path.exists(path):
         raise HTTPException(404, "Screenshot not found")
     return FileResponse(path, media_type="image/png")
+
+
+# ═══════════════════════════════════════════════════════════
+# GoData Endpoints
+# ═══════════════════════════════════════════════════════════
+
+@app.post("/api/godata/config")
+async def godata_save_config(request: Request, x_api_key: str = Header(None)):
+    """Guardar configuración GoData (URL, credenciales, outbreak ID)."""
+    verify_api_key(x_api_key)
+    body = await request.json()
+    godata_url = body.get("godata_url", "").strip().rstrip("/")
+    username = body.get("username", "").strip()
+    password = body.get("password", "")
+    outbreak_id = body.get("outbreak_id", "").strip()
+    outbreak_name = body.get("outbreak_name", "").strip()
+    if not godata_url or not username or not password or not outbreak_id:
+        raise HTTPException(400, "Faltan campos obligatorios: godata_url, username, password, outbreak_id")
+    result = save_godata_config(godata_url, username, password, outbreak_id, outbreak_name)
+    return result
+
+
+@app.get("/api/godata/config")
+def godata_get_config_endpoint(x_api_key: str = Header(None)):
+    """Obtener configuración GoData (sin password)."""
+    verify_api_key(x_api_key)
+    return get_godata_config()
+
+
+@app.post("/api/godata/test")
+def godata_test_connection(x_api_key: str = Header(None)):
+    """Probar conexión con GoData."""
+    verify_api_key(x_api_key)
+    url, user, pwd, outbreak_id = get_godata_credentials()
+    if not url:
+        raise HTTPException(400, "GoData no está configurado")
+    client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
+    return client.test_connection()
+
+
+@app.get("/api/godata/queue")
+def godata_queue_endpoint(
+    estado: str = None, limit: int = 100,
+    x_api_key: str = Header(None)
+):
+    """Cola de sincronización GoData."""
+    verify_api_key(x_api_key)
+    return godata_get_queue(estado=estado, limit=limit)
+
+
+@app.post("/api/godata/queue/enqueue-all")
+def godata_enqueue_all(x_api_key: str = Header(None)):
+    """Encolar todos los registros pendientes para GoData."""
+    verify_api_key(x_api_key)
+    return godata_enqueue_pending()
+
+
+@app.post("/api/godata/queue/approve")
+async def godata_approve(request: Request, x_api_key: str = Header(None)):
+    """Aprobar registros para sincronización con GoData."""
+    verify_api_key(x_api_key)
+    body = await request.json()
+    ids = body.get("ids", [])
+    if not ids:
+        raise HTTPException(400, "Debe enviar lista de ids")
+    return godata_approve_records(ids)
+
+
+@app.post("/api/godata/sync/{registro_id}")
+def godata_sync_single(registro_id: str, x_api_key: str = Header(None)):
+    """Sincronizar un registro individual con GoData."""
+    verify_api_key(x_api_key)
+    from database import get_registro_by_id
+
+    # Obtener registro
+    record = get_registro_by_id(registro_id)
+    if not record:
+        raise HTTPException(404, "Registro no encontrado")
+
+    # Claim
+    if not try_claim_for_sync(registro_id):
+        raise HTTPException(409, "Registro no está aprobado o ya se está sincronizando")
+
+    # Mapear y enviar
+    url, user, pwd, outbreak_id = get_godata_credentials()
+    if not url:
+        godata_mark_error(registro_id, "GoData no está configurado")
+        raise HTTPException(400, "GoData no está configurado")
+
+    client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
+    try:
+        # Verificar duplicado por visualId
+        existing = client.find_case_by_visual_id(registro_id)
+        if existing:
+            godata_mark_duplicate(registro_id, existing.get("id", ""))
+            return {"status": "duplicate", "godata_case_id": existing.get("id")}
+
+        # Crear caso
+        case_payload = map_record_to_godata(record)
+        result = client.create_case(case_payload)
+        godata_case_id = result.get("id", "")
+
+        # Agregar resultados de laboratorio
+        lab_results = map_lab_samples_to_godata(record)
+        lab_count = 0
+        for lab in lab_results:
+            try:
+                client.add_lab_result(godata_case_id, lab)
+                lab_count += 1
+            except Exception as e:
+                logger.warning(f"GoData lab result error for {registro_id}: {e}")
+
+        mark_synced(registro_id, godata_case_id)
+        return {
+            "status": "synced",
+            "godata_case_id": godata_case_id,
+            "lab_results_sent": lab_count,
+            "dry_run": result.get("dry_run", False),
+        }
+    except Exception as e:
+        godata_mark_error(registro_id, str(e))
+        raise HTTPException(500, f"Error sincronizando con GoData: {e}")
+
+
+@app.post("/api/godata/sync-batch")
+def godata_sync_batch(x_api_key: str = Header(None)):
+    """Sincronizar todos los registros aprobados con GoData."""
+    verify_api_key(x_api_key)
+    from database import get_registro_by_id
+
+    ids = get_approved_for_sync(limit=100)
+    if not ids:
+        return {"processed": 0, "message": "No hay registros aprobados"}
+
+    url, user, pwd, outbreak_id = get_godata_credentials()
+    if not url:
+        raise HTTPException(400, "GoData no está configurado")
+
+    client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
+    results = {"processed": 0, "success": 0, "errors": 0, "duplicates": 0}
+
+    for registro_id in ids:
+        results["processed"] += 1
+        if not try_claim_for_sync(registro_id):
+            continue
+
+        record = get_registro_by_id(registro_id)
+        if not record:
+            godata_mark_error(registro_id, "Registro no encontrado en BD")
+            results["errors"] += 1
+            continue
+
+        try:
+            existing = client.find_case_by_visual_id(registro_id)
+            if existing:
+                godata_mark_duplicate(registro_id, existing.get("id", ""))
+                results["duplicates"] += 1
+                continue
+
+            case_payload = map_record_to_godata(record)
+            result = client.create_case(case_payload)
+            godata_case_id = result.get("id", "")
+
+            lab_results = map_lab_samples_to_godata(record)
+            for lab in lab_results:
+                try:
+                    client.add_lab_result(godata_case_id, lab)
+                except Exception as e:
+                    logger.warning(f"GoData lab error {registro_id}: {e}")
+
+            mark_synced(registro_id, godata_case_id)
+            results["success"] += 1
+        except Exception as e:
+            godata_mark_error(registro_id, str(e))
+            results["errors"] += 1
+            logger.error(f"GoData sync error for {registro_id}: {e}")
+
+    return results
+
+
+@app.get("/api/godata/status/{registro_id}")
+def godata_status(registro_id: str, x_api_key: str = Header(None)):
+    """Estado de sincronización GoData de un registro."""
+    verify_api_key(x_api_key)
+    return godata_get_sync_status(registro_id)
+
+
+@app.get("/api/godata/preview/{registro_id}")
+def godata_preview(registro_id: str, x_api_key: str = Header(None)):
+    """Preview del payload GoData que se enviaría (sin enviar)."""
+    verify_api_key(x_api_key)
+    from database import get_registro_by_id
+    record = get_registro_by_id(registro_id)
+    if not record:
+        raise HTTPException(404, "Registro no encontrado")
+    case_payload = map_record_to_godata(record)
+    lab_payloads = map_lab_samples_to_godata(record)
+    return {
+        "case": case_payload,
+        "lab_results": lab_payloads,
+        "lab_results_count": len(lab_payloads),
+    }
 
 
 if __name__ == "__main__":

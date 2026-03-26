@@ -8,7 +8,7 @@ from datetime import datetime
 from config import DB_PATH
 
 # Columnas del formulario en orden
-# Incluye campos MSPAS (Tabs 1-5) + campos IGSS adicionales
+# Incluye campos MSPAS EPIWEB (Tabs 1-5) + campos IGSS + campos formato 2026 GoData
 COLUMNS = [
     "registro_id",
     "timestamp_envio",
@@ -143,6 +143,94 @@ COLUMNS = [
     "departamento_igss_otro",
     "seccion_igss",
     "seccion_igss_otra",
+    # ═══ FORMATO 2026 (GoData + MSPAS nuevo) ═══
+    # Sección 0: Header — Diagnóstico de Sospecha
+    "diagnostico_sospecha",
+    "diagnostico_sospecha_otro",
+    # Sección 1: Unidad Notificadora (nuevos)
+    "area_salud_mspas",
+    "distrito_salud_mspas",
+    "servicio_salud_mspas",
+    "correo_responsable",
+    "es_seguro_social",
+    "establecimiento_privado",
+    "establecimiento_privado_nombre",
+    # Sección 2: Paciente (nuevos)
+    "tipo_identificacion",
+    "numero_identificacion",
+    "parentesco_tutor",
+    "tipo_id_tutor",
+    "numero_id_tutor",
+    "es_migrante",
+    "trimestre_embarazo",
+    "telefono_paciente",
+    "pais_residencia",
+    # Sección 3: Antecedentes Médicos y Vacunación (nuevos)
+    "tiene_antecedentes_medicos",
+    "antecedentes_medicos_detalle",
+    "antecedente_desnutricion",
+    "antecedente_inmunocompromiso",
+    "antecedente_enfermedad_cronica",
+    "dosis_spr",
+    "fecha_ultima_spr",
+    "dosis_sr",
+    "fecha_ultima_sr",
+    "dosis_sprv",
+    "fecha_ultima_sprv",
+    "sector_vacunacion",
+    # Sección 4: Clínicos (nuevos)
+    "tiene_complicaciones",
+    "comp_neumonia",
+    "comp_encefalitis",
+    "comp_diarrea",
+    "comp_trombocitopenia",
+    "comp_otitis",
+    "comp_ceguera",
+    "comp_otra_texto",
+    "aislamiento_respiratorio",
+    "fecha_aislamiento",
+    # Sección 5: Factores de Riesgo (nuevos)
+    "viaje_pais",
+    "viaje_departamento",
+    "viaje_municipio",
+    "viaje_fecha_salida",
+    "viaje_fecha_entrada",
+    "familiar_viajo_exterior",
+    "familiar_fecha_retorno",
+    "fuente_posible_contagio",
+    "fuente_contagio_otro",
+    # Sección 6: Acciones de Respuesta (completamente nueva)
+    "bai_realizada",
+    "bai_casos_sospechosos",
+    "bac_realizada",
+    "bac_casos_sospechosos",
+    "vacunacion_bloqueo",
+    "monitoreo_rapido_vacunacion",
+    "vacunacion_barrido",
+    "vitamina_a_administrada",
+    "vitamina_a_dosis",
+    # Sección 7: Laboratorio (nuevos — detallado formato 2026)
+    "lab_muestras_json",
+    "motivo_no_3_muestras",
+    "secuenciacion_resultado",
+    "secuenciacion_fecha",
+    # Sección 8: Clasificación (nuevos)
+    "criterio_confirmacion",
+    "contacto_otro_caso",
+    "contacto_otro_caso_detalle",
+    "criterio_descarte",
+    "fuente_infeccion",
+    "pais_importacion",
+    "caso_analizado_por",
+    "caso_analizado_por_otro",
+    "condicion_final_paciente",
+    "causa_muerte_certificado",
+    # GoData tracking
+    "godata_case_id",
+    "godata_sync_status",
+    "godata_last_sync",
+    "godata_outbreak_id",
+    "form_version",
     # Metadatos
     "ip_origen",
     "created_at",

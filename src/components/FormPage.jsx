@@ -8,6 +8,7 @@ import TextAreaField from './fields/TextAreaField.jsx'
 import NumberField from './fields/NumberField.jsx'
 import PhoneField from './fields/PhoneField.jsx'
 import FileField from './fields/FileField.jsx'
+import LabSampleMatrix from './fields/LabSampleMatrix.jsx'
 import { getMunicipios } from '../config/mspasMunicipios.js'
 import { getPoblados } from '../config/mspasPoblados.js'
 import { getDirecciones, getDepartamentosIGSS, getSecciones } from '../config/igssOrganizacion.js'
@@ -23,6 +24,7 @@ const fieldComponents = {
   number: NumberField,
   phone: PhoneField,
   file: FileField,
+  lab_matrix: LabSampleMatrix,
 }
 
 function getFieldComponent(field) {
@@ -80,7 +82,7 @@ export default function FormPage({ fields, formData, onFieldChange, errors, page
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-5">
-        {fields.map((field) => {
+        {fields.filter(f => !f.hidden).map((field) => {
           // Resolve cascading options if needed
           const resolvedField = field.cascadeFrom
             ? { ...field, options: resolveFieldOptions(field, formData) }

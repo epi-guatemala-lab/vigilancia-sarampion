@@ -6,6 +6,7 @@ export default function SelectField({ field, value, onChange, error }) {
         name={field.id}
         value={value || ''}
         onChange={(e) => onChange(field.id, e.target.value)}
+        disabled={field.readOnly}
         className={`w-full px-4 py-3 rounded-xl border-2 transition-all duration-200 appearance-none pr-10 ${
           error
             ? 'border-igss-red/50 bg-red-50/50 focus:border-igss-red focus:ring-igss-red/20'

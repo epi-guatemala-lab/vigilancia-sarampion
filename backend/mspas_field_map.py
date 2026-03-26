@@ -172,6 +172,24 @@ FUENTE_NOTI_CODES: dict[str, str] = {
     "OTRA": "7",
     "Otro": "7",
     "OTRO": "7",
+    # Expanded options from new form (map to closest EPIWEB equivalent)
+    "Servicio de Salud": "1",  # same as Publica
+    "SERVICIO DE SALUD": "1",
+    "Búsqueda Activa Institucional": "5",  # same as Busqueda Activa
+    "BÚSQUEDA ACTIVA INSTITUCIONAL": "5",
+    "BUSQUEDA ACTIVA INSTITUCIONAL": "5",
+    "Búsqueda Activa Comunitaria": "5",
+    "BÚSQUEDA ACTIVA COMUNITARIA": "5",
+    "BUSQUEDA ACTIVA COMUNITARIA": "5",
+    "Búsqueda Activa Laboratorial": "3",  # maps to Laboratorio
+    "BÚSQUEDA ACTIVA LABORATORIAL": "3",
+    "BUSQUEDA ACTIVA LABORATORIAL": "3",
+    "Investigación de Contactos": "7",  # maps to Otra
+    "INVESTIGACIÓN DE CONTACTOS": "7",
+    "INVESTIGACION DE CONTACTOS": "7",
+    "Auto Notificación": "7",  # maps to Otra
+    "AUTO NOTIFICACIÓN": "7",
+    "AUTO NOTIFICACION": "7",
 }
 
 # =============================================================================
@@ -230,6 +248,17 @@ FUENTE_VACUNA_CODES: dict[str, str] = {
     "CUADERNILLO": "3",
     "Verbal": "4",
     "VERBAL": "4",
+    # Expanded options from new form (map to closest EPIWEB equivalent)
+    "Carné de Vacunación": "1",
+    "CARNÉ DE VACUNACIÓN": "1",
+    "CARNE DE VACUNACION": "1",
+    "SIGSA 5a Cuaderno": "2",
+    "SIGSA 5A CUADERNO": "2",
+    "SIGSA 5B Otros Grupos": "2",  # maps to same SIGSA
+    "SIGSA 5B OTROS GRUPOS": "2",
+    "Registro Único de Vacunación": "1",  # maps to Carne
+    "REGISTRO ÚNICO DE VACUNACIÓN": "1",
+    "REGISTRO UNICO DE VACUNACION": "1",
 }
 
 # =============================================================================
@@ -347,12 +376,23 @@ CLASIFICACION_FINAL_CODES: dict[str, str] = {
     "RUBEOLA": "2",
     "Descartado": "3",
     "DESCARTADO": "3",
-    # These IGSS statuses don't have MSPAS codes — Tab 6 will be left empty (correct)
+    # Expanded classification options (map to closest EPIWEB equivalent)
+    "CONFIRMADO SARAMPIÓN": "1",
+    "CONFIRMADO SARAMPION": "1",
+    "Confirmado Sarampión": "1",
+    "Confirmado Sarampion": "1",
+    "CONFIRMADO RUBÉOLA": "2",
+    "CONFIRMADO RUBEOLA": "2",
+    "Confirmado Rubéola": "2",
+    "Confirmado Rubeola": "2",
+    # These statuses have no EPIWEB equivalent — Tab 6 will be left empty (correct)
     # 'SOSPECHOSO': '',  # Pending classification
     # 'SUSPENDIDO': '',  # Suspended
     # 'CLÍNICO': '',     # Clinical confirmation
     # 'FALSO': '',       # False case
     # 'ERROR DIAGNÓSTICO': '',  # Diagnostic error
+    # 'PENDIENTE': None,  # No EPIWEB equivalent - skip Tab 6
+    # 'NO CUMPLE DEFINICIÓN': None,  # No EPIWEB equivalent - skip Tab 6
 }
 
 # =============================================================================
@@ -405,6 +445,10 @@ CRITERIO_DESCARTE_CODES: dict[str, str] = {
     "PARVOVIRUS B19": "4",
     "Herpes": "5",
     "HERPES": "5",
+    "Herpes 6": "5",
+    "HERPES 6": "5",
+    "Laboratorial": "1",
+    "LABORATORIAL": "1",
     "Reacción Alérgica": "6",
     "REACCIÓN ALÉRGICA": "6",
     "REACCION ALERGICA": "6",
@@ -892,7 +936,17 @@ def map_record_to_mspas(record: dict) -> dict:
     mapped["hosp_nombre"] = g("hosp_nombre")
     mapped["hosp_fecha"] = format_date_mspas(g("hosp_fecha"))
     mapped["hosp_reg_med"] = g("no_registro_medico")
-    mapped["cb_egreso_condicion"] = get_code(EGRESO_CODES, g("condicion_egreso"))
+    # Infer condicion_egreso from condicion_final_paciente if not set
+    _condicion_egreso = g("condicion_egreso")
+    if not _condicion_egreso:
+        _cond_final = g("condicion_final_paciente").upper()
+        _COND_FINAL_TO_EGRESO = {
+            "RECUPERADO": "MEJORADO",
+            "CON SECUELAS": "MEJORADO",
+            "FALLECIDO": "MUERTO",
+        }
+        _condicion_egreso = _COND_FINAL_TO_EGRESO.get(_cond_final, "")
+    mapped["cb_egreso_condicion"] = get_code(EGRESO_CODES, _condicion_egreso)
     mapped["egreso_fecha"] = format_date_mspas(g("fecha_egreso"))
     mapped["txt_fecha_defuncion"] = format_date_mspas(g("fecha_defuncion"))
     mapped["txt_medic_defuncion"] = g("medico_certifica_defuncion")
@@ -934,6 +988,9 @@ def map_record_to_mspas(record: dict) -> dict:
     # TAB 6: CLASIFICACION FINAL
     # -----------------------------------------------------------------
     mapped["slc_clas_final"] = get_code(CLASIFICACION_FINAL_CODES, g("clasificacion_caso"))
+    mapped["slc_confirmado"] = get_code(CONFIRMADO_POR_CODES, g("criterio_confirmacion"))
+    mapped["slc_fuente_infect"] = get_code(FUENTE_INFECCION_CODES, g("fuente_infeccion"))
+    mapped["slc_crit_desc"] = get_code(CRITERIO_DESCARTE_CODES, g("criterio_descarte"))
     mapped["txt_fecha_final"] = format_date_mspas(g("fecha_clasificacion_final"))
     mapped["txt_nom_resp_clas"] = g("responsable_clasificacion")
     mapped["observaciones_clas"] = g("observaciones")

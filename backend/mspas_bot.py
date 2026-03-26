@@ -157,7 +157,17 @@ def map_record_to_mspas(record: dict) -> dict:
     mapped["hosp_nombre"] = _val("hosp_nombre")
     mapped["hosp_fecha"] = canonical.get("hosp_fecha", "")
     mapped["hosp_reg_med"] = _val("no_registro_medico")
-    mapped["condicion_egreso"] = _val("condicion_egreso")
+    # Infer condicion_egreso from condicion_final_paciente if not set
+    _cond_egreso = _val("condicion_egreso")
+    if not _cond_egreso:
+        _cond_final = _val("condicion_final_paciente").upper()
+        _COND_FINAL_MAP = {
+            "RECUPERADO": "MEJORADO",
+            "CON SECUELAS": "MEJORADO",
+            "FALLECIDO": "MUERTO",
+        }
+        _cond_egreso = _COND_FINAL_MAP.get(_cond_final, "")
+    mapped["condicion_egreso"] = _cond_egreso
     mapped["condicion_egreso_code"] = canonical.get("cb_egreso_condicion", "")
     mapped["fecha_egreso"] = canonical.get("egreso_fecha", "")
 
@@ -475,6 +485,9 @@ class MSPASBot:
         JS .click() fallbacks. Also tries alternate value formats (SI/1, NO/2, s/n).
         """
         if not value:
+            return
+        if value.upper() == "DESCONOCIDO":
+            logger.warning("Skipping radio %s with value DESCONOCIDO (not supported by EPIWEB)", label or name)
             return
 
         def _try_check(selector_str: str, desc: str) -> bool:
@@ -1288,6 +1301,9 @@ class MSPASBot:
             # filled above.
         ]:
             val = data.get(key, "")
+            if val and val.upper() == "DESCONOCIDO":
+                logger.warning("Skipping radio %s with value DESCONOCIDO (not supported by EPIWEB)", sign_name)
+                continue
             if val:
                 filled = False
                 # Try common MSPAS naming patterns
@@ -1831,11 +1847,15 @@ class MSPASBot:
         #   "Sarampión", "Rubéola", "Descartado" (NOT "1", "2", "3")
         # Our CLASIFICACION_FINAL_CODES maps to "1"/"2"/"3" which don't match.
         # We need to map code -> actual MSPAS option text value.
+        # Note: PENDIENTE, NO CUMPLE DEFINICION have no EPIWEB equivalent —
+        # clasificacion_code will be "" so this block is skipped entirely.
         _CLAS_CODE_TO_TEXT = {
             "1": "Sarampión",
             "2": "Rubéola",
             "3": "Descartado",
         }
+        if not data.get("clasificacion_code"):
+            logger.info("Skipping Tab 6 classification select (no EPIWEB-mappable code)")
         if data.get("clasificacion_code"):
             code = data["clasificacion_code"]
             clas_text = _CLAS_CODE_TO_TEXT.get(code, "")

@@ -5,6 +5,7 @@ import SuccessScreen from './ui/SuccessScreen.jsx'
 import ErrorAlert from './ui/ErrorAlert.jsx'
 import { useFormState } from '../hooks/useFormState.js'
 import { useConditionalFields } from '../hooks/useConditionalFields.js'
+import { cleanHiddenFieldData } from '../config/conditionalLogic.js'
 import { useGoogleSheets } from '../hooks/useGoogleSheets.js'
 import { validatePage } from '../utils/validation.js'
 import { getEpiWeek } from '../utils/formatters.js'
@@ -56,6 +57,9 @@ export default function FormWizard() {
     // Auto-map diagnóstico → código CIE-10
     if (fieldId === 'diagnostico_registrado' && diagnosticosMap[value]) {
       updateField('codigo_cie10', diagnosticosMap[value])
+      // Auto-infer diagnostico_sospecha from CIE-10
+      if (value.startsWith('B05')) updateField('diagnostico_sospecha', 'Sarampión')
+      else if (value.startsWith('B06')) updateField('diagnostico_sospecha', 'Rubéola')
     }
 
     // Auto-compute nombre_apellido from nombres + apellidos
@@ -86,6 +90,72 @@ export default function FormWizard() {
           edad_dias: String(Math.max(0, days)),
         })
       }
+    }
+
+    // Auto-calculate trimestre from semanas_embarazo
+    if (fieldId === 'semanas_embarazo' && value) {
+      const semanas = parseInt(value)
+      if (!isNaN(semanas) && semanas > 0) {
+        const trimestre = semanas <= 13 ? '1' : semanas <= 26 ? '2' : '3'
+        updateField('trimestre_embarazo', trimestre)
+      }
+    }
+
+    // Auto-infer destino_viaje from structured travel fields
+    if (['viaje_pais', 'viaje_departamento', 'viaje_municipio'].includes(fieldId)) {
+      const pais = fieldId === 'viaje_pais' ? value : (formData.viaje_pais || '')
+      const depto = fieldId === 'viaje_departamento' ? value : (formData.viaje_departamento || '')
+      const muni = fieldId === 'viaje_municipio' ? value : (formData.viaje_municipio || '')
+      const destino = [muni, depto, pais].filter(Boolean).join(', ')
+      if (destino) updateField('destino_viaje', destino)
+    }
+
+    // Auto-infer legacy vaccine fields from new per-type fields (bidirectional)
+    if (fieldId === 'dosis_spr' && value) {
+      updateMultipleFields({
+        tipo_vacuna: 'SRP Sarampión Rubéola Paperas',
+        numero_dosis_spr: value === 'Más de 3' ? 'Más de 3 dosis' : `${value} dosis`,
+      })
+    }
+    if (fieldId === 'fecha_ultima_spr' && value) {
+      updateField('fecha_ultima_dosis', value)
+    }
+    if (fieldId === 'dosis_sr' && value) {
+      if (!formData.dosis_spr) { // Only override if SPR not set
+        updateMultipleFields({
+          tipo_vacuna: 'SR Sarampión Rubéola',
+          numero_dosis_spr: value === 'Más de 3' ? 'Más de 3 dosis' : `${value} dosis`,
+        })
+      }
+    }
+    if (fieldId === 'fecha_ultima_sr' && value) {
+      if (!formData.fecha_ultima_spr) updateField('fecha_ultima_dosis', value)
+    }
+
+    // Auto-generate complicaciones text from checkboxes (legacy compat)
+    if (fieldId.startsWith('comp_') || fieldId === 'tiene_complicaciones') {
+      const compFields = ['comp_neumonia', 'comp_encefalitis', 'comp_diarrea',
+        'comp_trombocitopenia', 'comp_otitis', 'comp_ceguera']
+      const compLabels = {
+        comp_neumonia: 'Neumonía', comp_encefalitis: 'Encefalitis',
+        comp_diarrea: 'Diarrea', comp_trombocitopenia: 'Trombocitopenia',
+        comp_otitis: 'Otitis Media Aguda', comp_ceguera: 'Ceguera'
+      }
+      const activas = compFields
+        .filter(f => (f === fieldId ? value : formData[f]) === 'SI')
+        .map(f => compLabels[f])
+      const otra = fieldId === 'comp_otra_texto' ? value : (formData.comp_otra_texto || '')
+      if (otra) activas.push(otra)
+      updateField('complicaciones', activas.join(', ') || '')
+    }
+
+    // Auto-infer condicion_egreso from condicion_final_paciente (EPIWEB compat)
+    if (fieldId === 'condicion_final_paciente') {
+      const egresoMap = {
+        'Recuperado': 'MEJORADO', 'Con Secuelas': 'MEJORADO',
+        'Fallecido': 'MUERTO', 'Desconocido': ''
+      }
+      if (egresoMap[value] !== undefined) updateField('condicion_egreso', egresoMap[value])
     }
 
     // Cascading resets: departamento → municipio → poblado
@@ -182,7 +252,9 @@ export default function FormWizard() {
       return
     }
 
-    const result = await submit(formData)
+    // Clean hidden field data before submission
+    const cleanedData = cleanHiddenFieldData(formData, formFields)
+    const result = await submit(cleanedData)
     if (result?.success) {
       setRegistroId(result.registro_id)
       markAsSubmitted(afiliacion, fecha)

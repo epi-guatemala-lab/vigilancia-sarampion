@@ -33,3 +33,10 @@ RATE_LIMIT_SECONDS = int(os.getenv("RATE_LIMIT_SECONDS", "1"))
 
 # Upload limits
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
+
+# GoData (WHO/OPS)
+GODATA_URL = os.environ.get("GODATA_URL", "")
+GODATA_USERNAME = os.environ.get("GODATA_USERNAME", "")
+GODATA_PASSWORD = os.environ.get("GODATA_PASSWORD", "")
+GODATA_OUTBREAK_ID = os.environ.get("GODATA_OUTBREAK_ID", "")
+GODATA_PRODUCTION_MODE = os.environ.get("GODATA_PRODUCTION_MODE", "false").lower() == "true"
