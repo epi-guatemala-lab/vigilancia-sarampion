@@ -53,7 +53,7 @@ from godata_queue import (
     get_next_visual_id, save_visual_id,
 )
 from godata_client import GoDataClient
-from godata_field_map import map_record_to_godata, map_lab_samples_to_godata
+from godata_field_map import map_record_to_godata, map_lab_samples_to_godata, validate_godata_payload
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +97,14 @@ def _cleanup_rate_limiter():
 VALID_CLASIFICACIONES = {
     "SOSPECHOSO", "CONFIRMADO", "CONFIRMADO SARAMPIÓN", "CONFIRMADO SARAMPION",
     "CONFIRMADO RUBÉOLA", "CONFIRMADO RUBEOLA", "DESCARTADO", "PENDIENTE",
-    "NO CUMPLE DEFINICIÓN", "NO CUMPLE DEFINICION", "SUSPENDIDO",
-    "CLÍNICO", "CLINICO", "FALSO", "ERROR DIAGNÓSTICO", "ERROR DIAGNOSTICO",
+    "NO CUMPLE DEFINICIÓN", "NO CUMPLE DEFINICION",
+    "NO CUMPLE DEFINICIÓN DE CASO", "NO CUMPLE DEFINICION DE CASO",
+    "SUSPENDIDO", "CLÍNICO", "CLINICO", "FALSO",
+    "ERROR DIAGNÓSTICO", "ERROR DIAGNOSTICO",
 }
 VALID_SEXO = {"M", "F", ""}
 VALID_SI_NO = {"SI", "NO", "N/A", "N/S", "DESCONOCIDO", ""}
-MAX_FIELD_LENGTH = 500
+MAX_FIELD_LENGTH = 1500
 
 
 def sanitize_value(val):
@@ -1498,11 +1500,17 @@ def godata_sync_single(registro_id: str, x_api_key: str = Header(None)):
 
     client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
     try:
+        # If this record was previously synced (re-sync after error), skip creation
+        record_godata_id = record.get("godata_case_id", "")
+        if record_godata_id and not record_godata_id.startswith("DRYRUN"):
+            mark_synced(registro_id, record_godata_id)
+            return {"status": "duplicate", "godata_case_id": record_godata_id}
+
         # Generate sequential visualId (SR-NNNN)
         visual_id = get_next_visual_id()
 
-        # Verificar duplicado por visualId
-        existing = client.find_case_by_visual_id(visual_id)
+        # Verificar duplicado por registro_id (not the newly generated visual_id)
+        existing = client.find_case_by_visual_id(registro_id)
         if existing:
             godata_mark_duplicate(registro_id, existing.get("id", ""))
             return {"status": "duplicate", "godata_case_id": existing.get("id")}
@@ -1510,6 +1518,12 @@ def godata_sync_single(registro_id: str, x_api_key: str = Header(None)):
         # Crear caso with generated visualId
         case_payload = map_record_to_godata(record)
         case_payload["visualId"] = visual_id
+
+        # Validate payload before sending
+        warnings = validate_godata_payload(case_payload)
+        if warnings:
+            logger.warning(f"GoData payload warnings for {registro_id}: {warnings}")
+
         result = client.create_case(case_payload)
         godata_case_id = result.get("id", "")
 
@@ -1545,6 +1559,9 @@ def godata_sync_batch(x_api_key: str = Header(None)):
     verify_api_key(x_api_key)
     from database import get_registro_by_id
 
+    # Recover any stuck syncs before starting batch
+    recover_stuck_syncs()
+
     ids = get_approved_for_sync(limit=100)
     if not ids:
         return {"processed": 0, "message": "No hay registros aprobados"}
@@ -1568,10 +1585,18 @@ def godata_sync_batch(x_api_key: str = Header(None)):
             continue
 
         try:
+            # If this record was previously synced (re-sync after error), skip creation
+            record_godata_id = record.get("godata_case_id", "")
+            if record_godata_id and not record_godata_id.startswith("DRYRUN"):
+                mark_synced(registro_id, record_godata_id)
+                results["duplicates"] += 1
+                continue
+
             # Generate sequential visualId (SR-NNNN)
             visual_id = get_next_visual_id()
 
-            existing = client.find_case_by_visual_id(visual_id)
+            # Verificar duplicado por registro_id (not the newly generated visual_id)
+            existing = client.find_case_by_visual_id(registro_id)
             if existing:
                 godata_mark_duplicate(registro_id, existing.get("id", ""))
                 results["duplicates"] += 1
@@ -1579,6 +1604,12 @@ def godata_sync_batch(x_api_key: str = Header(None)):
 
             case_payload = map_record_to_godata(record)
             case_payload["visualId"] = visual_id
+
+            # Validate payload before sending
+            warnings = validate_godata_payload(case_payload)
+            if warnings:
+                logger.warning(f"GoData payload warnings for {registro_id}: {warnings}")
+
             result = client.create_case(case_payload)
             godata_case_id = result.get("id", "")
 

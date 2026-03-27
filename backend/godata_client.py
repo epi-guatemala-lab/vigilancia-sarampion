@@ -101,6 +101,12 @@ class GoDataClient:
                         raise ConnectionError(f"GoData timeout after {max_retries + 1} attempts: {e}")
                     raise ConnectionError("No se puede conectar a GoData")
             except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 401 and attempt < max_retries:
+                    self._token = ""  # Force re-auth on next _ensure_token()
+                    logger.warning("GoData 401 — refreshing token (attempt %d/%d)", attempt + 1, max_retries + 1)
+                    time.sleep(1)
+                    self._ensure_token()
+                    continue
                 self._handle_http_error(e)
 
     def _get(self, url: str, params: dict = None) -> dict:

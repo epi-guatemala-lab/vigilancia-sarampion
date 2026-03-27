@@ -956,7 +956,7 @@ export const formFields = [
     label: 'Fecha Inicio Fiebre',
     type: 'date',
     page: 5,
-    required: true,
+    required: false,
     colSpan: 'half',
     validation: { noFuture: true },
   },
