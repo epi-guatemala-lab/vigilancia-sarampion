@@ -50,6 +50,12 @@ function resolveFieldOptions(field, formData) {
     return (depto && muni) ? getPoblados(depto, muni) : []
   }
 
+  // Viaje: departamento → municipio (same municipio catalog as residencia)
+  if (field.cascadeFrom === 'viaje_departamento') {
+    const depto = formData.viaje_departamento
+    return depto ? getMunicipios(depto) : []
+  }
+
   // IGSS Organigrama cascading
   if (field.cascadeFrom === 'subgerencia_igss') {
     const sg = formData.subgerencia_igss

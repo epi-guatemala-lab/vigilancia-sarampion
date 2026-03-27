@@ -491,14 +491,30 @@ export const formFields = [
   {
     id: 'pais_residencia',
     label: 'País de Residencia',
-    type: 'text',
+    type: 'select',
     page: 2,
     required: false,
-    placeholder: 'GUATEMALA',
+    searchable: true,
     defaultValue: 'GUATEMALA',
+    options: [
+      'GUATEMALA',
+      // Centroamérica
+      'MÉXICO', 'HONDURAS', 'EL SALVADOR', 'BELICE', 'NICARAGUA', 'COSTA RICA', 'PANAMÁ',
+      // Caribe
+      'REPÚBLICA DOMINICANA', 'HAITÍ', 'CUBA', 'JAMAICA', 'PUERTO RICO',
+      // Sudamérica
+      'COLOMBIA', 'VENEZUELA', 'BRASIL', 'ARGENTINA', 'PERÚ', 'CHILE', 'ECUADOR', 'BOLIVIA', 'URUGUAY', 'PARAGUAY',
+      // Norteamérica
+      'ESTADOS UNIDOS', 'CANADÁ',
+      // Europa
+      'ESPAÑA', 'FRANCIA', 'ITALIA', 'ALEMANIA', 'REINO UNIDO',
+      // Asia
+      'CHINA', 'INDIA', 'JAPÓN', 'COREA DEL SUR',
+      // Otro
+      'OTRO',
+    ],
     colSpan: 'half',
     sectionTitle: 'Residencia',
-    validation: { maxLength: 60 },
   },
   {
     id: 'departamento_residencia',
@@ -1328,13 +1344,14 @@ export const formFields = [
   {
     id: 'viaje_municipio',
     label: 'Municipio de Destino',
-    type: 'text',
+    type: 'select',
     page: 6,
     required: false,
-    placeholder: 'Municipio de destino',
+    searchable: true,
+    options: [], // Se llena dinámicamente según viaje_departamento
+    cascadeFrom: 'viaje_departamento',
     conditional: { dependsOn: 'viajo_7_23_previo', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { maxLength: 60 },
   },
   {
     id: 'viaje_fecha_salida',
@@ -2044,10 +2061,24 @@ export const formFields = [
   {
     id: 'puesto_desempena',
     label: 'Puesto que Desempeña',
-    type: 'text',
+    type: 'select',
     page: 9,
     required: false,
-    placeholder: 'Puesto o cargo del empleado',
+    searchable: true,
+    options: [
+      'Médico/a',
+      'Enfermero/a Profesional',
+      'Auxiliar de Enfermería',
+      'Técnico/a de Laboratorio',
+      'Técnico/a en Salud',
+      'Estadígrafo/a',
+      'Secretario/a',
+      'Personal Administrativo',
+      'Personal de Mantenimiento',
+      'Personal de Seguridad',
+      'Personal de Limpieza',
+      'Otro',
+    ],
     conditional: { dependsOn: 'es_empleado_igss', showWhen: 'SI' },
     colSpan: 'half',
   },
