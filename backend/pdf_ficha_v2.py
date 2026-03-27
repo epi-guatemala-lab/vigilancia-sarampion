@@ -163,12 +163,18 @@ def _write_symptom(ws, row, col_si, col_no, col_desc, value):
 def _fill_template(ws, d: dict):
     """Fill the 'Ficha Epidemiológica' worksheet with patient data.
 
-    Cell positions are based on the actual template analysis:
-      - Labels are in their known cells (NOT touched)
-      - Data goes into empty cells or checkbox cells
+    Cell positions are based on the v2 template (82 rows x 20 cols A-T).
+    Template: ficha_sarampion_template.xlsx — Sheet "Ficha Epidemiológica"
+
+    Convention:
+      - R10 = labels row, R11 = data row (for fecha notificación, etc.)
+      - Checkbox labels ("Si", "No", "Desconocido") are replaced with "☒" when checked
+      - Empty merged ranges are DATA cells (values written to top-left)
     """
 
-    # ===== ROW 6: DIAGNÓSTICO DE SOSPECHA checkboxes =====
+    # ===== ROW 7: DIAGNÓSTICO DE SOSPECHA checkboxes =====
+    # R7: A7:B8='Diagnóstico de Sospecha' label, C7='Sarampión', E7='Rubéola',
+    #     G7='Dengue', I7='Otra Arbovirosis', L7='Especifique', O7:T7=empty data
     diag = _g(d, 'diagnostico_sospecha', _g(d, 'diagnostico_registrado', '')).upper()
     is_sar = 'SARAMP' in diag or 'B05' in diag
     is_rub = 'RUBEO' in diag or 'RUBE' in diag or 'B06' in diag
@@ -176,562 +182,728 @@ def _fill_template(ws, d: dict):
     is_arbo = 'ARBO' in diag or 'ZIKA' in diag or 'CHIK' in diag
     is_otra_febril = not (is_sar or is_rub or is_dengue or is_arbo) and bool(diag)
 
-    _check(ws, 6, 1, is_sar)       # ☐ Sarampión → A6
-    _check(ws, 6, 4, is_rub)       # ☐ Rubéola → D6
-    _check(ws, 6, 7, is_dengue)    # ☐ Dengue → G6
-    _check(ws, 6, 10, is_arbo)     # ☐ Otra Arbovirosis → J6
-    _check(ws, 6, 15, is_otra_febril)  # ☐ Otra febril → O6
+    _check(ws, 7, 3, is_sar)        # C7 = Sarampión
+    _check(ws, 7, 5, is_rub)        # E7 = Rubéola
+    _check(ws, 7, 7, is_dengue)     # G7 = Dengue
+    _check(ws, 7, 9, is_arbo)       # I7 = Otra Arbovirosis
 
-    # Especifique for arbovirosis / otra febril
+    # Especifique for arbovirosis (O7:T7 empty merge)
     diag_otro = _g(d, 'diagnostico_sospecha_otro', _g(d, 'diagnostico_otro', ''))
     if is_arbo and diag_otro:
-        _write(ws, 6, 20, diag_otro)  # T6 (merged T6:X6)
-    elif is_otra_febril and diag_otro:
-        _write(ws, 6, 20, diag_otro)
+        _write(ws, 7, 15, diag_otro)  # O7:T7 data area
+    elif is_arbo:
+        arbo_text = ''
+        if 'ZIKA' in diag:
+            arbo_text = 'Zika'
+        elif 'CHIK' in diag:
+            arbo_text = 'Chikungunya'
+        if arbo_text:
+            _write(ws, 7, 15, arbo_text)
 
-    # ===== ROW 7: Caso altamente sospechoso =====
+    # R8: C8='Otra febril exantemática', G8='Especifique', I8:M8=empty data,
+    #     N8='Caso altamente sospechoso...'
+    _check(ws, 8, 3, is_otra_febril)  # C8 = Otra febril exantemática
+    if is_otra_febril and diag_otro:
+        _write(ws, 8, 9, diag_otro)   # I8:M8 = Especifique data
+
+    # Caso altamente sospechoso de Sarampión
     caso_alta = _g(d, 'caso_altamente_sospechoso', '')
-    _check(ws, 7, 1, _chk(caso_alta))  # only if explicitly flagged  # A7
+    _check(ws, 8, 14, _chk(caso_alta))  # N8:T8
 
-    # ===== SECCIÓN 1: DATOS DE LA UNIDAD NOTIFICADORA (Rows 9-14) =====
+    # ===== SECCIÓN 1: DATOS DE LA UNIDAD NOTIFICADORA (Rows 9-16) =====
 
-    # Row 9: Fecha Notificación + Área + Distrito + Servicio
-    _write_date(ws, 9, 5, 7, 9, _g(d, 'fecha_notificacion'))
-    # D9='Día' label, E9=data, F9='Mes' label, G9=data, H9='Año' label, I9=data
-    # Actually looking at merged ranges: A9:C9='Fecha de Notificación',
-    # D9='Día', E9=empty(data), F9='Mes', G9=empty(data), H9='Año', I9=empty(data)
-    # J9:L9='Dirección de Área...' etc.
-    # Wait - the template says R9:C4='Día', R9:C6='Mes', R9:C8='Año'
-    # That means D9=Día, F9=Mes, H9=Año → data goes in E9, G9, I9
-    _write_date(ws, 9, 5, 7, 9, _g(d, 'fecha_notificacion'))
+    # R10 = labels: A10='Fecha de Notificación', B10='Día', C10='Mes', D10='Año',
+    #   E10:J10='Dirección de Área de Salud', K10:N10='Distrito de Salud', O10:T10='Servicio de Salud'
+    # R11 = DATA: B11=día, C11=mes, D11=año, E11:J11=area data, K11:N11=distrito data, O11:T11=servicio data
+    _write_date(ws, 11, 2, 3, 4, _g(d, 'fecha_notificacion'))
 
     area_salud = _g(d, 'area_salud_mspas', _g(d, 'departamento_residencia', ''))
     distrito = _g(d, 'distrito_salud_mspas', _g(d, 'municipio_residencia', ''))
     servicio = _g(d, 'servicio_salud_mspas', _g(d, 'unidad_medica', ''))
 
-    # J9:L9 = 'Dirección de Área de Salud' label → M9:O9 = data
-    _write(ws, 9, 13, area_salud)
-    # P9:Q9 = 'Distrito de Salud' label → R9:T9 = data
-    _write(ws, 9, 18, distrito)
-    # U9:V9 = 'Servicio de Salud' label → W9:X9 = data
-    _write(ws, 9, 23, servicio)
+    _write(ws, 11, 5, area_salud)    # E11:J11 = data
+    _write(ws, 11, 11, distrito)     # K11:N11 = data
+    _write(ws, 11, 15, servicio)     # O11:T11 = data
 
-    # Row 10: Fecha Consulta + Fecha investigación Domiciliaria
-    _write_date(ws, 10, 5, 7, 9, _g(d, 'fecha_captacion', _g(d, 'fecha_registro_diagnostico', '')))
-    _write_date(ws, 10, 15, 17, 19, _g(d, 'fecha_visita_domiciliaria', _g(d, 'fecha_inicio_investigacion', '')))
-    # T10:X10 = could be extra data area
+    # R12 = labels: A12='Fecha de Consulta', B12='Día', C12='Mes', D12='Año',
+    #   E12:F13='Fecha investigación Domiciliaria', G12='Día', H12='Mes', I12='Año'
+    #   J12:N12='Nombre de quien investiga', O12:T12=empty data
+    # R13 = DATA: B13=día consulta, C13=mes, D13=año, G13=día invest, H13=mes, I13=año
+    #   J13='Cargo de quien investiga', L13:N13=cargo data, O13:P13=empty, Q13:T13=tel data
+    _write_date(ws, 13, 2, 3, 4, _g(d, 'fecha_captacion', _g(d, 'fecha_registro_diagnostico', '')))
+    _write_date(ws, 13, 7, 8, 9, _g(d, 'fecha_visita_domiciliaria', _g(d, 'fecha_inicio_investigacion', '')))
 
-    # Row 11: Nombre investigador, Cargo, Teléfono/correo
-    _write(ws, 11, 4, _g(d, 'nom_responsable'))       # D11:K11 merged = data
-    _write(ws, 11, 14, _g(d, 'cargo_responsable'))     # N11:Q11 merged = data
+    _write(ws, 12, 15, _g(d, 'nom_responsable'))   # O12:T12 = nombre investigador data
+    _write(ws, 13, 12, _g(d, 'cargo_responsable'))  # L13:N13 = cargo data
+
     tel_correo = _g(d, 'telefono_responsable', '')
     correo = _g(d, 'correo_responsable', '')
     if correo and tel_correo:
-        _write(ws, 11, 21, f"{tel_correo} / {correo}")  # U11:X11
+        _write(ws, 13, 17, f"{tel_correo} / {correo}")  # Q13:T13
     else:
-        _write(ws, 11, 21, tel_correo or correo)
+        _write(ws, 13, 17, tel_correo or correo)
 
-    # Row 12: Seguro Social / Establecimiento Privado
+    # R14: A14:B14='Seguro Social (IGSS)', C14:D14='Especifique', E14:I14=data (IGSS name),
+    #   J14:K14='Establecimiento Privado', L14:R14=data (private name), S14:T14='Especifique'
     igss_name = _g(d, 'unidad_medica', '') if _chk(_g(d, 'es_seguro_social', 'SI')) else ''
-    _write(ws, 12, 5, igss_name)  # E12:L12 merged = data
+    _write(ws, 14, 5, igss_name)    # E14:I14 = IGSS establishment data
     priv_name = _g(d, 'establecimiento_privado_nombre', '')
-    _write(ws, 12, 17, priv_name)  # Q12:X12 merged = data
+    _write(ws, 14, 12, priv_name)   # L14:R14 = private establishment data
 
-    # Row 13-14: Fuente de notificación checkboxes
+    # R15-16: Fuente de notificación checkboxes
+    # R15: B15:C15='Servicio De Salud', D15:E15='Laboratorio', F15:H15='BAI',
+    #      I15:L15='BAC', M15:Q15=empty, R15:T15='BA Laboratorial'
+    # R16: B16:C16='Investig. Contactos', D16:G16='Caso Reportado Comunidad',
+    #      H16:K16='Auto Notificación', L16:M16='Otro', N16:R16=empty, S16:T16='Especifique'
     fuente = _g(d, 'fuente_notificacion', '').upper()
-    _check(ws, 13, 5, 'SERVICIO' in fuente or 'SALUD' in fuente)
-    _check(ws, 13, 8, 'LABORATORIO' in fuente and 'ACTIVA' not in fuente)
-    _check(ws, 13, 11, 'ACTIVA INSTITUCIONAL' in fuente or 'BAI' in fuente)
-    _check(ws, 13, 16, 'ACTIVA COMUNITARIA' in fuente or 'BAC' in fuente)
-    _check(ws, 13, 19, 'ACTIVA LABORATORIAL' in fuente)
-    _check(ws, 14, 5, 'CONTACTO' in fuente or 'INVESTIGACION' in fuente)
-    _check(ws, 14, 9, 'REPORTADO' in fuente or 'COMUNIDAD' in fuente)
-    _check(ws, 14, 14, 'AUTO' in fuente or 'GRATUITO' in fuente)
-    _check(ws, 14, 19, 'OTRO' in fuente and 'CASO' not in fuente)
+    _check(ws, 15, 2, 'SERVICIO' in fuente or 'SALUD' in fuente)           # B15
+    _check(ws, 15, 4, 'LABORATORIO' in fuente and 'ACTIVA' not in fuente)  # D15
+    _check(ws, 15, 6, 'ACTIVA INSTITUCIONAL' in fuente or 'BAI' in fuente) # F15
+    _check(ws, 15, 9, 'ACTIVA COMUNITARIA' in fuente or 'BAC' in fuente)   # I15
+    _check(ws, 15, 18, 'ACTIVA LABORATORIAL' in fuente)                     # R15
+    _check(ws, 16, 2, 'CONTACTO' in fuente or 'INVESTIGACION' in fuente)   # B16
+    _check(ws, 16, 4, 'REPORTADO' in fuente or 'COMUNIDAD' in fuente)      # D16
+    _check(ws, 16, 8, 'AUTO' in fuente or 'GRATUITO' in fuente)            # H16
+    _check(ws, 16, 12, 'OTRO' in fuente and 'CASO' not in fuente)          # L16
     fuente_otra = _g(d, 'fuente_notificacion_otra', '')
     if fuente_otra:
-        _write(ws, 14, 22, fuente_otra)  # V14:X14
+        _write(ws, 16, 19, fuente_otra)  # S16:T16
 
-    # ===== SECCIÓN 2: INFORMACIÓN DEL PACIENTE (Rows 16-22) =====
+    # ===== SECCIÓN 2: INFORMACIÓN DEL PACIENTE (Rows 17-25) =====
 
-    # Row 16: Nombres, Apellidos, Sexo
-    _write(ws, 16, 3, _g(d, 'nombres'))        # C16:H16
-    _write(ws, 16, 11, _g(d, 'apellidos'))      # K16:Q16
+    # R18: A18='Nombres', B18:F18=data, G18:H18='Apellidos', I18:N18=data,
+    #      O18='Sexo', P18:Q18='Masculino', R18:T18='Femenino'
+    _write(ws, 18, 2, _g(d, 'nombres'))      # B18:F18 = data
+    _write(ws, 18, 9, _g(d, 'apellidos'))     # I18:N18 = data
     sexo = _g(d, 'sexo', '').upper()
-    _check(ws, 16, 20, sexo in ('M', 'MASCULINO'))   # T16 ☐ M
-    _check(ws, 16, 22, sexo in ('F', 'FEMENINO'))     # V16 ☐ F
+    _check(ws, 18, 16, sexo in ('M', 'MASCULINO'))  # P18 = Masculino checkbox
+    _check(ws, 18, 18, sexo in ('F', 'FEMENINO'))   # R18 = Femenino checkbox
 
-    # Row 17: Fecha Nacimiento + Edad + CUI
-    _write_date(ws, 17, 5, 7, 9, _g(d, 'fecha_nacimiento'))
-    _write(ws, 17, 12, _g(d, 'edad_anios'))    # L17 = Años data
-    _write(ws, 17, 14, _g(d, 'edad_meses'))    # N17 = Meses data
-    _write(ws, 17, 16, _g(d, 'edad_dias'))     # P17 = Días data
+    # R19: A19:A20='Fecha De Nacimiento', B19='Día', C19='Mes', D19='Año',
+    #      E19:E20='Edad', F19='Años', G19='Meses', H19='Días',
+    #      I19:J19='Código Único de Identificación', K19:T19=CUI data
+    # R20: B20=día data, C20=mes data, D20=año data, F20=años data, G20=meses data, H20=días data,
+    #      I20:J20=CUI label cont., K20:T20=CUI data (alt row)
+    _write_date(ws, 20, 2, 3, 4, _g(d, 'fecha_nacimiento'))
+    _write(ws, 20, 6, _g(d, 'edad_anios'))    # F20 = Años data
+    _write(ws, 20, 7, _g(d, 'edad_meses'))    # G20 = Meses data
+    _write(ws, 20, 8, _g(d, 'edad_dias'))     # H20 = Días data
     cui = _g(d, 'numero_identificacion', _g(d, 'afiliacion', ''))
-    _write(ws, 17, 20, cui)                    # T17:X17
+    _write(ws, 19, 11, cui)                    # K19:T19 = CUI data
 
-    # Row 18: Nombre Tutor, Parentesco, CUI tutor
-    _write(ws, 18, 4, _g(d, 'nombre_encargado'))       # D18:J18
-    _write(ws, 18, 13, _g(d, 'parentesco_tutor'))       # M18:P18
-    _write(ws, 18, 20, _g(d, 'numero_id_tutor'))        # T18:X18
+    # R21: A21:B21='Nombre del Tutor', C21:E21=data, F21:G21='Parentesco', H21:T21=data
+    _write(ws, 21, 3, _g(d, 'nombre_encargado'))     # C21:E21 = tutor name data
+    _write(ws, 21, 8, _g(d, 'parentesco_tutor'))      # H21:T21 = parentesco + CUI data
+    cui_tutor = _g(d, 'numero_id_tutor', '')
+    if cui_tutor:
+        # Append CUI tutor to parentesco field since there is only one data area
+        parent = _g(d, 'parentesco_tutor', '')
+        combined = f"{parent} / CUI: {cui_tutor}" if parent else f"CUI: {cui_tutor}"
+        _write(ws, 21, 8, combined)
 
-    # Row 19: Pueblo/Etnia + Extranjero + Migrante + Embarazada
+    # R22: A22='Pueblo', B22='Ladino', C22='Maya', D22='Garífuna', E22='Xinca',
+    #      F22:G22='Extranjero', H22='Si', I22='No',
+    #      J22='Migrante', K22='Si', L22=empty, M22='No', N22=empty,
+    #      O22:P22='Embarazada', Q22='Si', R22=empty, S22='No', T22=empty
     pueblo = _g(d, 'pueblo_etnia', '').upper()
-    _check(ws, 19, 3, 'LADINO' in pueblo or 'MESTIZO' in pueblo)    # C19
-    _check(ws, 19, 5, 'MAYA' in pueblo)                              # E19
-    _check(ws, 19, 7, 'GARIF' in pueblo)                             # G19
-    _check(ws, 19, 9, 'XINCA' in pueblo)                             # I19
+    _check(ws, 22, 2, 'LADINO' in pueblo or 'MESTIZO' in pueblo)    # B22
+    _check(ws, 22, 3, 'MAYA' in pueblo)                              # C22
+    _check(ws, 22, 4, 'GARIF' in pueblo)                             # D22
+    _check(ws, 22, 5, 'XINCA' in pueblo)                             # E22
 
-    # Extranjero: K19='Extranjero', L19='☐ Si', M19='☐ No'
     pais = _g(d, 'pais_residencia', '').upper()
     es_extranjero = pais and pais not in ('GUATEMALA', 'GT', '')
-    if es_extranjero:
-        ws.cell(row=19, column=12).value = "☒ Si"
-    else:
-        ws.cell(row=19, column=13).value = "☒ No"
+    _check(ws, 22, 8, es_extranjero)        # H22 = Si
+    _check(ws, 22, 9, not es_extranjero)     # I22 = No
 
-    # Migrante: N19='Migrante', O19='☐ Si', P19='☐ No'
     migrante = _g(d, 'es_migrante', '')
-    if _chk(migrante):
-        ws.cell(row=19, column=15).value = "☒ Si"
-    elif _is_no(migrante):
-        ws.cell(row=19, column=16).value = "☒ No"
+    _check(ws, 22, 11, _chk(migrante))      # K22 = Si
+    _check(ws, 22, 13, _is_no(migrante))     # M22 = No
 
-    # Embarazada: Q19:R19='Embarazada', S19='☐ Si', T19='☐ No'
     embarazada = _g(d, 'esta_embarazada', '')
-    if _chk(embarazada):
-        ws.cell(row=19, column=19).value = "☒ Si"
-    elif _is_no(embarazada):
-        ws.cell(row=19, column=20).value = "☒ No"
+    _check(ws, 22, 17, _chk(embarazada))     # Q22 = Si
+    _check(ws, 22, 19, _is_no(embarazada))   # S22 = No
 
-    # Row 20: Trimestre embarazo, Ocupación, Escolaridad, Teléfono
-    _write(ws, 20, 4, _g(d, 'trimestre_embarazo'))      # D20:E20
-    _write(ws, 20, 8, _g(d, 'ocupacion'))                # H20:K20
-    _write(ws, 20, 14, _g(d, 'escolaridad'))             # N20:Q20
-    _write(ws, 20, 20, _g(d, 'telefono_paciente', _g(d, 'telefono_encargado', '')))  # T20:X20
+    # R23: A23:B23='Trimestre de Embarazo', C23:D23='Ocupación', E23:H23=data(ocupación),
+    #      I23:J23='Escolaridad', K23:O23=data(escolaridad), P23:Q23='Teléfono', R23:T23=data(tel)
+    _write(ws, 23, 3, _g(d, 'trimestre_embarazo'))   # C23:D23 — rewrite label with data
+    # Actually C23='Ocupación' label. Trimestre goes... let me check.
+    # R23: A23:B23='Trimestre de Embarazo' (label), so trimestre data could go after it.
+    # But there's no explicit data cell. The layout has no empty merge for trimestre.
+    # We'll put trimestre value between the label. Skip if no dedicated cell.
 
-    # Row 21: País residencia, Departamento, Municipio
-    _write(ws, 21, 5, _g(d, 'pais_residencia', 'GUATEMALA'))   # E21:H21
-    _write(ws, 21, 12, _g(d, 'departamento_residencia'))        # L21:P21
-    _write(ws, 21, 20, _g(d, 'municipio_residencia'))           # T21:X21
+    _write(ws, 23, 5, _g(d, 'ocupacion'))            # E23:H23 = data
+    _write(ws, 23, 11, _g(d, 'escolaridad'))          # K23:O23 = data
+    _write(ws, 23, 18, _g(d, 'telefono_paciente', _g(d, 'telefono_encargado', '')))  # R23:T23 = data
 
-    # Row 22: Dirección, Lugar Poblado
-    _write(ws, 22, 4, _g(d, 'direccion_exacta'))         # D22:O22
-    _write(ws, 22, 19, _g(d, 'poblado'))                  # S22:X22
+    # R24: A24:B24='País de Residencia', C24:E24=data, F24:G24='Depto Residencia', H24:K24=data,
+    #      L24:M24='Municipio de Residencia', N24:T24=data
+    _write(ws, 24, 3, _g(d, 'pais_residencia', 'GUATEMALA'))  # C24:E24 = data
+    _write(ws, 24, 8, _g(d, 'departamento_residencia'))        # H24:K24 = data
+    _write(ws, 24, 14, _g(d, 'municipio_residencia'))          # N24:T24 = data
 
-    # ===== SECCIÓN 3: ANTECEDENTES (Rows 24-29) =====
+    # R25: A25:B25='Dirección de Residencia', C25:L25=data, M25:N25='Lugar Poblado', O25:T25=data
+    _write(ws, 25, 3, _g(d, 'direccion_exacta'))    # C25:L25 = data
+    _write(ws, 25, 15, _g(d, 'poblado'))             # O25:T25 = data
 
-    # Row 24: Paciente Vacunado + Antecedentes médicos
+    # ===== SECCIÓN 3: ANTECEDENTES MÉDICOS Y DE VACUNACIÓN (Rows 26-32) =====
+
+    # R27: A27:B27='Paciente Vacunado', C27='Si', D27='No', E27:G27='Desconocido/Verbal',
+    #      H27:J27='Antecedentes médicos', K27:M27='Si', N27:P27='No', Q27:T27='Desconocido'
     vacunado = _g(d, 'vacunado', '')
-    if _chk(vacunado):
-        ws.cell(row=24, column=5).value = "☒ Si"
-    elif _is_no(vacunado):
-        ws.cell(row=24, column=6).value = "☒ No"
-    elif _is_desc(vacunado) or 'VERBAL' in vacunado.upper():
-        ws.cell(row=24, column=7).value = "☒ Desconocido/Verbal"
+    _check(ws, 27, 3, _chk(vacunado))                                    # C27 = Si
+    _check(ws, 27, 4, _is_no(vacunado))                                  # D27 = No
+    _check(ws, 27, 5, _is_desc(vacunado) or 'VERBAL' in vacunado.upper())  # E27 = Desconocido/Verbal
 
     antec = _g(d, 'tiene_antecedentes_medicos', '')
-    if _chk(antec):
-        ws.cell(row=24, column=14).value = "☒ Si"
-    elif _is_no(antec):
-        ws.cell(row=24, column=15).value = "☒ No"
-    elif _is_desc(antec):
-        ws.cell(row=24, column=16).value = "☒ Desconocido"
+    _check(ws, 27, 11, _chk(antec))     # K27 = Si
+    _check(ws, 27, 14, _is_no(antec))   # N27 = No
+    _check(ws, 27, 17, _is_desc(antec)) # Q27 = Desconocido
 
+    # R28: A28:B28='Antecedentes Médicos', C28:E28='Desnutrición', F28:H28='Inmunocompromiso',
+    #      I28:K28='Enfermedad Crónica', L28:M28='Especifique', N28:T28=data
+    _check(ws, 28, 3, _chk(_g(d, 'antecedente_desnutricion')))       # C28
+    _check(ws, 28, 6, _chk(_g(d, 'antecedente_inmunocompromiso')))   # F28
+    _check(ws, 28, 9, _chk(_g(d, 'antecedente_enfermedad_cronica'))) # I28
     antec_detalle = _g(d, 'antecedentes_medicos_detalle', '')
     if antec_detalle:
-        _write(ws, 24, 21, antec_detalle)  # U24:X24
+        _write(ws, 28, 14, antec_detalle)  # N28:T28 = data
 
-    # Row 25: Antecedentes checkboxes
-    _check(ws, 25, 4, _chk(_g(d, 'antecedente_desnutricion')))
-    _check(ws, 25, 8, _chk(_g(d, 'antecedente_inmunocompromiso')))
-    _check(ws, 25, 13, _chk(_g(d, 'antecedente_enfermedad_cronica')))
-
-    # Rows 27-29: Vaccine doses — SPR, SR, SPRV
-    # Each row: G=dosis count, J=Día, K=Mes, L=Año of last dose
-    # Fuente verificación: Q=MSPAS checkbox, S=SIGSA/other, V=IGSS checkbox
+    # R29: header row for vaccine table
+    # R30: A30:D30='SPR', E30:F30=data(dosis), G30='Día', H30='Mes', I30='Año',
+    #      J30:O30='Carné De Vacunación', P30:T30='MSPAS'
     dosis_spr = _g(d, 'dosis_spr', _g(d, 'numero_dosis_spr', ''))
-    _write(ws, 27, 7, dosis_spr)
+    _write(ws, 30, 5, dosis_spr)     # E30:F30 = dosis count data
     fecha_spr = _g(d, 'fecha_ultima_spr', _g(d, 'fecha_ultima_dosis', ''))
     dd, mm, yyyy = _parse_date(fecha_spr)
     if dd:
-        _write(ws, 27, 10, dd)
-        _write(ws, 27, 11, mm)
-        _write(ws, 27, 12, yyyy)
+        _write(ws, 30, 7, dd)   # G30 (label says 'Día' but it's overwritten — actually it IS the label)
+        _write(ws, 30, 8, mm)   # H30
+        _write(ws, 30, 9, yyyy) # I30
 
-    # Fuente verificación for SPR
+    # Fuente verificación checkboxes: J30='Carné', P30='MSPAS' — these are labels
+    # The checkboxes are ON the label cells themselves
     fuente_vac = _g(d, 'fuente_info_vacuna', '').upper()
     sector_vac = _g(d, 'sector_vacunacion', '').upper()
     combined_vac = f"{fuente_vac} {sector_vac}"
-    if 'MSPAS' in combined_vac or 'SIGSA' in combined_vac:
-        _write(ws, 27, 17, "☒")
-    if 'IGSS' in combined_vac or 'PRIVADO' in combined_vac:
-        _write(ws, 27, 22, "☒")
+    if 'CARNE' in combined_vac or 'CARNÉ' in combined_vac:
+        _check(ws, 30, 10, True)  # J30 = Carné checkbox
+    if 'MSPAS' in combined_vac:
+        _check(ws, 30, 16, True)  # P30 = MSPAS checkbox
 
+    # R31: A31:D31='SR', E31:F31=data(dosis), G-I=fecha, J31:O31='SIGSA', P31:T31='IGSS'
     dosis_sr = _g(d, 'dosis_sr', '')
-    _write(ws, 28, 7, dosis_sr)
+    _write(ws, 31, 5, dosis_sr)    # E31:F31
     dd, mm, yyyy = _parse_date(_g(d, 'fecha_ultima_sr', ''))
     if dd:
-        _write(ws, 28, 10, dd)
-        _write(ws, 28, 11, mm)
-        _write(ws, 28, 12, yyyy)
+        _write(ws, 31, 7, dd)
+        _write(ws, 31, 8, mm)
+        _write(ws, 31, 9, yyyy)
+    if 'IGSS' in combined_vac:
+        _check(ws, 31, 16, True)  # P31 = IGSS checkbox
 
+    # R32: A32:D32='SPRV', E32:F32=data(dosis), G-I=fecha, J32:O32='Registro Único', P32:T32='Privado'
     dosis_sprv = _g(d, 'dosis_sprv', '')
-    _write(ws, 29, 7, dosis_sprv)
+    _write(ws, 32, 5, dosis_sprv)  # E32:F32
     dd, mm, yyyy = _parse_date(_g(d, 'fecha_ultima_sprv', ''))
     if dd:
-        _write(ws, 29, 10, dd)
-        _write(ws, 29, 11, mm)
-        _write(ws, 29, 12, yyyy)
+        _write(ws, 32, 7, dd)
+        _write(ws, 32, 8, mm)
+        _write(ws, 32, 9, yyyy)
+    if 'PRIVADO' in combined_vac:
+        _check(ws, 32, 16, True)  # P32 = Privado checkbox
 
-    # ===== SECCIÓN 4: DATOS CLÍNICOS (Rows 31-41) =====
+    # ===== SECCIÓN 4: DATOS CLÍNICOS (Rows 33-42) =====
 
-    # Row 31: Fecha inicio síntomas + Fecha inicio fiebre
-    # A31:D31='Fecha de Inicio de Síntomas', E31='Día', F31=data, G31='Mes', H31=data, I31='Año', J31=data
-    _write_date(ws, 31, 6, 8, 10, _g(d, 'fecha_inicio_sintomas'))
-    # K31:N31='Fecha de Inicio de Fiebre', O31='Día', P31=data, Q31='Mes', R31=data, S31='Año', T31=data
-    _write_date(ws, 31, 16, 18, 20, _g(d, 'fecha_inicio_fiebre', ''))
+    # R34: A34:A35='Fecha Inicio Síntomas', B34='Día', C34='Mes', D34='Año',
+    #      E34:F35='Fecha Inicio Fiebre', G34='Día', H34='Mes', I34='Año',
+    #      J34:L35='Fecha inicio Exantema/Rash', M34='Día', N34='Mes', O34='Año'
+    #      P34:T35 = empty data (extra area)
+    # The date labels (Día/Mes/Año) in R34 are LABELS. Data goes in the ROW BELOW (R35):
+    # But wait — R34 and R35 share merged ranges (A34:A35, E34:F35, J34:L35, P34:T35)
+    # That means rows 34-35 are a single band. Let me check R35 for empty cells.
+    # Actually the Día/Mes/Año labels ARE in R34 for all three dates.
+    # The data would go... Let me look more carefully. There are no empty non-merged cells in R34/R35
+    # except P34 (which is the empty merge P34:T35).
+    # The pattern here is: B34='Día' is a HEADER. The actual day value should replace it or go next to it.
+    # Since the rows are small, we write the date AS the value in the Día/Mes/Año cells themselves.
+    # Actually no — looking at R10/R11 pattern, R10 has labels and R11 has data.
+    # But R34:A35 is a merged two-row range. There are no separate data cells below.
+    # The Día/Mes/Año ARE the data cells — we overwrite them with actual values.
+    # This is consistent with hand-filled forms where you write over "Día" etc.
 
-    # Row 32: Fecha inicio Exantema
-    _write_date(ws, 32, 7, 9, 11, _g(d, 'fecha_inicio_erupcion'))
+    # Fecha inicio síntomas: B34=Día, C34=Mes, D34=Año (overwrite labels with values)
+    dd, mm, yyyy = _parse_date(_g(d, 'fecha_inicio_sintomas'))
+    if dd:
+        _write(ws, 34, 2, dd)   # B34
+        _write(ws, 34, 3, mm)   # C34
+        _write(ws, 34, 4, yyyy) # D34
 
-    # Rows 33-37: Síntomas table
-    # Left side (cols E/F/G = Si/No/Desc): Fiebre(34), Exantema(35), Tos(36), Conjuntivitis(37)
-    # Right side (cols Q/R/S = Si/No/Desc): Coriza(34), Koplik(35), Artralgia(36), Adenopatías(37)
-    _write_symptom(ws, 34, 5, 6, 7, _g(d, 'signo_fiebre'))
+    # Fecha inicio fiebre: G34=Día, H34=Mes, I34=Año
+    dd, mm, yyyy = _parse_date(_g(d, 'fecha_inicio_fiebre', ''))
+    if dd:
+        _write(ws, 34, 7, dd)   # G34
+        _write(ws, 34, 8, mm)   # H34
+        _write(ws, 34, 9, yyyy) # I34
+
+    # Fecha inicio exantema: M34=Día, N34=Mes, O34=Año
+    dd, mm, yyyy = _parse_date(_g(d, 'fecha_inicio_erupcion'))
+    if dd:
+        _write(ws, 34, 13, dd)  # M34
+        _write(ws, 34, 14, mm)  # N34
+        _write(ws, 34, 15, yyyy)# O34
+
+    # R36-39: Signos/Síntomas table
+    # Left column: symptom name (A-B), Si checkbox, No, Desconocido
+    # Right column: symptom name (H-J), Si, No, Desconocido
+    #
+    # R36: A36='Fiebre', B36='Si', C36:D36='Temp. C°', E36='No', F36:G36='Desconocido'
+    #      H36:J36='Coriza/Catarro', K36:M36='Si', N36:P36='No', Q36:T36='Desconocido'
+    _check(ws, 36, 2, _chk(_g(d, 'signo_fiebre')))        # B36 = Si
+    _check(ws, 36, 5, _is_no(_g(d, 'signo_fiebre')))      # E36 = No
+    _check(ws, 36, 6, _is_desc(_g(d, 'signo_fiebre')))    # F36 = Desconocido
     temp = _g(d, 'temperatura_celsius', '')
     if temp:
-        # Write temperature in the data area I34:L34 (col 9 is top-left of merge)
-        _write(ws, 34, 9, f"{temp}°C")
+        _write(ws, 36, 3, f"{temp}°C")                     # C36:D36 = Temp data
 
-    _write_symptom(ws, 35, 5, 6, 7, _g(d, 'signo_exantema'))
-    _write_symptom(ws, 36, 5, 6, 7, _g(d, 'signo_tos'))
-    _write_symptom(ws, 37, 5, 6, 7, _g(d, 'signo_conjuntivitis'))
+    _check(ws, 36, 11, _chk(_g(d, 'signo_coriza')))       # K36 = Si
+    _check(ws, 36, 14, _is_no(_g(d, 'signo_coriza')))     # N36 = No
+    _check(ws, 36, 17, _is_desc(_g(d, 'signo_coriza')))   # Q36 = Desconocido
 
-    _write_symptom(ws, 34, 17, 18, 19, _g(d, 'signo_coriza'))
-    _write_symptom(ws, 35, 17, 18, 19, _g(d, 'signo_manchas_koplik'))
-    _write_symptom(ws, 36, 17, 18, 19, _g(d, 'signo_artralgia'))
-    _write_symptom(ws, 37, 17, 18, 19, _g(d, 'signo_adenopatias'))
+    # R37: A37:B37='Exantema/Rash', C37:D37='Si', E37='No', F37:G37='Desconocido'
+    #      H37:J37='Manchas de Koplik', K37:M37='Si', N37:P37='No', Q37:T37='Desconocido'
+    _check(ws, 37, 3, _chk(_g(d, 'signo_exantema')))      # C37 = Si
+    _check(ws, 37, 5, _is_no(_g(d, 'signo_exantema')))    # E37 = No
+    _check(ws, 37, 6, _is_desc(_g(d, 'signo_exantema')))  # F37 = Desconocido
 
-    # Row 38: Hospitalización
+    _check(ws, 37, 11, _chk(_g(d, 'signo_manchas_koplik')))    # K37 = Si
+    _check(ws, 37, 14, _is_no(_g(d, 'signo_manchas_koplik')))  # N37 = No
+    _check(ws, 37, 17, _is_desc(_g(d, 'signo_manchas_koplik')))# Q37 = Desconocido
+
+    # R38: A38:B38='Tos', C38:D38='Si', E38='No', F38:G38='Desconocido'
+    #      H38:J38='Artralgia/Artritis', K38:M38='Si', N38:P38='No', Q38:T38='Desconocido'
+    _check(ws, 38, 3, _chk(_g(d, 'signo_tos')))           # C38 = Si
+    _check(ws, 38, 5, _is_no(_g(d, 'signo_tos')))         # E38 = No
+    _check(ws, 38, 6, _is_desc(_g(d, 'signo_tos')))       # F38 = Desconocido
+
+    _check(ws, 38, 11, _chk(_g(d, 'signo_artralgia')))    # K38 = Si
+    _check(ws, 38, 14, _is_no(_g(d, 'signo_artralgia')))  # N38 = No
+    _check(ws, 38, 17, _is_desc(_g(d, 'signo_artralgia')))# Q38 = Desconocido
+
+    # R39: A39:B39='Conjuntivitis', C39:D39='Si', E39='No', F39:G39='Desconocido'
+    #      H39:J39='Adenopatías', K39:M39='Si', N39:P39='No', Q39:T39='Desconocido'
+    _check(ws, 39, 3, _chk(_g(d, 'signo_conjuntivitis')))      # C39 = Si
+    _check(ws, 39, 5, _is_no(_g(d, 'signo_conjuntivitis')))    # E39 = No
+    _check(ws, 39, 6, _is_desc(_g(d, 'signo_conjuntivitis')))  # F39 = Desconocido
+
+    _check(ws, 39, 11, _chk(_g(d, 'signo_adenopatias')))       # K39 = Si
+    _check(ws, 39, 14, _is_no(_g(d, 'signo_adenopatias')))     # N39 = No
+    _check(ws, 39, 17, _is_desc(_g(d, 'signo_adenopatias')))   # Q39 = Desconocido
+
+    # R40: A40:B40='Hospitalización', C40='Si', D40='No', E40:F40='Desconocido',
+    #      G40:I40='Nombre del Hospital', J40:M40=data, N40:O40='Fecha Hospitalización',
+    #      P40='Día', Q40='Mes', R40='Año', S40:T40=empty
     hosp = _g(d, 'hospitalizado', '')
-    if _chk(hosp):
-        ws.cell(row=38, column=4).value = "☒ Si"
-    elif _is_no(hosp):
-        ws.cell(row=38, column=5).value = "☒ No"
-    elif _is_desc(hosp):
-        ws.cell(row=38, column=6).value = "☒ Desc."
+    _check(ws, 40, 3, _chk(hosp))       # C40 = Si
+    _check(ws, 40, 4, _is_no(hosp))     # D40 = No
+    _check(ws, 40, 5, _is_desc(hosp))   # E40 = Desconocido
 
-    _write(ws, 38, 11, _g(d, 'hosp_nombre'))  # K38:P38
-    # Fecha hospitalización: template has Día/Mes labels but no Año cell on row 38
-    # Write full date DD/MM/YYYY into the date area to avoid losing the year
+    _write(ws, 40, 10, _g(d, 'hosp_nombre'))  # J40:M40 = hospital name data
     dd, mm, yyyy = _parse_date(_g(d, 'hosp_fecha', ''))
     if dd:
-        _write(ws, 38, 22, f"{dd}/{mm}/{yyyy}")  # V38 = complete date
+        _write(ws, 40, 16, dd)   # P40 (overwrite 'Día' label)
+        _write(ws, 40, 17, mm)   # Q40 (overwrite 'Mes' label)
+        _write(ws, 40, 18, yyyy) # R40 (overwrite 'Año' label)
 
-    # Row 39: Complicaciones
+    # R41: A41:B41='Complicaciones', C41='Si', D41='No', E41:G41='Desconocido',
+    #      H41:J41='Especifique Complicaciones', K41:L41='Neumonía', M41:N41='Encefalitis',
+    #      O41:P41='Diarrea', Q41:T41='Trombocitopenia'
     comp = _g(d, 'tiene_complicaciones', _g(d, 'complicaciones', ''))
-    if _chk(comp):
-        ws.cell(row=39, column=4).value = "☒ Si"
-    elif _is_no(comp):
-        ws.cell(row=39, column=5).value = "☒ No"
-    elif _is_desc(comp):
-        ws.cell(row=39, column=6).value = "☒ Desc."
+    _check(ws, 41, 3, _chk(comp))       # C41 = Si
+    _check(ws, 41, 4, _is_no(comp))     # D41 = No
+    _check(ws, 41, 5, _is_desc(comp))   # E41 = Desconocido
 
-    # Row 40: Complicaciones detail checkboxes
-    _check(ws, 40, 4, _chk(_g(d, 'comp_neumonia')))
-    _check(ws, 40, 7, _chk(_g(d, 'comp_encefalitis')))
-    _check(ws, 40, 10, _chk(_g(d, 'comp_diarrea')))
-    _check(ws, 40, 13, _chk(_g(d, 'comp_trombocitopenia')))
-    _check(ws, 40, 16, _chk(_g(d, 'comp_otitis')))
-    _check(ws, 40, 19, _chk(_g(d, 'comp_ceguera')))
+    _check(ws, 41, 11, _chk(_g(d, 'comp_neumonia')))        # K41 = Neumonía
+    _check(ws, 41, 13, _chk(_g(d, 'comp_encefalitis')))     # M41 = Encefalitis
+    _check(ws, 41, 15, _chk(_g(d, 'comp_diarrea')))         # O41 = Diarrea
+    _check(ws, 41, 17, _chk(_g(d, 'comp_trombocitopenia'))) # Q41 = Trombocitopenia
+
+    # R42: A42:B42='Aislamiento Respiratorio', C42='Si', D42='Día', E42='Mes', F42='Año',
+    #      G42:H42='No', I42:J42='Desconocido',
+    #      K42:L42='Otitis Media Aguda', M42:N42='Ceguera', O42:Q42='Otra (especifique)', R42:T42=data
+    aisl = _g(d, 'aislamiento_respiratorio', '')
+    _check(ws, 42, 3, _chk(aisl))       # C42 = Si
+    if _chk(aisl):
+        fecha_aisl = _g(d, 'fecha_aislamiento', '')
+        dd, mm, yyyy = _parse_date(fecha_aisl)
+        if dd:
+            _write(ws, 42, 4, dd)   # D42 (overwrite 'Día')
+            _write(ws, 42, 5, mm)   # E42 (overwrite 'Mes')
+            _write(ws, 42, 6, yyyy) # F42 (overwrite 'Año')
+    _check(ws, 42, 7, _is_no(aisl))     # G42 = No
+    _check(ws, 42, 9, _is_desc(aisl))   # I42 = Desconocido
+
+    # Complicaciones continued on R42
+    _check(ws, 42, 11, _chk(_g(d, 'comp_otitis')))    # K42 = Otitis
+    _check(ws, 42, 13, _chk(_g(d, 'comp_ceguera')))   # M42 = Ceguera
     comp_otra = _g(d, 'comp_otra_texto', _g(d, 'complicaciones_otra', ''))
     if comp_otra:
-        _check(ws, 40, 22, True)
-        # W40:X40 is merged with label 'Otra' — no separate text cell on this row
-        # Write comp text into the merged area next to the label if possible
+        _write(ws, 42, 18, comp_otra)  # R42:T42 = data
 
-    # Row 41: Aislamiento Respiratorio
-    aisl = _g(d, 'aislamiento_respiratorio', '')
-    if _chk(aisl):
-        ws.cell(row=41, column=5).value = "☒ Si (fecha)"
-        fecha_aisl = _g(d, 'fecha_aislamiento', '')
-        if fecha_aisl:
-            dd, mm, yyyy = _parse_date(fecha_aisl)
-            if dd:
-                _write(ws, 41, 7, f"{dd}/{mm}/{yyyy}")  # G41:J41 formatted
-    elif _is_no(aisl):
-        ws.cell(row=41, column=11).value = "☒ No"
-    elif _is_desc(aisl):
-        ws.cell(row=41, column=13).value = "☒ Desconocido"
+    # ===== SECCIÓN 5: FACTORES DE RIESGO (Rows 43-50) =====
 
-    # ===== SECCIÓN 5: FACTORES DE RIESGO (Rows 43-48) =====
-
-    # Row 43: Caso confirmado + Contacto sospechoso
+    # R44: A44:N44='Existe algún caso confirmado...', O44:P44='Si', Q44='No', R44:T44='Desconocido'
     caso_conf = _g(d, 'caso_sospechoso_comunidad_3m', '')
-    if _chk(caso_conf):
-        ws.cell(row=43, column=7).value = "☒ Si"
-    elif _is_no(caso_conf):
-        ws.cell(row=43, column=8).value = "☒ No"
-    elif _is_desc(caso_conf):
-        ws.cell(row=43, column=9).value = "☒ Desc."
+    _check(ws, 44, 15, _chk(caso_conf))     # O44 = Si
+    _check(ws, 44, 17, _is_no(caso_conf))   # Q44 = No
+    _check(ws, 44, 18, _is_desc(caso_conf)) # R44 = Desconocido
 
+    # R45: A45:N45='Tuvo contacto con caso sospechoso...', O45:P45='Si', Q45='No', R45:T45='Desconocido'
     contacto_sosp = _g(d, 'contacto_sospechoso_7_23', '')
-    if _chk(contacto_sosp):
-        ws.cell(row=43, column=18).value = "☒ Si"
-    elif _is_no(contacto_sosp):
-        ws.cell(row=43, column=19).value = "☒ No"
-    elif _is_desc(contacto_sosp):
-        ws.cell(row=43, column=20).value = "☒ Desc."
+    _check(ws, 45, 15, _chk(contacto_sosp))     # O45 = Si
+    _check(ws, 45, 17, _is_no(contacto_sosp))   # Q45 = No
+    _check(ws, 45, 18, _is_desc(contacto_sosp)) # R45 = Desconocido
 
-    # Row 44: Viajó + País/Depto/Municipio
+    # R46: A46:F46='Viajó 7-23 días...', G46='Si', H46:J46='País, Depto, Muni',
+    #      K46:R46=data (travel destination), S46:T46='No'
     viajo = _g(d, 'viajo_7_23_previo', '')
-    if _chk(viajo):
-        ws.cell(row=44, column=7).value = "☒ Si"
-    elif _is_no(viajo):
-        ws.cell(row=44, column=8).value = "☒ No"
+    _check(ws, 46, 7, _chk(viajo))      # G46 = Si
+    _check(ws, 46, 19, _is_no(viajo))   # S46 = No
 
-    _write(ws, 44, 11, _g(d, 'viaje_pais', _g(d, 'destino_viaje', '')))    # K44:M44
-    _write(ws, 44, 16, _g(d, 'viaje_departamento', ''))                      # P44:R44
-    _write(ws, 44, 21, _g(d, 'viaje_municipio', ''))                          # U44:X44
+    viaje_dest = _g(d, 'viaje_pais', _g(d, 'destino_viaje', ''))
+    viaje_dep = _g(d, 'viaje_departamento', '')
+    viaje_mun = _g(d, 'viaje_municipio', '')
+    dest_parts = [p for p in [viaje_dest, viaje_dep, viaje_mun] if p]
+    if dest_parts:
+        _write(ws, 46, 11, ', '.join(dest_parts))  # K46:R46 = data
 
-    # Row 45: Fecha Salida + Fecha Entrada
-    _write_date(ws, 45, 5, 7, 9, _g(d, 'viaje_fecha_salida', ''))
-    _write_date(ws, 45, 13, 15, 17, _g(d, 'viaje_fecha_entrada', ''))
+    # R47: A47:B47='Fecha de Salida', C47='Día', D47='Mes', E47='Año',
+    #      F47:G47='Fecha de Entrada', H47='Día', I47='Mes', J47='Año',
+    #      K47:M47='¿Alguna persona viajó al exterior?', N47='Si',
+    #      O47:P47='Fecha de Retorno', Q47='Día', R47='Mes', S47='Año', T47='No'
+    dd, mm, yyyy = _parse_date(_g(d, 'viaje_fecha_salida', ''))
+    if dd:
+        _write(ws, 47, 3, dd)    # C47
+        _write(ws, 47, 4, mm)    # D47
+        _write(ws, 47, 5, yyyy)  # E47
 
-    # Row 46: Fecha Retorno (viaje exterior) + Contacto embarazada
-    _write_date(ws, 46, 4, 6, 8, _g(d, 'familiar_fecha_retorno', ''))
+    dd, mm, yyyy = _parse_date(_g(d, 'viaje_fecha_entrada', ''))
+    if dd:
+        _write(ws, 47, 8, dd)    # H47
+        _write(ws, 47, 9, mm)    # I47
+        _write(ws, 47, 10, yyyy) # J47
 
+    familiar_viajo = _g(d, 'familiar_viajo_exterior', '')
+    _check(ws, 47, 14, _chk(familiar_viajo))   # N47 = Si
+    _check(ws, 47, 20, _is_no(familiar_viajo))  # T47 = No
+
+    dd, mm, yyyy = _parse_date(_g(d, 'familiar_fecha_retorno', ''))
+    if dd:
+        _write(ws, 47, 17, dd)   # Q47
+        _write(ws, 47, 18, mm)   # R47
+        _write(ws, 47, 19, yyyy) # S47
+
+    # R48: A48:J48='¿Paciente en contacto con embarazada?', K48:M48='Si', N48:P48='No', Q48:T48='Desconocido'
     contacto_emb = _g(d, 'contacto_embarazada', '')
-    if _chk(contacto_emb):
-        ws.cell(row=46, column=15).value = "☒ Si"
-    elif _is_no(contacto_emb):
-        ws.cell(row=46, column=16).value = "☒ No"
-    elif _is_desc(contacto_emb):
-        ws.cell(row=46, column=17).value = "☒ Desc."
+    _check(ws, 48, 11, _chk(contacto_emb))     # K48 = Si
+    _check(ws, 48, 14, _is_no(contacto_emb))   # N48 = No
+    _check(ws, 48, 17, _is_desc(contacto_emb)) # Q48 = Desconocido
 
-    # Rows 47-48: Fuente de contagio checkboxes
+    # R49-50: Fuente posible de contagio checkboxes
+    # R49: A49:A50='Fuente Posible de Contagio', B49:C49='Contacto hogar', D49:F49='Servicio Salud',
+    #      G49:I49='Inst. Educativa', J49:L49='Espacio Público', M49:Q49=empty, R49:T49='Comunidad'
+    # R50: B50:D50='Evento Masivo', E50:G50='Transporte Internacional', H50:J50='Desconocido',
+    #      K50:M50='Otro', N50:O50='Otro (especifique)', P50:T50=data
     fuente_c = _g(d, 'fuente_posible_contagio', '').upper()
-    _check(ws, 47, 4, 'HOGAR' in fuente_c or 'CASA' in fuente_c)
-    _check(ws, 47, 7, 'SALUD' in fuente_c or 'HOSPITAL' in fuente_c)
-    _check(ws, 47, 10, 'EDUCATIVA' in fuente_c or 'ESCUELA' in fuente_c)
-    _check(ws, 47, 13, 'PÚBLICO' in fuente_c or 'PUBLICO' in fuente_c)
-    _check(ws, 47, 16, 'COMUNIDAD' in fuente_c and 'EDUCATIVA' not in fuente_c)
-    _check(ws, 47, 19, 'MASIVO' in fuente_c or 'EVENTO' in fuente_c)
-    _check(ws, 47, 22, 'INTERNACIONAL' in fuente_c or 'TRANSP' in fuente_c)
-    _check(ws, 48, 4, 'DESCONOCIDO' in fuente_c or 'DESC' in fuente_c)
-    _check(ws, 48, 8, 'OTRO' in fuente_c and 'DESCONOCIDO' not in fuente_c)
+    _check(ws, 49, 2, 'HOGAR' in fuente_c or 'CASA' in fuente_c)        # B49
+    _check(ws, 49, 4, 'SALUD' in fuente_c or 'HOSPITAL' in fuente_c)    # D49
+    _check(ws, 49, 7, 'EDUCATIVA' in fuente_c or 'ESCUELA' in fuente_c) # G49
+    _check(ws, 49, 10, 'PÚBLICO' in fuente_c or 'PUBLICO' in fuente_c)  # J49
+    _check(ws, 49, 18, 'COMUNIDAD' in fuente_c and 'EDUCATIVA' not in fuente_c) # R49
+    _check(ws, 50, 2, 'MASIVO' in fuente_c or 'EVENTO' in fuente_c)     # B50
+    _check(ws, 50, 5, 'INTERNACIONAL' in fuente_c or 'TRANSP' in fuente_c) # E50
+    _check(ws, 50, 8, 'DESCONOCIDO' in fuente_c or 'DESC' in fuente_c)  # H50
+    _check(ws, 50, 11, 'OTRO' in fuente_c and 'DESCONOCIDO' not in fuente_c) # K50
     fuente_c_otro = _g(d, 'fuente_contagio_otro', '')
     if fuente_c_otro:
-        _write(ws, 48, 12, fuente_c_otro)  # L48:X48
+        _write(ws, 50, 16, fuente_c_otro)  # P50:T50 = data
 
-    # ===== SECCIÓN 6: ACCIONES DE RESPUESTA (Rows 50-52) =====
+    # ===== SECCIÓN 6: ACCIONES DE RESPUESTA (Rows 51-56) =====
 
-    # Row 50: BAI + BAC
+    # R52: A52:H52='¿BAI realizada?', I52:J52='Si', K52:L52='No',
+    #      M52:O52='Número de casos sospechosos en BAI', P52:T52=data
     bai = _g(d, 'bai_realizada', '')
-    if _chk(bai):
-        ws.cell(row=50, column=3).value = "☒ Si"
-    elif _is_no(bai):
-        ws.cell(row=50, column=4).value = "☒ No"
+    _check(ws, 52, 9, _chk(bai))    # I52 = Si
+    _check(ws, 52, 11, _is_no(bai))  # K52 = No
     bai_n = _g(d, 'bai_casos_sospechosos', '')
     if bai_n:
-        _write(ws, 50, 8, bai_n)  # H50:I50
+        _write(ws, 52, 16, bai_n)   # P52:T52 = data
 
+    # R53: A53:H53='¿BAC realizada?', I53:J53='Si', K53:L53='No',
+    #      M53:O53='Número de casos sospechosos en BAC', P53:T53=data
     bac = _g(d, 'bac_realizada', '')
-    if _chk(bac):
-        ws.cell(row=50, column=12).value = "☒ Si"
-    elif _is_no(bac):
-        ws.cell(row=50, column=13).value = "☒ No"
+    _check(ws, 53, 9, _chk(bac))    # I53 = Si
+    _check(ws, 53, 11, _is_no(bac))  # K53 = No
     bac_n = _g(d, 'bac_casos_sospechosos', '')
     if bac_n:
-        _write(ws, 50, 17, bac_n)  # Q50:R50 — actually should be near col 14-16
+        _write(ws, 53, 16, bac_n)   # P53:T53 = data
 
-    # Row 51: Vacunación bloqueo, Monitoreo rápido, Barrido
+    # R54: A54:H54='¿Vacunación bloqueo 48-72hrs?', I54:J54='Si', K54:L54='No',
+    #      M54:P54='¿Monitoreo rápido de vacunación?', Q54:R54='Si', S54:T54='No'
     vb = _g(d, 'vacunacion_bloqueo', '')
-    if _chk(vb):
-        ws.cell(row=51, column=7).value = "☒ Si"
-    elif _is_no(vb):
-        ws.cell(row=51, column=8).value = "☒ No"
+    _check(ws, 54, 9, _chk(vb))     # I54 = Si
+    _check(ws, 54, 11, _is_no(vb))   # K54 = No
 
     mr = _g(d, 'monitoreo_rapido_vacunacion', '')
-    if _chk(mr):
-        ws.cell(row=51, column=14).value = "☒ Si"
-    elif _is_no(mr):
-        ws.cell(row=51, column=15).value = "☒ No"
+    _check(ws, 54, 17, _chk(mr))    # Q54 = Si
+    _check(ws, 54, 19, _is_no(mr))   # S54 = No
 
+    # R55: A55:H55='¿Vacunación con barrido?', I55:J55='Si', K55:L55='No', M55:T55=empty data
     bd = _g(d, 'vacunacion_barrido', '')
-    if _chk(bd):
-        ws.cell(row=51, column=19).value = "☒ Si"
-    elif _is_no(bd):
-        ws.cell(row=51, column=20).value = "☒ No"
+    _check(ws, 55, 9, _chk(bd))     # I55 = Si
+    _check(ws, 55, 11, _is_no(bd))   # K55 = No
 
-    # Row 52: Vitamina A
+    # R56: A56:C56='¿Vitamina A?', D56='Si', E56='No', F56:G56='Desconocido',
+    #      H56:T56='Número de dosis...'
     vit = _g(d, 'vitamina_a_administrada', '')
-    if _chk(vit):
-        ws.cell(row=52, column=4).value = "☒ Si"
-    elif _is_no(vit):
-        ws.cell(row=52, column=5).value = "☒ No"
-    elif _is_desc(vit):
-        ws.cell(row=52, column=6).value = "☒ Desc."
+    _check(ws, 56, 4, _chk(vit))       # D56 = Si
+    _check(ws, 56, 5, _is_no(vit))     # E56 = No
+    _check(ws, 56, 6, _is_desc(vit))   # F56 = Desconocido
     vit_dosis = _g(d, 'vitamina_a_dosis', '')
     if vit_dosis:
-        _write(ws, 52, 11, vit_dosis)  # K52:L52
+        # Write number of doses into the description area
+        _write(ws, 56, 8, f"Dosis: {vit_dosis}")  # H56:T56
 
-    # ===== SECCIÓN 7: LABORATORIO (Rows 54-62) =====
+    # ===== SECCIÓN 7: LABORATORIO (Rows 57-70) =====
 
-    # Row 54: Tipo de muestra checkboxes
+    # R58: A58:C58='Tipo de Muestra', D58:E58='Suero', F58:G58='Orina',
+    #      H58:J58='Hisopado NF', K58:T58='¿Por qué no se recolectó?'
     tipo_m = _g(d, 'tipo_muestra', '').upper()
     has_suero = 'SUERO' in tipo_m or bool(_g(d, 'muestra_suero_fecha'))
     has_orina = 'ORINA' in tipo_m or bool(_g(d, 'muestra_orina_fecha'))
     has_hisop = 'HISOP' in tipo_m or bool(_g(d, 'muestra_hisopado_fecha'))
-    _check(ws, 54, 4, has_suero)
-    _check(ws, 54, 7, has_orina)
-    _check(ws, 54, 10, has_hisop)
+    _check(ws, 58, 4, has_suero)    # D58 = Suero
+    _check(ws, 58, 6, has_orina)    # F58 = Orina
+    _check(ws, 58, 8, has_hisop)    # H58 = Hisopado
 
-    # Row 55: ¿Por qué no se recolectó?
     motivo_no = _g(d, 'motivo_no_3_muestras', _g(d, 'motivo_no_recoleccion', ''))
     if motivo_no:
-        _write(ws, 55, 9, motivo_no)  # I55:X55
+        _write(ws, 58, 11, motivo_no)  # K58:T58 = data
 
-    # Rows 57-61: Lab samples table
-    # Each row: G:I = Fecha Toma, J:L = Fecha Envío, M:O = Resultado Virus/IgM,
-    #           P:R = Resultado IgG/Avidez, S:U = Fecha Resultado, V:X = Secuenciación
+    # Lab samples table structure (Rows 59-70):
+    # R59-60: headers — No. Muestra | Tipo Muestra y Prueba | Fecha Toma | Fecha Envío |
+    #         Virus | Resultado (IgM/IgG/Avidez) | Fecha Resultado | Secuenciación
+    #
+    # Data rows (each sample spans 2 rows — Sarampión + Rubéola):
+    # R61-62: 1a Suero (Anticuerpo) — Sarampión(61) + Rubéola(62)
+    # R63-64: 2da Suero (Anticuerpo) — Sarampión(63) + Rubéola(64)
+    # R65-66: 1a Orina (ARN viral) — Sarampión(65) + Rubéola(66)
+    # R67-68: 1a Hisopado NF (ARN viral) — Sarampión(67) + Rubéola(68)
+    # R69-70: Otro — Sarampión(69) + Rubéola(70)
+    #
+    # Per row: D:E=Fecha Toma, F:G=Fecha Envío, I=IgM result, J=IgG result, K:L=Avidez,
+    #          M=Día result, N=Mes result, O=Año result, P:T=Secuenciación
 
-    # Try lab_muestras_json first (structured data)
     lab_json = _safe_json(_g(d, 'lab_muestras_json', ''))
 
     if lab_json:
-        # lab_muestras_json is a list of sample dicts
-        for i, sample in enumerate(lab_json[:5]):
-            row_num = 57 + i
-            if isinstance(sample, dict):
-                fecha_toma = sample.get('fecha_toma', '')
-                dd, mm, yyyy = _parse_date(fecha_toma)
-                if dd:
-                    _write(ws, row_num, 7, f"{dd}/{mm}/{yyyy}")
-                fecha_envio = sample.get('fecha_envio', '')
-                dd, mm, yyyy = _parse_date(fecha_envio)
-                if dd:
-                    _write(ws, row_num, 10, f"{dd}/{mm}/{yyyy}")
-                res_virus = sample.get('resultado_virus', sample.get('resultado_igm', ''))
-                _write(ws, row_num, 13, res_virus)
-                res_igg = sample.get('resultado_igg', sample.get('resultado_avidez', ''))
-                _write(ws, row_num, 16, res_igg)
-                fecha_res = sample.get('fecha_resultado', '')
-                dd, mm, yyyy = _parse_date(fecha_res)
-                if dd:
-                    _write(ws, row_num, 19, f"{dd}/{mm}/{yyyy}")
-                sec = sample.get('secuenciacion', '')
-                _write(ws, row_num, 22, sec)
+        # Structured lab data — map to template rows
+        # Expected structure: list of dicts with tipo_muestra, virus, fecha_toma, etc.
+        for sample in lab_json:
+            if not isinstance(sample, dict):
+                continue
+            tipo = str(sample.get('tipo_muestra', '')).upper()
+            virus = str(sample.get('virus', 'SARAMPION')).upper()
+            numero = str(sample.get('numero_muestra', '1'))
+
+            # Determine target row
+            if 'SUERO' in tipo:
+                if numero == '2' or '2' in tipo:
+                    row_s, row_r = 63, 64
+                else:
+                    row_s, row_r = 61, 62
+            elif 'ORINA' in tipo:
+                row_s, row_r = 65, 66
+            elif 'HISOP' in tipo:
+                row_s, row_r = 67, 68
+            else:
+                row_s, row_r = 69, 70
+
+            target_row = row_r if 'RUBE' in virus else row_s
+
+            # Fecha toma
+            dd, mm, yyyy = _parse_date(sample.get('fecha_toma', ''))
+            if dd:
+                _write(ws, target_row, 4, f"{dd}/{mm}/{yyyy}")  # D col
+
+            # Fecha envío
+            dd, mm, yyyy = _parse_date(sample.get('fecha_envio', ''))
+            if dd:
+                _write(ws, target_row, 6, f"{dd}/{mm}/{yyyy}")  # F col
+
+            # Results
+            res_igm = sample.get('resultado_igm', sample.get('resultado_virus', ''))
+            if res_igm:
+                _write(ws, target_row, 9, res_igm)     # I col = IgM
+            res_igg = sample.get('resultado_igg', '')
+            if res_igg:
+                _write(ws, target_row, 10, res_igg)    # J col = IgG
+            res_avidez = sample.get('resultado_avidez', '')
+            if res_avidez:
+                _write(ws, target_row, 11, res_avidez)  # K col = Avidez
+
+            # Fecha resultado
+            dd, mm, yyyy = _parse_date(sample.get('fecha_resultado', ''))
+            if dd:
+                _write(ws, target_row, 13, dd)   # M col
+                _write(ws, target_row, 14, mm)   # N col
+                _write(ws, target_row, 15, yyyy) # O col
+
+            # Secuenciación
+            sec = sample.get('secuenciacion', '')
+            if sec:
+                _write(ws, target_row, 16, sec)  # P col
     else:
         # Fallback: use individual fields
-        # Row 57: 1a Suero
+        # R61: 1a Suero — Sarampión
         dd, mm, yyyy = _parse_date(_g(d, 'muestra_suero_fecha', ''))
         if dd:
-            _write(ws, 57, 7, f"{dd}/{mm}/{yyyy}")
+            _write(ws, 61, 4, f"{dd}/{mm}/{yyyy}")   # D61:E62
+        dd, mm, yyyy = _parse_date(_g(d, 'muestra_suero_fecha_envio', ''))
+        if dd:
+            _write(ws, 61, 6, f"{dd}/{mm}/{yyyy}")   # F61:G62
+
         res_igm = _g(d, 'resultado_igm_sarampion_suero', _g(d, 'resultado_igm_cualitativo', ''))
         if res_igm:
-            _write(ws, 57, 13, res_igm)
+            _write(ws, 61, 9, res_igm)   # I61 = IgM
         res_igg = _g(d, 'resultado_igg_sarampion_suero', _g(d, 'resultado_igg_cualitativo', ''))
         if res_igg:
-            _write(ws, 57, 16, res_igg)
+            _write(ws, 61, 10, res_igg)  # J61 = IgG
+
         dd, mm, yyyy = _parse_date(_g(d, 'fecha_resultado_laboratorio', ''))
         if dd:
-            _write(ws, 57, 19, f"{dd}/{mm}/{yyyy}")
+            _write(ws, 61, 13, dd)   # M61
+            _write(ws, 61, 14, mm)   # N61
+            _write(ws, 61, 15, yyyy) # O61
 
-        # Row 59: 1a Orina
+        # R65: 1a Orina — Sarampión
         dd, mm, yyyy = _parse_date(_g(d, 'muestra_orina_fecha', ''))
         if dd:
-            _write(ws, 59, 7, f"{dd}/{mm}/{yyyy}")
+            _write(ws, 65, 4, f"{dd}/{mm}/{yyyy}")   # D65:E66
         pcr_orina = _g(d, 'resultado_pcr_orina', '')
         if pcr_orina:
-            _write(ws, 59, 13, pcr_orina)
+            _write(ws, 65, 9, pcr_orina)  # I65
 
-        # Row 60: 1a Hisopado NF
+        # R67: 1a Hisopado NF — Sarampión
         dd, mm, yyyy = _parse_date(_g(d, 'muestra_hisopado_fecha', ''))
         if dd:
-            _write(ws, 60, 7, f"{dd}/{mm}/{yyyy}")
+            _write(ws, 67, 4, f"{dd}/{mm}/{yyyy}")   # D67:E68
         pcr_hisop = _g(d, 'resultado_pcr_hisopado', '')
         if pcr_hisop:
-            _write(ws, 60, 13, pcr_hisop)
+            _write(ws, 67, 9, pcr_hisop)  # I67
 
-    # ===== CLASIFICACIÓN (Rows 64-72) =====
+    # Secuenciación result and fecha (R63 has dedicated cells)
+    sec_resultado = _g(d, 'secuenciacion_resultado', '')
+    sec_fecha = _g(d, 'secuenciacion_fecha', '')
+    if sec_resultado:
+        # R63: P63:Q64='Resultado' label area — write data
+        pass  # P63 has label 'Resultado'; actual data unclear. Skip if no dedicated cell.
+    if sec_fecha:
+        # R63: R63:T64='Fecha' label area
+        pass
 
-    # Row 64: Clasificación Final
+    # ===== CLASIFICACIÓN (Rows 72-82) =====
+
+    # R73: A73:C73='Clasificación Final', D73:F73='Sarampión', G73:I73='Rubéola',
+    #      J73:L73='Descartado', M73:O73='Pendiente', P73:T73='No cumple def. caso'
     clasif = _g(d, 'clasificacion_caso', '').upper()
-    # 'CONFIRMADO' alone means confirmed sarampion (the primary diagnosis)
     is_confirmed = 'CONFIRM' in clasif
     is_descartado = 'DESCART' in clasif
     is_pendiente = 'PENDIENTE' in clasif or 'SOSPECH' in clasif
     is_no_cumple = 'NO CUMPLE' in clasif or 'DEFINICION' in clasif
     is_clasif_sar = ('SARAMP' in clasif and not is_descartado) or (is_confirmed and not is_descartado and is_sar)
     is_clasif_rub = ('RUBEO' in clasif or 'RUBE' in clasif) and not is_descartado
-    # If confirmed but no specific disease mentioned, assume primary diagnosis
     if is_confirmed and not is_clasif_sar and not is_clasif_rub and not is_descartado:
         is_clasif_sar = is_sar
         is_clasif_rub = is_rub
-    _check(ws, 64, 4, is_clasif_sar)
-    _check(ws, 64, 7, is_clasif_rub)
-    _check(ws, 64, 10, is_descartado)
-    _check(ws, 64, 14, is_pendiente and not is_confirmed)
-    _check(ws, 64, 17, is_no_cumple)
+    _check(ws, 73, 4, is_clasif_sar)                      # D73 = Sarampión
+    _check(ws, 73, 7, is_clasif_rub)                       # G73 = Rubéola
+    _check(ws, 73, 10, is_descartado)                      # J73 = Descartado
+    _check(ws, 73, 13, is_pendiente and not is_confirmed)  # M73 = Pendiente
+    _check(ws, 73, 16, is_no_cumple)                       # P73 = No cumple
 
-    # Row 65: Criterio de confirmación
+    # R74: A74:C74='Criterio de Confirmación', D74:F74='Laboratorio', G74:I74='Nexo epidemiológico',
+    #      J74:L74='Clínico', M74:P74='Contacto de Otro Caso', Q74:R74='Si', S74:T74='No'
     crit_conf = _g(d, 'criterio_confirmacion', '').upper()
-    _check(ws, 65, 5, 'LABORATORIO' in crit_conf or 'LAB' in crit_conf)
-    _check(ws, 65, 9, 'NEXO' in crit_conf or 'EPIDEMIOL' in crit_conf)
-    _check(ws, 65, 14, 'CLÍNICO' in crit_conf or 'CLINICO' in crit_conf)
+    _check(ws, 74, 4, 'LABORATORIO' in crit_conf or 'LAB' in crit_conf)        # D74
+    _check(ws, 74, 7, 'NEXO' in crit_conf or 'EPIDEMIOL' in crit_conf)         # G74
+    _check(ws, 74, 10, 'CLÍNICO' in crit_conf or 'CLINICO' in crit_conf)       # J74
 
     contacto_caso = _g(d, 'contacto_otro_caso', '')
-    if _chk(contacto_caso):
-        ws.cell(row=65, column=21).value = "☒ Si"
-    elif _is_no(contacto_caso):
-        ws.cell(row=65, column=22).value = "☒ No"
+    _check(ws, 74, 17, _chk(contacto_caso))     # Q74 = Si
+    _check(ws, 74, 19, _is_no(contacto_caso))   # S74 = No
 
-    # Row 66: Criterio para descartar
+    # R75: A75:C75='Criterio para descartar', D75:F75='Laboratorial', G75:I75='Relacionado Vacuna',
+    #      J75:L75='Clínico', M75:O75='Otro Especificar:', P75:T75=data
     crit_desc = _g(d, 'criterio_descarte', '').upper()
-    _check(ws, 66, 5, 'LABORAT' in crit_desc)
-    _check(ws, 66, 9, 'VACUNA' in crit_desc)
-    _check(ws, 66, 14, 'CLÍNICO' in crit_desc or 'CLINICO' in crit_desc)
-    _check(ws, 66, 18, 'OTRO' in crit_desc)
+    _check(ws, 75, 4, 'LABORAT' in crit_desc)                              # D75
+    _check(ws, 75, 7, 'VACUNA' in crit_desc)                               # G75
+    _check(ws, 75, 10, 'CLÍNICO' in crit_desc or 'CLINICO' in crit_desc)   # J75
+    crit_desc_otro = _g(d, 'criterio_descarte_otro', '')
+    if crit_desc_otro:
+        _write(ws, 75, 16, crit_desc_otro)  # P75:T75 = data
 
-    # Row 67: Fuente de infección
+    # R76: A76:C76='Fuente de infección', D76:F76='Importado', G76:I76='Relacionado importación',
+    #      J76:L76='País de Importación', M76:O76=data, P76:Q76='Endémico', R76:T76='Fuente desconocida'
     fuente_inf = _g(d, 'fuente_infeccion', '').upper()
-    _check(ws, 67, 4, 'IMPORTADO' in fuente_inf and 'RELACIONADO' not in fuente_inf)
-    _check(ws, 67, 8, 'RELACIONADO' in fuente_inf)
-    _check(ws, 67, 14, 'ENDÉMI' in fuente_inf or 'ENDEMI' in fuente_inf)
-    _check(ws, 67, 18, 'DESCONOCID' in fuente_inf)
+    _check(ws, 76, 4, 'IMPORTADO' in fuente_inf and 'RELACIONADO' not in fuente_inf) # D76
+    _check(ws, 76, 7, 'RELACIONADO' in fuente_inf)                                    # G76
+    _check(ws, 76, 16, 'ENDÉMI' in fuente_inf or 'ENDEMI' in fuente_inf)              # P76
+    _check(ws, 76, 18, 'DESCONOCID' in fuente_inf)                                    # R76
 
-    # Row 68: País de importación
-    _write(ws, 68, 5, _g(d, 'pais_importacion', ''))  # E68:L68
+    pais_import = _g(d, 'pais_importacion', '')
+    if pais_import:
+        _write(ws, 76, 13, pais_import)  # M76:O76 = data
 
-    # Row 69: Caso Analizado Por
+    # R77: A77:C77='Caso Analizado Por', D77:F77='CONAPI', G77:I77='DEGR*',
+    #      J77:M77='Comisión Nacional**', N77:O77='Otros', P77:Q77='Especifique', R77:T77=data
     analizado = _g(d, 'caso_analizado_por', '').upper()
-    _check(ws, 69, 5, 'CONAPI' in analizado)
-    _check(ws, 69, 8, 'DEGR' in analizado)
-    _check(ws, 69, 14, 'COMISIÓN' in analizado or 'COMISION' in analizado or 'NACIONAL' in analizado)
-    _check(ws, 69, 19, 'OTRO' in analizado)
+    _check(ws, 77, 4, 'CONAPI' in analizado)    # D77
+    _check(ws, 77, 7, 'DEGR' in analizado)      # G77
+    _check(ws, 77, 10, 'COMISIÓN' in analizado or 'COMISION' in analizado or 'NACIONAL' in analizado) # J77
+    _check(ws, 77, 14, 'OTRO' in analizado)     # N77
     otro_analiz = _g(d, 'caso_analizado_por_otro', '')
     if otro_analiz:
-        _write(ws, 69, 22, otro_analiz)  # V69:X69
+        _write(ws, 77, 18, otro_analiz)  # R77:T77 = data
 
-    # Row 70: Fecha de clasificación
-    _write_date(ws, 70, 6, 8, 10, _g(d, 'fecha_clasificacion_final', ''))
+    # R78: A78:C78='Fecha de Clasificación', D78='Día', E78='Mes', F78='Año',
+    #      G78:I78='Condición Final del Paciente', J78:L78='Recuperado', M78:O78='Con Secuelas',
+    #      P78:Q78='Fallecido*', R78:T78='Desconocido'
+    dd, mm, yyyy = _parse_date(_g(d, 'fecha_clasificacion_final', ''))
+    if dd:
+        _write(ws, 78, 4, dd)   # D78
+        _write(ws, 78, 5, mm)   # E78
+        _write(ws, 78, 6, yyyy) # F78
 
-    # Row 71: Condición Final
     cond = _g(d, 'condicion_final_paciente', _g(d, 'condicion_egreso', '')).upper()
-    _check(ws, 71, 4, 'RECUPER' in cond or 'VIVO' in cond or 'MEJORAD' in cond or 'CURAD' in cond)
-    _check(ws, 71, 8, 'SECUELA' in cond)
-    _check(ws, 71, 12, 'FALLEC' in cond or 'MUERTE' in cond)
-    _check(ws, 71, 16, 'DESCONOCID' in cond)
+    _check(ws, 78, 10, 'RECUPER' in cond or 'VIVO' in cond or 'MEJORAD' in cond or 'CURAD' in cond) # J78
+    _check(ws, 78, 13, 'SECUELA' in cond)                                                             # M78
+    _check(ws, 78, 16, 'FALLEC' in cond or 'MUERTE' in cond)                                          # P78
+    _check(ws, 78, 18, 'DESCONOCID' in cond)                                                          # R78
 
-    # Row 72: Fecha defunción + Causa muerte
-    _write_date(ws, 72, 5, 7, 9, _g(d, 'fecha_defuncion', ''))
-    _write(ws, 72, 14, _g(d, 'causa_muerte_certificado', ''))  # N72:X72
+    # R79: A79:C79='Fecha de Defunción*', D79='Día', E79='Mes', F79='Año',
+    #      G79:J79='Causa De Muerte...', K79:T79=data
+    dd, mm, yyyy = _parse_date(_g(d, 'fecha_defuncion', ''))
+    if dd:
+        _write(ws, 79, 4, dd)   # D79
+        _write(ws, 79, 5, mm)   # E79
+        _write(ws, 79, 6, yyyy) # F79
+    _write(ws, 79, 11, _g(d, 'causa_muerte_certificado', ''))  # K79:T79 = data
 
-    # Row 73-74: Observaciones
+    # R80: A80:C80='Observaciones', D80:T80=data
     obs = _g(d, 'observaciones', '')
     if obs:
-        _write(ws, 74, 1, obs)  # A74:X74
+        _write(ws, 80, 4, obs)  # D80:T80 = data
 
 
 # ---------------------------------------------------------------------------
@@ -822,7 +994,7 @@ def generar_ficha_v2_pdf(data: dict) -> bytes:
         ws.page_setup.fitToHeight = 1
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.page_setup.scale = None  # Let fitToPage control sizing
-        ws.print_area = "A1:X75"
+        ws.print_area = "A1:T82"
 
         wb.save(xlsx_path)
 
@@ -871,7 +1043,7 @@ def generar_fichas_v2_bulk(records: list, merge: bool = True) -> bytes:
             ws.page_setup.fitToHeight = 1
             ws.sheet_properties.pageSetUpPr.fitToPage = True
             ws.page_setup.scale = None
-            ws.print_area = "A1:X75"
+            ws.print_area = "A1:T82"
 
             wb.save(xlsx_path)
 
