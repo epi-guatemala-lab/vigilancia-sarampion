@@ -280,7 +280,7 @@ export default function FormWizard() {
     cleanedData.es_seguro_social = 'SI'           // Siempre Seguro Social
     cleanedData.establecimiento_privado = 'NO'     // Nunca privado
     cleanedData.establecimiento_privado_nombre = ''
-    cleanedData.fuente_notificacion = 'Servicio de Salud'  // IGSS siempre reporta desde servicios
+    // fuente_notificacion: no aplica al IGSS (no hacen investigación de campo)
     const result = await submit(cleanedData)
     if (result?.success) {
       setRegistroId(result.registro_id)
