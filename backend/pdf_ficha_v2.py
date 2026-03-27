@@ -189,7 +189,7 @@ def _fill_template(ws, d: dict):
 
     # ===== ROW 7: Caso altamente sospechoso =====
     caso_alta = _g(d, 'caso_altamente_sospechoso', '')
-    _check(ws, 7, 1, _chk(caso_alta) or is_sar)  # A7
+    _check(ws, 7, 1, _chk(caso_alta))  # only if explicitly flagged  # A7
 
     # ===== SECCIÓN 1: DATOS DE LA UNIDAD NOTIFICADORA (Rows 9-14) =====
 
@@ -357,10 +357,12 @@ def _fill_template(ws, d: dict):
         _write(ws, 27, 12, yyyy)
 
     # Fuente verificación for SPR
-    fuente_vac = _g(d, 'fuente_info_vacuna', _g(d, 'sector_vacunacion', '')).upper()
-    if 'MSPAS' in fuente_vac or 'SIGSA' in fuente_vac:
+    fuente_vac = _g(d, 'fuente_info_vacuna', '').upper()
+    sector_vac = _g(d, 'sector_vacunacion', '').upper()
+    combined_vac = f"{fuente_vac} {sector_vac}"
+    if 'MSPAS' in combined_vac or 'SIGSA' in combined_vac:
         _write(ws, 27, 17, "☒")
-    if 'IGSS' in fuente_vac or 'PRIVADO' in fuente_vac:
+    if 'IGSS' in combined_vac or 'PRIVADO' in combined_vac:
         _write(ws, 27, 22, "☒")
 
     dosis_sr = _g(d, 'dosis_sr', '')
@@ -453,7 +455,9 @@ def _fill_template(ws, d: dict):
         ws.cell(row=41, column=5).value = "☒ Si (fecha)"
         fecha_aisl = _g(d, 'fecha_aislamiento', '')
         if fecha_aisl:
-            _write(ws, 41, 7, fecha_aisl)  # G41:J41
+            dd, mm, yyyy = _parse_date(fecha_aisl)
+            if dd:
+                _write(ws, 41, 7, f"{dd}/{mm}/{yyyy}")  # G41:J41 formatted
     elif _is_no(aisl):
         ws.cell(row=41, column=11).value = "☒ No"
     elif _is_desc(aisl):
