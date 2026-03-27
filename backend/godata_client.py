@@ -81,38 +81,48 @@ class GoDataClient:
 
     # ─── HTTP Methods ──────────────────────────────────────
 
+    def _request_with_retry(self, method, url, max_retries=2, **kwargs):
+        """Execute request with retry for transient errors (connection/timeout)."""
+        for attempt in range(max_retries + 1):
+            try:
+                resp = method(url, **kwargs)
+                resp.raise_for_status()
+                return resp
+            except (requests.ConnectionError, requests.Timeout) as e:
+                if attempt < max_retries:
+                    wait = 2 ** attempt  # 1s, 2s
+                    logger.warning(
+                        "GoData request failed (attempt %d/%d), retrying in %ds: %s",
+                        attempt + 1, max_retries + 1, wait, e
+                    )
+                    time.sleep(wait)
+                else:
+                    if isinstance(e, requests.Timeout):
+                        raise ConnectionError(f"GoData timeout after {max_retries + 1} attempts: {e}")
+                    raise ConnectionError("No se puede conectar a GoData")
+            except requests.HTTPError as e:
+                self._handle_http_error(e)
+
     def _get(self, url: str, params: dict = None) -> dict:
         self._ensure_token()
-        try:
-            resp = self._session.get(url, params=params, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.ConnectionError:
-            raise ConnectionError("No se puede conectar a GoData")
-        except requests.HTTPError as e:
-            self._handle_http_error(e)
+        resp = self._request_with_retry(
+            self._session.get, url, params=params, timeout=self.timeout
+        )
+        return resp.json()
 
     def _post(self, url: str, json_data: dict) -> dict:
         self._ensure_token()
-        try:
-            resp = self._session.post(url, json=json_data, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.ConnectionError:
-            raise ConnectionError("No se puede conectar a GoData")
-        except requests.HTTPError as e:
-            self._handle_http_error(e)
+        resp = self._request_with_retry(
+            self._session.post, url, json=json_data, timeout=self.timeout
+        )
+        return resp.json()
 
     def _put(self, url: str, json_data: dict) -> dict:
         self._ensure_token()
-        try:
-            resp = self._session.put(url, json=json_data, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.ConnectionError:
-            raise ConnectionError("No se puede conectar a GoData")
-        except requests.HTTPError as e:
-            self._handle_http_error(e)
+        resp = self._request_with_retry(
+            self._session.put, url, json=json_data, timeout=self.timeout
+        )
+        return resp.json()
 
     def _handle_http_error(self, e: requests.HTTPError):
         status = e.response.status_code

@@ -112,7 +112,12 @@ _DMS_VARIABLE_MAP = {
     "EL PROGRESO": "distrito_municipal_de_salud_dms1",
     "ESCUINTLA": "distrito_municipal_de_salud_dms3",
     # Guatemala tiene 4 DAS — se resuelve con _resolve_guatemala_dms()
+    # Default is dms4 (Central); specific sub-DAS resolved via _GUATEMALA_DMS_MAP
     "GUATEMALA": "distrito_municipal_de_salud_dms4",
+    "GUATEMALA CENTRAL": "distrito_municipal_de_salud_dms4",
+    "GUATEMALA NOR OCCIDENTE": "distrito_municipal_de_salud_dms5",
+    "GUATEMALA NOR ORIENTE": "distrito_municipal_de_salud_dms6",
+    "GUATEMALA SUR": "distrito_municipal_de_salud_dms7",
     "HUEHUETENANGO": "distrito_municipal_de_salud_dms8",
     "IXCAN": "distrito_municipal_de_salud_dms9",
     "IXIL": "distrito_municipal_de_salud_dms10",
@@ -135,37 +140,85 @@ _DMS_VARIABLE_MAP = {
 }
 
 # Guatemala tiene 4 DAS con diferentes DMS variables
+# Each DMS municipality maps to its correct DAS variable suffix:
+#   dms4 = GUATEMALA CENTRAL
+#   dms5 = GUATEMALA NOR OCCIDENTE
+#   dms6 = GUATEMALA NOR ORIENTE
+#   dms7 = GUATEMALA SUR
 _GUATEMALA_DMS_MAP = {
-    # DAS Nor Occidente/Central → dms4
+    # ── GUATEMALA CENTRAL (dms4) ──
     "BETHANIA": "distrito_municipal_de_salud_dms4",
-    "CENTRO": "distrito_municipal_de_salud_dms4",
-    # DAS Nor Oriente → dms5
+    "CENTRO AMERICA": "distrito_municipal_de_salud_dms4",
+    "EL AMPARO": "distrito_municipal_de_salud_dms4",
+    "EL PARAISO": "distrito_municipal_de_salud_dms4",
+    "JUSTO RUFINO BARRIOS": "distrito_municipal_de_salud_dms4",
+    "LA FLORIDA": "distrito_municipal_de_salud_dms4",
+    "LA REFORMITA": "distrito_municipal_de_salud_dms4",
+    "PRIMERO DE JULIO": "distrito_municipal_de_salud_dms4",
+    "ZONA 6": "distrito_municipal_de_salud_dms4",
+    "ZONA 11": "distrito_municipal_de_salud_dms4",
+    "ZONA 18": "distrito_municipal_de_salud_dms4",
+    "ZONA 21": "distrito_municipal_de_salud_dms4",
+    # ── GUATEMALA NOR OCCIDENTE (dms5) ──
     "CHUARRANCHO": "distrito_municipal_de_salud_dms5",
+    "CIUDAD QUETZAL": "distrito_municipal_de_salud_dms5",
+    "COMUNIDAD": "distrito_municipal_de_salud_dms5",
+    "EL MILAGRO": "distrito_municipal_de_salud_dms5",
     "MIXCO": "distrito_municipal_de_salud_dms5",
-    # DAS Sur → dms6
+    "SAN JUAN SACATEPEQUEZ": "distrito_municipal_de_salud_dms5",
+    "SAN PEDRO SACATEPEQUEZ": "distrito_municipal_de_salud_dms5",
+    "SAN RAYMUNDO": "distrito_municipal_de_salud_dms5",
+    "SANTIAGO SACATEPEQUEZ": "distrito_municipal_de_salud_dms5",
+    "LO DE COY": "distrito_municipal_de_salud_dms5",
+    # ── GUATEMALA NOR ORIENTE (dms6) ──
     "CHINAUTLA": "distrito_municipal_de_salud_dms6",
     "FRAIJANES": "distrito_municipal_de_salud_dms6",
-    # DAS → dms7
+    "PALENCIA": "distrito_municipal_de_salud_dms6",
+    "SAN JOSE DEL GOLFO": "distrito_municipal_de_salud_dms6",
+    "SAN JOSE PINULA": "distrito_municipal_de_salud_dms6",
+    "SAN PEDRO AYAMPUC": "distrito_municipal_de_salud_dms6",
+    "SANTA CATARINA PINULA": "distrito_municipal_de_salud_dms6",
+    "TIERRA NUEVA": "distrito_municipal_de_salud_dms6",
+    # ── GUATEMALA SUR (dms7) ──
     "AMATITLAN": "distrito_municipal_de_salud_dms7",
-    "BOCA": "distrito_municipal_de_salud_dms7",
     "BOCA DEL MONTE": "distrito_municipal_de_salud_dms7",
+    "CIUDAD REAL": "distrito_municipal_de_salud_dms7",
+    "EL MEZQUITAL": "distrito_municipal_de_salud_dms7",
+    "PERONIA": "distrito_municipal_de_salud_dms7",
+    "SAN MIGUEL PETAPA": "distrito_municipal_de_salud_dms7",
+    "VILLA CANALES": "distrito_municipal_de_salud_dms7",
+    "VILLA NUEVA": "distrito_municipal_de_salud_dms7",
 }
 
 # Guatemala municipio → DAS name (for direccion_de_area_de_salud option value)
+# Complete mapping from GoData template: 4 DAS areas, all DMS municipalities
 _GUATEMALA_MUNICIPIO_TO_DAS = {
-    # GUATEMALA CENTRAL (DMS4)
+    # ── GUATEMALA CENTRAL (DMS4) ──
     "GUATEMALA": "GUATEMALA CENTRAL",
-    "ZONA 1": "GUATEMALA CENTRAL", "ZONA 3": "GUATEMALA CENTRAL",
-    "BETHANIA": "GUATEMALA CENTRAL", "CENTRO AMERICA": "GUATEMALA CENTRAL",
+    "BETHANIA": "GUATEMALA CENTRAL",
+    "CENTRO AMERICA": "GUATEMALA CENTRAL",
     "EL AMPARO": "GUATEMALA CENTRAL",
-    # GUATEMALA NOR OCCIDENTE (DMS5)
-    "MIXCO": "GUATEMALA NOR OCCIDENTE",
+    "EL PARAISO": "GUATEMALA CENTRAL",
+    "JUSTO RUFINO BARRIOS": "GUATEMALA CENTRAL",
+    "LA FLORIDA": "GUATEMALA CENTRAL",
+    "LA REFORMITA": "GUATEMALA CENTRAL",
+    "PRIMERO DE JULIO": "GUATEMALA CENTRAL",
+    "ZONA 6": "GUATEMALA CENTRAL",
+    "ZONA 11": "GUATEMALA CENTRAL",
+    "ZONA 18": "GUATEMALA CENTRAL",
+    "ZONA 21": "GUATEMALA CENTRAL",
+    # ── GUATEMALA NOR OCCIDENTE (DMS5) ──
     "CHUARRANCHO": "GUATEMALA NOR OCCIDENTE",
+    "CIUDAD QUETZAL": "GUATEMALA NOR OCCIDENTE",
+    "COMUNIDAD": "GUATEMALA NOR OCCIDENTE",
+    "EL MILAGRO": "GUATEMALA NOR OCCIDENTE",
+    "MIXCO": "GUATEMALA NOR OCCIDENTE",
     "SAN JUAN SACATEPEQUEZ": "GUATEMALA NOR OCCIDENTE",
     "SAN PEDRO SACATEPEQUEZ": "GUATEMALA NOR OCCIDENTE",
     "SAN RAYMUNDO": "GUATEMALA NOR OCCIDENTE",
-    "CIUDAD QUETZAL": "GUATEMALA NOR OCCIDENTE",
-    # GUATEMALA NOR ORIENTE (DMS6)
+    "SANTIAGO SACATEPEQUEZ": "GUATEMALA NOR OCCIDENTE",
+    "LO DE COY": "GUATEMALA NOR OCCIDENTE",
+    # ── GUATEMALA NOR ORIENTE (DMS6) ──
     "CHINAUTLA": "GUATEMALA NOR ORIENTE",
     "FRAIJANES": "GUATEMALA NOR ORIENTE",
     "PALENCIA": "GUATEMALA NOR ORIENTE",
@@ -173,12 +226,16 @@ _GUATEMALA_MUNICIPIO_TO_DAS = {
     "SAN JOSE PINULA": "GUATEMALA NOR ORIENTE",
     "SAN PEDRO AYAMPUC": "GUATEMALA NOR ORIENTE",
     "SANTA CATARINA PINULA": "GUATEMALA NOR ORIENTE",
-    # GUATEMALA SUR (DMS7)
+    "TIERRA NUEVA": "GUATEMALA NOR ORIENTE",
+    # ── GUATEMALA SUR (DMS7) ──
     "AMATITLAN": "GUATEMALA SUR",
-    "VILLA NUEVA": "GUATEMALA SUR",
+    "BOCA DEL MONTE": "GUATEMALA SUR",
+    "CIUDAD REAL": "GUATEMALA SUR",
+    "EL MEZQUITAL": "GUATEMALA SUR",
+    "PERONIA": "GUATEMALA SUR",
     "SAN MIGUEL PETAPA": "GUATEMALA SUR",
     "VILLA CANALES": "GUATEMALA SUR",
-    "BOCA DEL MONTE": "GUATEMALA SUR",
+    "VILLA NUEVA": "GUATEMALA SUR",
 }
 
 # Municipio variable suffix por departamento

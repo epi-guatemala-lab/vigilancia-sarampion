@@ -50,6 +50,7 @@ from godata_queue import (
     mark_duplicate as godata_mark_duplicate,
     get_sync_status as godata_get_sync_status,
     get_approved_for_sync, recover_stuck_syncs,
+    get_next_visual_id, save_visual_id,
 )
 from godata_client import GoDataClient
 from godata_field_map import map_record_to_godata, map_lab_samples_to_godata
@@ -1497,16 +1498,23 @@ def godata_sync_single(registro_id: str, x_api_key: str = Header(None)):
 
     client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
     try:
+        # Generate sequential visualId (SR-NNNN)
+        visual_id = get_next_visual_id()
+
         # Verificar duplicado por visualId
-        existing = client.find_case_by_visual_id(registro_id)
+        existing = client.find_case_by_visual_id(visual_id)
         if existing:
             godata_mark_duplicate(registro_id, existing.get("id", ""))
             return {"status": "duplicate", "godata_case_id": existing.get("id")}
 
-        # Crear caso
+        # Crear caso with generated visualId
         case_payload = map_record_to_godata(record)
+        case_payload["visualId"] = visual_id
         result = client.create_case(case_payload)
         godata_case_id = result.get("id", "")
+
+        # Save the visual_id we used
+        save_visual_id(registro_id, visual_id)
 
         # Agregar resultados de laboratorio
         lab_results = map_lab_samples_to_godata(record)
@@ -1522,6 +1530,7 @@ def godata_sync_single(registro_id: str, x_api_key: str = Header(None)):
         return {
             "status": "synced",
             "godata_case_id": godata_case_id,
+            "visual_id": visual_id,
             "lab_results_sent": lab_count,
             "dry_run": result.get("dry_run", False),
         }
@@ -1559,15 +1568,22 @@ def godata_sync_batch(x_api_key: str = Header(None)):
             continue
 
         try:
-            existing = client.find_case_by_visual_id(registro_id)
+            # Generate sequential visualId (SR-NNNN)
+            visual_id = get_next_visual_id()
+
+            existing = client.find_case_by_visual_id(visual_id)
             if existing:
                 godata_mark_duplicate(registro_id, existing.get("id", ""))
                 results["duplicates"] += 1
                 continue
 
             case_payload = map_record_to_godata(record)
+            case_payload["visualId"] = visual_id
             result = client.create_case(case_payload)
             godata_case_id = result.get("id", "")
+
+            # Save the visual_id we used
+            save_visual_id(registro_id, visual_id)
 
             lab_results = map_lab_samples_to_godata(record)
             for lab in lab_results:

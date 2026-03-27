@@ -26,6 +26,7 @@ def init_godata_tables():
                 registro_id TEXT NOT NULL,
                 estado TEXT DEFAULT 'pendiente',
                 godata_case_id TEXT,
+                godata_visual_id TEXT,
                 intentos INTEGER DEFAULT 0,
                 ultimo_error TEXT,
                 aprobado_por TEXT,
@@ -43,6 +44,17 @@ def init_godata_tables():
             CREATE INDEX IF NOT EXISTS idx_godata_queue_estado
             ON godata_queue(estado)
         """)
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_godata_queue_registro_unique
+            ON godata_queue(registro_id)
+        """)
+
+        # Migration: add godata_visual_id column if missing
+        try:
+            conn.execute("SELECT godata_visual_id FROM godata_queue LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE godata_queue ADD COLUMN godata_visual_id TEXT")
+            logger.info("GoData: added godata_visual_id column to godata_queue")
 
         # Tabla de configuración GoData
         conn.execute("""
@@ -137,9 +149,47 @@ def get_godata_credentials() -> tuple:
 ESTADOS = ("pendiente", "aprobado", "sincronizando", "sincronizado", "error", "duplicado")
 
 _ALLOWED_UPDATE_COLS = {
-    "estado", "godata_case_id", "intentos", "ultimo_error",
+    "estado", "godata_case_id", "godata_visual_id", "intentos", "ultimo_error",
     "aprobado_por", "fecha_aprobacion", "fecha_sync", "updated_at"
 }
+
+
+def get_next_visual_id() -> str:
+    """Generate next sequential visualId for GoData (SR-NNNN format).
+
+    GoData's SR-9999 mask doesn't auto-generate via API, so we track
+    the next available number ourselves.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        # Check existing max from our synced records
+        row = conn.execute("""
+            SELECT MAX(CAST(SUBSTR(godata_visual_id, 4) AS INTEGER))
+            FROM godata_queue
+            WHERE godata_visual_id IS NOT NULL AND godata_visual_id LIKE 'SR-%'
+        """).fetchone()
+        max_num = row[0] if row and row[0] else 0
+
+        # Start from a safe offset to avoid conflicting with manual entries
+        next_num = max(max_num + 1, 100)
+        return f"SR-{next_num:04d}"
+    finally:
+        conn.close()
+
+
+def save_visual_id(registro_id: str, visual_id: str):
+    """Save the generated visualId for a registro."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        conn.execute("""
+            UPDATE godata_queue
+            SET godata_visual_id = ?,
+                updated_at = datetime('now')
+            WHERE registro_id = ?
+        """, (visual_id, registro_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def enqueue_pending_records() -> dict:

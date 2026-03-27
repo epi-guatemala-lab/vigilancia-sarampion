@@ -422,12 +422,11 @@ def _fill_template(ws, d: dict):
         ws.cell(row=38, column=6).value = "☒ Desc."
 
     _write(ws, 38, 11, _g(d, 'hosp_nombre'))  # K38:P38
-    # Fecha hospitalización: Q38:T38 label, U38='Día', V38=data, W38='Mes', X38=data
+    # Fecha hospitalización: template has Día/Mes labels but no Año cell on row 38
+    # Write full date DD/MM/YYYY into the date area to avoid losing the year
     dd, mm, yyyy = _parse_date(_g(d, 'hosp_fecha', ''))
     if dd:
-        _write(ws, 38, 22, dd)   # after 'Día' at U38
-        _write(ws, 38, 24, mm)   # after 'Mes' at W38
-    # Año goes on next line if needed — template might not have space
+        _write(ws, 38, 22, f"{dd}/{mm}/{yyyy}")  # V38 = complete date
 
     # Row 39: Complicaciones
     comp = _g(d, 'tiene_complicaciones', _g(d, 'complicaciones', ''))
