@@ -986,6 +986,48 @@ async def export_fichas_bulk(request: Request, x_api_key: str = Header(None)):
         )
 
 
+@app.post("/api/export/fichas-v2")
+async def export_fichas_v2_bulk(request: Request, x_api_key: str = Header(None)):
+    """Genera PDFs formato MSPAS 2026 (GoData) para múltiples registros.
+    Body: {"ids": ["IGSS-SAR-...", ...], "format": "merged"|"zip"}
+    """
+    verify_api_key(x_api_key)
+    data = await request.json()
+    ids = data.get("ids", [])
+    fmt = data.get("format", "merged")
+
+    if not ids or len(ids) > 500:
+        raise HTTPException(status_code=400, detail="Proporcione entre 1 y 500 IDs")
+
+    records = []
+    for rid in ids:
+        reg = get_registro_by_id(rid)
+        if reg:
+            records.append(reg)
+
+    if not records:
+        raise HTTPException(status_code=404, detail="Ningún registro encontrado")
+
+    from pdf_ficha_v2 import generar_fichas_v2_bulk
+    merge = (fmt == "merged")
+    result_bytes = generar_fichas_v2_bulk(records, merge=merge)
+
+    if merge:
+        filename = f"fichas_godata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        return StreamingResponse(
+            io.BytesIO(result_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    else:
+        filename = f"fichas_godata_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        return StreamingResponse(
+            io.BytesIO(result_bytes),
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
+
 @app.get("/api/ficha-publica/{registro_id}")
 def export_ficha_publica(registro_id: str):
     """Public endpoint for downloading ficha PDF (only for recent records, <30 min old)."""
