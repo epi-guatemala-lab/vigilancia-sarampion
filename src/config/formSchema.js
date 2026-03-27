@@ -246,36 +246,20 @@ export const formFields = [
     colSpan: 'full',
   },
 
-  // --- Fuente de Notificación e Investigación (movidos de antiguo Tab 4) ---
+  // Fuente de Notificación: hardcodeado "Servicio de Salud" (IGSS siempre reporta desde sus servicios)
+  // No es obligatorio en GoData (2/5 casos reales lo tienen vacío)
   {
     id: 'fuente_notificacion',
-    label: 'Fuente de Notificación',
     type: 'select',
     page: 1,
-    required: true,
-    options: [
-      'Servicio de Salud',
-      'Laboratorio',
-      'Búsqueda Activa Institucional',
-      'Búsqueda Activa Comunitaria',
-      'Búsqueda Activa Laboratorial',
-      'Investigación de Contactos',
-      'Caso Reportado por la Comunidad',
-      'Auto Notificación por Número Gratuito',
-      'Otra',
-    ],
-    colSpan: 'half',
-    sectionTitle: 'Investigación',
+    options: ['Servicio de Salud'],
+    hidden: true,
   },
   {
     id: 'fuente_notificacion_otra',
-    label: 'Otra fuente de notificación',
     type: 'text',
     page: 1,
-    required: false,
-    placeholder: 'Especifique otra fuente',
-    conditional: { dependsOn: 'fuente_notificacion', showWhen: 'Otra' },
-    colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'fecha_visita_domiciliaria',
