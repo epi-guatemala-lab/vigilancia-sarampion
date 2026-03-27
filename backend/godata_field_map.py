@@ -572,8 +572,11 @@ def map_record_to_godata(record: dict) -> Dict:
     d = record
 
     # ─── Campos base del modelo Person/Case ─────────────
+    # Split nombres: first word = firstName, rest = middleName
+    _nombres_parts = _godata_text(_get(d, "nombres")).split()
     case = {
-        "firstName": _godata_text(_get(d, "nombres")),
+        "firstName": _nombres_parts[0] if _nombres_parts else "",
+        "middleName": " ".join(_nombres_parts[1:]) if len(_nombres_parts) > 1 else "",
         "lastName": _godata_text(_get(d, "apellidos")),
         "gender": GENDER_MAP.get(_get(d, "sexo").upper(), ""),
         "dob": _to_iso_date(_get(d, "fecha_nacimiento")),

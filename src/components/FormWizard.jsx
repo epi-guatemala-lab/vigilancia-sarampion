@@ -57,9 +57,19 @@ export default function FormWizard() {
     // Auto-map diagnóstico → código CIE-10
     if (fieldId === 'diagnostico_registrado' && diagnosticosMap[value]) {
       updateField('codigo_cie10', diagnosticosMap[value])
-      // Auto-infer diagnostico_sospecha from CIE-10
-      if (value.startsWith('B05')) updateField('diagnostico_sospecha', 'Sarampión')
-      else if (value.startsWith('B06')) updateField('diagnostico_sospecha', 'Rubéola')
+      // Auto-derive diagnostico_sospecha from CIE-10 (add to array, don't replace)
+      const code = diagnosticosMap[value]
+      if (code.startsWith('B05')) {
+        const current = Array.isArray(formData.diagnostico_sospecha) ? formData.diagnostico_sospecha : []
+        if (!current.includes('Sarampión')) {
+          updateField('diagnostico_sospecha', [...current, 'Sarampión'])
+        }
+      } else if (code.startsWith('B06')) {
+        const current = Array.isArray(formData.diagnostico_sospecha) ? formData.diagnostico_sospecha : []
+        if (!current.includes('Rubéola')) {
+          updateField('diagnostico_sospecha', [...current, 'Rubéola'])
+        }
+      }
     }
 
     // Auto-compute nombre_apellido from nombres + apellidos
@@ -147,6 +157,18 @@ export default function FormWizard() {
       const otra = fieldId === 'comp_otra_texto' ? value : (formData.comp_otra_texto || '')
       if (otra) activas.push(otra)
       updateField('complicaciones', activas.join(', ') || '')
+    }
+
+    // Auto-derive asintomatico: if ALL signs are NO → asintomatico = SI
+    if (fieldId.startsWith('signo_')) {
+      const signs = ['signo_fiebre', 'signo_exantema', 'signo_manchas_koplik', 'signo_tos',
+        'signo_conjuntivitis', 'signo_coriza', 'signo_adenopatias', 'signo_artralgia']
+      const allNO = signs.every(s => {
+        const v = (s === fieldId ? value : formData[s]) || ''
+        return v === 'NO'
+      })
+      if (allNO) updateField('asintomatico', 'SI')
+      else if (value === 'SI') updateField('asintomatico', 'NO')
     }
 
     // Auto-infer condicion_egreso from condicion_final_paciente (EPIWEB compat)
