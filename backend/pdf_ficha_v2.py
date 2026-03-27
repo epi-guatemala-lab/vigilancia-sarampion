@@ -21,11 +21,13 @@ import zipfile
 from datetime import datetime
 
 import openpyxl
+from openpyxl.drawing.image import Image as XlImage
 
 logger = logging.getLogger(__name__)
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 TEMPLATE_PATH = os.path.join(ASSETS_DIR, "ficha_sarampion_template.xlsx")
+LOGO_PATH = os.path.join(ASSETS_DIR, "sello_mspas.png")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -808,6 +810,10 @@ def generar_ficha_v2_pdf(data: dict) -> bytes:
         # Open and fill
         wb = openpyxl.load_workbook(xlsx_path)
         ws = wb["Ficha Epidemiológica"]
+
+        # Logo MSPAS: se incluye directamente en el template Excel
+        # (no se inyecta por código para evitar solapar el título)
+
         _fill_template(ws, data)
 
         # Ensure print settings force 1-page output
@@ -854,6 +860,9 @@ def generar_fichas_v2_bulk(records: list, merge: bool = True) -> bytes:
 
             wb = openpyxl.load_workbook(xlsx_path)
             ws = wb["Ficha Epidemiológica"]
+
+            # Logo MSPAS: incluido en el template Excel
+
             _fill_template(ws, rec)
 
             # Ensure 1-page output
