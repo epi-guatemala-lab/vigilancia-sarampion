@@ -1,15 +1,12 @@
 """
-PDF Generator for MSPAS Sarampion/Rubeola Form — Excel Template Version.
-Uses Excel template + LibreOffice headless for pixel-perfect output.
+PDF Generator for MSPAS Sarampion/Rubeola Form - Platypus Table Version.
 
-The template is the official MSPAS 2026 form in Excel format.
-We fill in cell values with patient data, then convert to PDF.
+Uses reportlab Platypus Tables for structured layout with automatic borders,
+cell alignment, and spanning. Produces a pixel-accurate 2-page LETTER replica
+of the official MSPAS 2026 "FICHA EPIDEMIOLOGICA DE VIGILANCIA DE SARAMPION RUBEOLA".
 
-Cell placement strategy:
-  - Template has LABEL cells (pre-filled) and DATA cells (empty).
-  - We NEVER overwrite label cells — only write into empty cells.
-  - For merged ranges, write to the top-left cell.
-  - Checkbox fields: write "X" in the empty cell next to the matching option.
+Key design rule: NO nested tables. Every table cell contains only Paragraphs
+or plain strings, never sub-Tables. This avoids the blPara wrapping bug.
 
 Public API:
     generar_ficha_v2_pdf(data: dict) -> bytes
@@ -18,36 +15,86 @@ Public API:
 import io
 import json
 import os
-import shutil
-import subprocess
-import tempfile
+import zipfile
 import logging
 from datetime import datetime
 
+from reportlab.platypus import (
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image,
+)
+from reportlab.lib.pagesizes import LETTER
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm, inch
+from reportlab.lib import colors
+from reportlab.lib.colors import HexColor
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+
 logger = logging.getLogger(__name__)
 
-TEMPLATE_PATH = os.path.join(
-    os.path.dirname(__file__), "assets", "ficha_sarampion_template.xlsx"
-)
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+PAGE_W, PAGE_H = LETTER
+MARGIN = 18
+CONTENT_W = PAGE_W - 2 * MARGIN
+
+DARK_BLUE = HexColor('#1a237e')
+LIGHT_GRAY = HexColor('#eeeeee')
+BC = colors.black  # border color
+
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'assets')
+LOGO_PATH = None
+for _fname in ('escudo_guatemala.png', 'mspas_logo.png'):
+    _cand = os.path.join(ASSETS_DIR, _fname)
+    if os.path.isfile(_cand):
+        LOGO_PATH = _cand
+        break
+
+# ---------------------------------------------------------------------------
+# Styles
+# ---------------------------------------------------------------------------
+_base = getSampleStyleSheet()
+
+S_LABEL = ParagraphStyle('FL', parent=_base['Normal'],
+    fontName='Helvetica-Bold', fontSize=6, leading=7)
+S_VALUE = ParagraphStyle('FV', parent=_base['Normal'],
+    fontName='Helvetica', fontSize=7, leading=8.5)
+S_VALUE_SM = ParagraphStyle('FVS', parent=S_VALUE, fontSize=6, leading=7)
+S_VALUE_C = ParagraphStyle('FVC', parent=S_VALUE, alignment=TA_CENTER)
+S_SECTION = ParagraphStyle('FS', parent=_base['Normal'],
+    fontName='Helvetica-Bold', fontSize=8, leading=10,
+    textColor=colors.white, alignment=TA_CENTER)
+S_TITLE = ParagraphStyle('FT', parent=_base['Normal'],
+    fontName='Helvetica-Bold', fontSize=9, leading=11, alignment=TA_CENTER)
+S_DEF = ParagraphStyle('FD', parent=_base['Normal'],
+    fontName='Helvetica-Oblique', fontSize=5, leading=6)
+S_CB = ParagraphStyle('FCB', parent=_base['Normal'],
+    fontName='Helvetica', fontSize=7, leading=8.5)
+S_CB_SM = ParagraphStyle('FCBS', parent=S_CB, fontSize=5.5, leading=6.5)
+S_CB_XS = ParagraphStyle('FCBXS', parent=S_CB, fontSize=5, leading=6)
+S_HDR = ParagraphStyle('FH', parent=_base['Normal'],
+    fontName='Helvetica-Bold', fontSize=5.5, leading=6.5, alignment=TA_CENTER)
+S_CONTACT = ParagraphStyle('FC', parent=_base['Normal'],
+    fontName='Helvetica', fontSize=5.5, leading=6.5)
+S_SUB = ParagraphStyle('FSub', parent=_base['Normal'],
+    fontName='Helvetica-Bold', fontSize=6.5, leading=8)
+S_LEGEND = ParagraphStyle('FLeg', parent=_base['Normal'],
+    fontName='Helvetica', fontSize=5, leading=6)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _g(data: dict, key: str, default: str = "") -> str:
-    """Get value from data dict, safely converting to stripped string."""
+def _g(data, key, default=""):
     val = data.get(key)
     if val is None:
         return default
     s = str(val).strip()
-    if s.upper() in ("NONE", "NULL", "NAN"):
+    if s.upper() in ("NONE", "NULL", "NAN", ""):
         return default
     return s
 
-
-def _parse_date(date_str: str) -> tuple[str, str, str]:
-    """Parse date string and return (dia, mes, anio) as zero-padded strings."""
+def _parse_date(date_str):
     if not date_str:
         return ("", "", "")
     date_str = str(date_str).strip()
@@ -55,1175 +102,952 @@ def _parse_date(date_str: str) -> tuple[str, str, str]:
         try:
             dt = datetime.strptime(date_str[:10], fmt)
             return (f"{dt.day:02d}", f"{dt.month:02d}", str(dt.year))
-        except ValueError:
+        except (ValueError, TypeError):
             continue
     return ("", "", "")
 
+def _chk(value):
+    if value is None: return False
+    return str(value).strip().upper() in ("SI", "SÍ", "S", "1", "TRUE", "X", "YES")
 
-def _chk(value) -> bool:
-    """Return True if value represents an affirmative/yes."""
-    if value is None:
-        return False
-    s = str(value).strip().upper()
-    return s in ("SI", "SÍ", "S", "1", "TRUE", "X", "YES")
-
-
-def _is_no(value) -> bool:
-    """Return True if value is explicitly 'No'."""
-    if value is None:
-        return False
+def _is_no(value):
+    if value is None: return False
     return str(value).strip().upper() in ("NO", "N", "0", "FALSE")
 
-
-def _is_desc(value) -> bool:
-    """Return True if value is 'Desconocido'."""
-    if value is None:
-        return False
+def _is_desc(value):
+    if value is None: return False
     return str(value).strip().upper() in ("DESCONOCIDO", "DESC", "D", "UNKNOWN")
 
+def _cb(checked=False):
+    """Checkbox: [X] if checked, [  ] if not."""
+    if checked:
+        return '<font face="Courier-Bold" size="7">[X]</font>'
+    else:
+        return '<font face="Courier" size="7">[&nbsp;&nbsp;]</font>'
 
-def _safe_json_loads(val):
-    """Parse JSON string safely, return list or original value."""
-    if not val:
-        return []
-    if isinstance(val, (list, dict)):
-        return val
-    try:
-        return json.loads(val)
-    except (json.JSONDecodeError, TypeError):
-        return []
+def _cb_sm(checked=False):
+    """Small checkbox."""
+    if checked:
+        return '<font face="Courier-Bold" size="6">[X]</font>'
+    else:
+        return '<font face="Courier" size="6">[&nbsp;&nbsp;]</font>'
+
+def _p(text, style=S_VALUE):
+    return Paragraph(str(text), style)
+
+def _lv(label, value):
+    """Label + value stacked in one Paragraph."""
+    return Paragraph(
+        f'<b><font size="6">{label}</font></b><br/>'
+        f'<font size="7">{value}</font>', S_VALUE)
+
+def _date_lv(label, date_str):
+    """Label + date formatted as [DD]/[MM]/[YYYY] in one Paragraph."""
+    dd, mm, yyyy = _parse_date(date_str)
+    if dd:
+        dstr = f'<font face="Courier" size="7">[{dd}]/[{mm}]/[{yyyy}]</font>'
+    else:
+        dstr = '<font face="Courier" size="7">[__]/[__]/[____]</font>'
+    return Paragraph(
+        f'<b><font size="6">{label}</font></b><br/>{dstr}', S_VALUE)
+
+def _safe_json(val):
+    if not val: return []
+    if isinstance(val, (list, dict)): return val
+    try: return json.loads(val)
+    except: return []
+
+# ---------------------------------------------------------------------------
+# Grid style template
+# ---------------------------------------------------------------------------
+GRID = [
+    ('GRID', (0,0), (-1,-1), 0.5, BC),
+    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ('TOPPADDING', (0,0), (-1,-1), 1),
+    ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+    ('LEFTPADDING', (0,0), (-1,-1), 2),
+    ('RIGHTPADDING', (0,0), (-1,-1), 2),
+]
+
+def _section_hdr(text):
+    t = Table([[Paragraph(text, S_SECTION)]], colWidths=[CONTENT_W], rowHeights=[16])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), DARK_BLUE),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 1),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+    ]))
+    return t
+
+def _sub_hdr(text):
+    t = Table([[Paragraph(f'<b>{text}</b>', S_SUB)]], colWidths=[CONTENT_W], rowHeights=[12])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), LIGHT_GRAY),
+        ('BOX', (0,0), (-1,-1), 0.5, BC),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 1),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+    ]))
+    return t
+
+def _tbl(rows, widths, heights=None, extra_style=None):
+    """Create a table with GRID style. widths as fractions of CONTENT_W."""
+    cw = [CONTENT_W * w for w in widths]
+    rh = heights if heights else [20] * len(rows)
+    if isinstance(rh, (int, float)):
+        rh = [rh] * len(rows)
+    t = Table(rows, colWidths=cw, rowHeights=rh)
+    style = list(GRID)
+    if extra_style:
+        style.extend(extra_style)
+    t.setStyle(TableStyle(style))
+    return t
 
 
 # ---------------------------------------------------------------------------
-# Excel cell constants — derived from template analysis
+# Builder
 # ---------------------------------------------------------------------------
-# Template: Hoja1, A1:P209, 14 main columns (A-N), col O-P unused
-# Column index: A=1, B=2, C=3, D=4, E=5, F=6, G=7, H=8,
-#               I=9, J=10, K=11, L=12, M=13, N=14
-#
-# Pattern: Labels are in pre-filled cells; data goes in EMPTY cells.
-# For Section I rows 11-13, labels fill A:H and I:N — data must be
-# appended after the label text in the same cell (no separate data cell).
-# For Section II, R19 has label, R20 col A has EMPTY merged cell for name.
-# Checkboxes: each option has a label cell and an adjacent EMPTY cell for "X".
-
-
-def _fill_hoja1(ws, data: dict):
-    """Fill Hoja1 of the Excel template with patient data.
-
-    Only writes into EMPTY cells or appends to label cells where
-    there is no separate data entry cell.
-    """
-    # Shorthand
-    g = lambda key, default="": _g(data, key, default)
-
-    # ===================================================================
-    # HEADER: Diagnostico de sospecha (Row 6-8)
-    # ===================================================================
-    # R6: C3=EMPTY(checkbox Sarampion), C7=EMPTY(Rubeola), C10=EMPTY(Altamente sosp.)
-    # R7: C3=EMPTY(Sarampion+Dengue checkbox), C10=EMPTY(specify)
-    # R8: C3=EMPTY(Sarampion+Otra checkbox), C11=EMPTY(specify)
-
-    diag = g("diagnostico_sospecha", g("diagnostico_registrado"))
-    du = diag.upper() if diag else ""
-
-    if "DENGUE" in du or "ARBOVIR" in du:
-        ws.cell(row=7, column=3).value = "X"
-        ws.cell(row=7, column=10).value = g("diagnostico_sospecha_otro", g("diagnostico_otro"))
-    elif "OTRA" in du or "FEBRIL" in du:
-        ws.cell(row=8, column=3).value = "X"
-        ws.cell(row=8, column=11).value = g("diagnostico_sospecha_otro", g("diagnostico_otro"))
-    elif "RUBEOLA" in du or "RUBÉOLA" in du:
-        ws.cell(row=6, column=7).value = "X"
-    elif "ALTAMENTE" in du:
-        ws.cell(row=6, column=10).value = "X"
-    else:
-        # Default: Sarampion
-        ws.cell(row=6, column=3).value = "X"
-
-    # Also check secondary diagnoses
-    if ("RUBEOLA" in du or "RUBÉOLA" in du) and "SARAMPION" in du:
-        ws.cell(row=6, column=3).value = "X"
-        ws.cell(row=6, column=7).value = "X"
-
-    # ===================================================================
-    # SECTION I: Informacion de la institucion (Row 10-17)
-    # ===================================================================
-    # R11: A11:H11=label "DDRISS:", I11:N11=label "Nombre investigador:"
-    # No separate data cells — we must append to the label cells.
-
-    # DDRISS — append to A11 label
-    ddriss = g("area_salud_mspas", g("unidad_medica"))
-    if ddriss:
-        label = ws.cell(row=11, column=1).value or ""
-        ws.cell(row=11, column=1).value = f"{label} {ddriss}"
-
-    # Nombre investigador — append to I11
-    invest = g("nom_responsable")
-    if invest:
-        label = ws.cell(row=11, column=9).value or ""
-        ws.cell(row=11, column=9).value = f"{label} {invest}"
-
-    # DMS — append to A12
-    distrito = g("distrito_salud_mspas")
-    if distrito:
-        label = ws.cell(row=12, column=1).value or ""
-        ws.cell(row=12, column=1).value = f"{label} {distrito}"
-
-    # Cargo investigador — append to I12
-    cargo = g("cargo_responsable")
-    if cargo:
-        label = ws.cell(row=12, column=9).value or ""
-        ws.cell(row=12, column=9).value = f"{label} {cargo}"
-
-    # Institucion — append to A13
-    institucion = g("servicio_salud_mspas", g("unidad_medica", g("centro_externo")))
-    if institucion:
-        label = ws.cell(row=13, column=1).value or ""
-        ws.cell(row=13, column=1).value = f"{label} {institucion}"
-
-    # Telefono/correo investigador — append to I13
-    tel = g("telefono_responsable")
-    correo = g("correo_responsable")
-    contacto = " / ".join(p for p in [tel, correo] if p)
-    if contacto:
-        label = ws.cell(row=13, column=9).value or ""
-        ws.cell(row=13, column=9).value = f"{label} {contacto}"
-
-    # R14: C9="Fecha de consulta:" [I14:J14], C11=EMPTY [K14:L14], C13="Fecha notificación:", C14=EMPTY
-    d, m, y = _parse_date(g("fecha_registro_diagnostico", g("fecha_captacion")))
-    if d:
-        ws.cell(row=14, column=11).value = f"{d}/{m}/{y}"
-
-    d, m, y = _parse_date(g("fecha_notificacion"))
-    if d:
-        ws.cell(row=14, column=14).value = f"{d}/{m}/{y}"
-
-    # R15: Tipo institucion checkboxes
-    # C1="IGSS" C2="Privado" C3="Publica" C5="Otra, especifique"
-    # C4=EMPTY (for marking Otra), C7=EMPTY (for Otra text)
-    es_igss = g("es_seguro_social")
-    es_privado = g("establecimiento_privado")
-    tipo_inst = g("unidad_medica", "").upper()
-
-    # We mark with "X" by prepending to the existing label
-    if _chk(es_igss) or "IGSS" in tipo_inst:
-        ws.cell(row=15, column=1).value = "X IGSS"
-    elif _chk(es_privado):
-        ws.cell(row=15, column=2).value = "X Privado"
-    elif "PUBLIC" in tipo_inst or "MSPAS" in tipo_inst:
-        ws.cell(row=15, column=3).value = "X Pública"
-    else:
-        # Default IGSS since this is IGSS system
-        ws.cell(row=15, column=1).value = "X IGSS"
-
-    # R15: Fecha investigacion — append to I15
-    d, m, y = _parse_date(g("fecha_inicio_investigacion", g("fecha_visita_domiciliaria")))
-    if d:
-        label = ws.cell(row=15, column=9).value or ""
-        ws.cell(row=15, column=9).value = f"{label} {d}/{m}/{y}"
-
-    # R16-17: Fuente de notificacion — mark with "X" prefix on matching label
-    fuente = g("fuente_notificacion", "").upper()
-    if "SERVICIO" in fuente or "SALUD" in fuente:
-        ws.cell(row=17, column=1).value = "  X       Servicio de salud"
-    if "INVESTIGACION" in fuente or "CONTACTO" in fuente:
-        ws.cell(row=16, column=3).value = "X Investigación de contactos"
-    if "LABORATORIO" in fuente:
-        ws.cell(row=16, column=7).value = "X Laboratorio"
-    if "ACTIVA" in fuente and "INSTITUCIONAL" in fuente:
-        ws.cell(row=16, column=9).value = "X Búsqueda activa institucional"
-    if "ACTIVA" in fuente and "COMUNITARIA" in fuente:
-        ws.cell(row=16, column=13).value = "X Búsqueda activa comunitaria"
-    if "COMUNIDAD" in fuente:
-        ws.cell(row=17, column=3).value = "X Caso reportado por la comunidad"
-    if "AUTO" in fuente or "GRATUITO" in fuente:
-        ws.cell(row=17, column=7).value = "X Autonotificación por número gratuito"
-    otra_fuente = g("fuente_notificacion_otra")
-    if "OTRO" in fuente or otra_fuente:
-        ws.cell(row=17, column=11).value = f"X Otro: {otra_fuente}"
-
-    # ===================================================================
-    # SECTION II: Informacion del paciente (Row 18-29)
-    # ===================================================================
-
-    # R19: A19:H19=label, I19:J19=label, K19:N19=label with checkboxes inline
-    # R20: A20:H20=EMPTY (patient name goes here!)
-    nombre_completo = g("nombre_apellido")
-    if not nombre_completo:
-        nombres = g("nombres")
-        apellidos = g("apellidos")
-        nombre_completo = f"{nombres} {apellidos}".strip()
-    ws.cell(row=20, column=1).value = nombre_completo
-
-    # Sexo — R19 K11:N19 has "Masculino        Femenino       Migrantes"
-    # We need to mark with X. Since it's one merged cell, rewrite with marks.
-    sexo = g("sexo", "").upper()
-    migrante = _chk(g("es_migrante"))
-    m_mark = " X" if sexo in ("M", "MASCULINO", "HOMBRE") else "  "
-    f_mark = " X" if sexo in ("F", "FEMENINO", "MUJER") else "  "
-    mig_mark = " X" if migrante else "  "
-    ws.cell(row=19, column=11).value = f"Masculino{m_mark}   Femenino{f_mark}   Migrantes{mig_mark}"
-
-    # R20: Embarazada — I-N area
-    # C9=label "Embarazada: Si No", C10-12=EMPTY, C13=label "Trimestre", C14=EMPTY
-    embarazada = g("esta_embarazada")
-    if _chk(embarazada):
-        ws.cell(row=20, column=9).value = "Embarazada:    X Si                No"
-    elif _is_no(embarazada):
-        ws.cell(row=20, column=9).value = "Embarazada:         Si           X No"
-
-    trimestre = g("trimestre_embarazo", g("semanas_embarazo"))
-    if trimestre:
-        ws.cell(row=20, column=14).value = trimestre
-
-    # R21: Tipo identificacion
-    # A21:B21=label "Tipo de identificacion:", C3="CUI", C4-5=EMPTY, C6="CUI madre/padre", C7-8=EMPTY
-    # I21:N21=label "Pais de residencia:"
-    tipo_id = g("tipo_identificacion", "").upper()
-    num_id = g("numero_identificacion", g("afiliacion"))
-
-    if "PASAPORTE" in tipo_id:
-        ws.cell(row=22, column=1).value = "          X    Pasaporte"
-    elif "MADRE" in tipo_id or "PADRE" in tipo_id:
-        ws.cell(row=21, column=7).value = "X"
-        ws.cell(row=21, column=8).value = num_id
-    elif "OTRO" in tipo_id:
-        ws.cell(row=22, column=3).value = f"X Otro: {g('tipo_identificacion')}"
-    else:
-        # Default: CUI — mark C4 with X
-        ws.cell(row=21, column=4).value = "X"
-        ws.cell(row=21, column=5).value = num_id
-
-    # Pais residencia — append to I21 label
-    pais = g("pais_residencia", "Guatemala")
-    if pais:
-        label = ws.cell(row=21, column=9).value or ""
-        ws.cell(row=21, column=9).value = f"{label} {pais}"
-
-    # R22: Departamento — append to I22
-    depto = g("departamento_residencia")
-    if depto:
-        label = ws.cell(row=22, column=9).value or ""
-        ws.cell(row=22, column=9).value = f"{label} {depto}"
-
-    # R23: No. identificacion — append to A23; Municipio — append to I23
-    if num_id:
-        label = ws.cell(row=23, column=1).value or ""
-        ws.cell(row=23, column=1).value = f"{label} {num_id}"
-
-    muni = g("municipio_residencia")
-    if muni:
-        label = ws.cell(row=23, column=9).value or ""
-        ws.cell(row=23, column=9).value = f"{label} {muni}"
-
-    # R24: Fecha nacimiento — append to A24; Lugar poblado — append to I24
-    d_nac, m_nac, y_nac = _parse_date(g("fecha_nacimiento"))
-    if d_nac:
-        label = ws.cell(row=24, column=1).value or ""
-        ws.cell(row=24, column=1).value = f"{label} {d_nac}/{m_nac}/{y_nac}"
-
-    poblado = g("poblado")
-    if poblado:
-        label = ws.cell(row=24, column=9).value or ""
-        ws.cell(row=24, column=9).value = f"{label} {poblado}"
-
-    # R25-26: Date parts and age — use R26 EMPTY cells for values
-    # R25 has labels: C1="Dia", C2="Mes", C3="Año", C6="Años", C7="Meses", C8="Dias"
-    # R26 has EMPTY cells at C1, C2, C3, C5, C6, C7, C8 for values
-    ws.cell(row=26, column=1).value = d_nac
-    ws.cell(row=26, column=2).value = m_nac
-    ws.cell(row=26, column=3).value = y_nac
-
-    edad_a = g("edad_anios")
-    edad_m = g("edad_meses")
-    edad_d = g("edad_dias")
-    if edad_a:
-        ws.cell(row=26, column=6).value = edad_a
-    if edad_m:
-        ws.cell(row=26, column=7).value = edad_m
-    if edad_d:
-        ws.cell(row=26, column=8).value = edad_d
-
-    # R26 C9: EMPTY merged I26:N26 — address value
-    direccion = g("direccion_exacta")
-    if direccion:
-        ws.cell(row=26, column=9).value = direccion
-
-    # R27: Pueblo pertenencia — C2=EMPTY (for "X" mark)
-    etnia = g("pueblo_etnia", "").upper()
-    if "MAYA" in etnia:
-        ws.cell(row=27, column=2).value = "X"
-    elif "XINCA" in etnia:
-        ws.cell(row=27, column=5).value = "X Xinca"
-    elif "GARIFUNA" in etnia or "GARÍFUNA" in etnia:
-        ws.cell(row=27, column=6).value = "X Garifuna"
-    elif "LADINO" in etnia or "MESTIZO" in etnia:
-        ws.cell(row=27, column=7).value = "X Ladino/Mestizo"
-
-    # Nombre encargado — append to I27
-    encargado = g("nombre_encargado")
-    if encargado:
-        label = ws.cell(row=27, column=9).value or ""
-        ws.cell(row=27, column=9).value = f"{label} {encargado}"
-
-    # R28: Comunidad linguistica — append to A28; J28:N28=EMPTY for secondary data
-    com_ling = g("comunidad_linguistica")
-    if com_ling:
-        label = ws.cell(row=28, column=1).value or ""
-        ws.cell(row=28, column=1).value = f"{label}: {com_ling}"
-
-    # R29: Ocupacion (append A29), Escolaridad (append E29), Telefono (append I29)
-    ocupacion = g("ocupacion")
-    if ocupacion:
-        label = ws.cell(row=29, column=1).value or ""
-        ws.cell(row=29, column=1).value = f"{label}: {ocupacion}"
-
-    escolaridad = g("escolaridad")
-    if escolaridad:
-        label = ws.cell(row=29, column=5).value or ""
-        ws.cell(row=29, column=5).value = f"{label} {escolaridad}"
-
-    tel_pac = g("telefono_paciente", g("telefono_encargado"))
-    if tel_pac:
-        label = ws.cell(row=29, column=9).value or ""
-        ws.cell(row=29, column=9).value = f"{label} {tel_pac}"
-
-    # ===================================================================
-    # SECTION III: Antecedentes medicos y vacunacion (Row 30-41)
-    # ===================================================================
-
-    # R31: Single merged cell A31:N31 with inline Si/No/Desconocido
-    vacunado = g("vacunado")
-    if _chk(vacunado):
-        ws.cell(row=31, column=1).value = (
-            "¿El paciente está vacunado?          X Si"
-            "                             No"
-            "                              Desconocido"
-        )
-    elif _is_no(vacunado):
-        ws.cell(row=31, column=1).value = (
-            "¿El paciente está vacunado?             Si"
-            "                          X No"
-            "                              Desconocido"
-        )
-    elif _is_desc(vacunado):
-        ws.cell(row=31, column=1).value = (
-            "¿El paciente está vacunado?             Si"
-            "                             No"
-            "                           X Desconocido"
-        )
-
-    # R33: SPR vaccine — F33:H34=EMPTY(dosis), I-K have date labels
-    # R33 C6=EMPTY (numero dosis SPR)
-    dosis_spr = g("dosis_spr", g("numero_dosis_spr"))
-    if dosis_spr:
-        ws.cell(row=33, column=6).value = dosis_spr
-
-    # Date fields for SPR: R34 C9=EMPTY, C10=EMPTY, C11=EMPTY
-    d, m, y = _parse_date(g("fecha_ultima_spr", g("fecha_ultima_dosis")))
-    if d:
-        ws.cell(row=34, column=9).value = d
-        ws.cell(row=34, column=10).value = m
-        ws.cell(row=34, column=11).value = y
-
-    # Fuente info vacunacion — labels in R33-R38 column 12, we mark by prepending X
-    fuente_vac = g("fuente_info_vacuna", "").upper()
-    if "CARN" in fuente_vac:
-        ws.cell(row=33, column=12).value = "X  Carné de vacunación"
-    elif "5A" in fuente_vac or "SIGSA" in fuente_vac:
-        ws.cell(row=34, column=12).value = "X  SIGSA 5a cuaderno"
-    elif "5B" in fuente_vac:
-        ws.cell(row=35, column=12).value = "X  SIGSA 5B otros grupos"
-    elif "REGISTRO" in fuente_vac or "UNICO" in fuente_vac or "ÚNICO" in fuente_vac:
-        ws.cell(row=36, column=12).value = "X  Registro único de vacunación"
-    elif "VERBAL" in fuente_vac:
-        ws.cell(row=37, column=12).value = "X  Verbal"
-
-    # R35: SR vaccine — F35:H36=EMPTY(dosis)
-    dosis_sr = g("dosis_sr")
-    if dosis_sr:
-        ws.cell(row=35, column=6).value = dosis_sr
-
-    d, m, y = _parse_date(g("fecha_ultima_sr"))
-    if d:
-        # SR date uses same merged range I34:K39
-        # Since these are merged cells with SPR, we use different approach
-        # Actually I34:I39, J34:J39, K34:K39 are each single merged cells!
-        # So they share one value. We can only show one date.
-        # If SPR date was set, don't overwrite. Otherwise set it.
-        if not ws.cell(row=34, column=9).value:
-            ws.cell(row=34, column=9).value = d
-            ws.cell(row=34, column=10).value = m
-            ws.cell(row=34, column=11).value = y
-
-    # R37: SPRV vaccine — F37:H39=EMPTY(dosis)
-    dosis_sprv = g("dosis_sprv")
-    if dosis_sprv:
-        ws.cell(row=37, column=6).value = dosis_sprv
-
-    d, m, y = _parse_date(g("fecha_ultima_sprv"))
-    if d:
-        if not ws.cell(row=34, column=9).value:
-            ws.cell(row=34, column=9).value = d
-            ws.cell(row=34, column=10).value = m
-            ws.cell(row=34, column=11).value = y
-
-    # R38-39: Sector vacunacion — labels at R39 C12="IGSS" C13="Publico" C14="Privado"
-    sector = g("sector_vacunacion", "").upper()
-    if "IGSS" in sector:
-        ws.cell(row=39, column=12).value = "X IGSS"
-    elif "PUBLIC" in sector:
-        ws.cell(row=39, column=13).value = "X Público"
-    elif "PRIVAD" in sector:
-        ws.cell(row=39, column=14).value = "X Privado"
-
-    # R40-41: Antecedentes medicos
-    # R40: C2-3=EMPTY, C4="desnutricion", C5-7=EMPTY, C8="inmunocompromiso", C9-14=EMPTY
-    # R41: C1=EMPTY, C2="enfermedad cronica", C3-7=EMPTY, C8="Desconocido", C9=EMPTY, C10="No"
-    # Checkboxes: put "X" in the EMPTY cell before each option
-
-    if _chk(g("antecedente_desnutricion")):
-        ws.cell(row=40, column=3).value = "X"  # before C4 "desnutricion"
-    if _chk(g("antecedente_inmunocompromiso")):
-        ws.cell(row=40, column=7).value = "X"  # before C8 "inmunocompromiso"
-    if _chk(g("antecedente_enfermedad_cronica")):
-        ws.cell(row=41, column=1).value = "X"  # before C2 "enfermedad cronica"
-        detalle = g("antecedentes_medicos_detalle")
-        if detalle:
-            ws.cell(row=41, column=3).value = detalle
-
-    tiene_ant = g("tiene_antecedentes_medicos")
-    if _is_desc(tiene_ant):
-        ws.cell(row=41, column=9).value = "X"  # before C8? Actually next to Desconocido
-    elif _is_no(tiene_ant):
-        # "No" is at C10 — mark C9
-        ws.cell(row=41, column=9).value = "X"
-
-    # ===================================================================
-    # SECTION IV: Datos clinicos (Row 42-57)
-    # ===================================================================
-    # Pattern for symptom rows:
-    # Label row (e.g. R43 "Fiebre?") and value row (R44 "Si"/"No"/"Desconocido")
-    # The "Si/No/Desconocido" are labels at specific columns.
-    # We put "X" in the empty cell C2 (before "Si" label at C1) or modify label.
-
-    # --- Fiebre (R43-44) ---
-    # R44: C1="    Si"(label), C2=EMPTY(X mark), C3="No"(label), C4="Desconocido"(label)
-    # Right side: C7="Si", C8="No", C9="Desconocido", C10=EMPTY
-    fiebre = g("signo_fiebre")
-    if _chk(fiebre):
-        ws.cell(row=44, column=2).value = "X"
-    elif _is_no(fiebre):
-        ws.cell(row=44, column=3).value = "X No"
-    elif _is_desc(fiebre):
-        ws.cell(row=44, column=4).value = "X Desconocido"
-
-    # Coriza (R43-44 right side) — overwrite labels with X prefix
-    coriza = g("signo_coriza")
-    if _chk(coriza):
-        ws.cell(row=44, column=7).value = "X Si"
-    elif _is_no(coriza):
-        ws.cell(row=44, column=8).value = "X No"
-    elif _is_desc(coriza):
-        ws.cell(row=44, column=9).value = "X Desconocido"
-
-    # Fecha inicio sintomas — R43 C14 has template "      /      /"
-    d, m, y = _parse_date(g("fecha_inicio_sintomas"))
-    if d:
-        ws.cell(row=43, column=14).value = f"  {d}  /  {m}  / {y}"
-
-    # --- Exantema/rash (R45-46) ---
-    exantema = g("signo_exantema")
-    if _chk(exantema):
-        ws.cell(row=46, column=2).value = "X"
-    elif _is_no(exantema):
-        ws.cell(row=46, column=3).value = "X No"
-    elif _is_desc(exantema):
-        ws.cell(row=46, column=4).value = "X Desconocido"
-
-    # Manchas Koplik (R45-46 right) — C7="Si", C8="No", C9="Desconocido", C10=EMPTY
-    koplik = g("signo_manchas_koplik")
-    if _chk(koplik):
-        ws.cell(row=46, column=7).value = "X Si"
-    elif _is_no(koplik):
-        ws.cell(row=46, column=8).value = "X No"
-    elif _is_desc(koplik):
-        ws.cell(row=46, column=9).value = "X Desconocido"
-
-    # Fecha inicio fiebre — R45 C14 template "      /      /"
-    d, m, y = _parse_date(g("fecha_inicio_fiebre"))
-    if d:
-        ws.cell(row=45, column=14).value = f"  {d}  /  {m}  / {y}"
-
-    # --- Tos (R47-48) ---
-    tos = g("signo_tos")
-    if _chk(tos):
-        ws.cell(row=48, column=2).value = "X"
-    elif _is_no(tos):
-        ws.cell(row=48, column=3).value = "X No"
-    elif _is_desc(tos):
-        ws.cell(row=48, column=4).value = "X Desconocido"
-
-    # Artralgia (R47-48 right)
-    artralgia = g("signo_artralgia")
-    if _chk(artralgia):
-        ws.cell(row=48, column=7).value = "X Si"
-    elif _is_no(artralgia):
-        ws.cell(row=48, column=8).value = "X No"
-    elif _is_desc(artralgia):
-        ws.cell(row=48, column=9).value = "X Desconocido"
-
-    # Fecha inicio exantema — R48 C14 template "      /      /"
-    d, m, y = _parse_date(g("fecha_inicio_erupcion"))
-    if d:
-        ws.cell(row=48, column=14).value = f"  {d}  /  {m}  / {y}"
-
-    # --- Conjuntivitis (R49-50) ---
-    conjunt = g("signo_conjuntivitis")
-    if _chk(conjunt):
-        ws.cell(row=50, column=2).value = "X"
-    elif _is_no(conjunt):
-        ws.cell(row=50, column=3).value = "X No"
-    elif _is_desc(conjunt):
-        ws.cell(row=50, column=4).value = "X Desconocido"
-
-    # Adenopatias (R49-50 right)
-    adeno = g("signo_adenopatias")
-    if _chk(adeno):
-        ws.cell(row=50, column=7).value = "X Si"
-    elif _is_no(adeno):
-        ws.cell(row=50, column=8).value = "X No"
-    elif _is_desc(adeno):
-        ws.cell(row=50, column=9).value = "X Desconocido"
-
-    # Sitio inicio exantema (R50 C12-14 area, EMPTY cells)
-    sitio = g("sitio_inicio_erupcion", g("sitio_inicio_erupcion_otro"))
-    if sitio:
-        ws.cell(row=50, column=12).value = sitio
-
-    # --- Hospitalizacion (R51-53) ---
-    # R52: C1="    Si", C2="No", C3="Desconocido", C4=EMPTY, C5="Nombre Hospital:", ...
-    hosp = g("hospitalizado")
-    if _chk(hosp):
-        ws.cell(row=52, column=1).value = "  X Si"
-    elif _is_no(hosp):
-        ws.cell(row=52, column=2).value = "X No"
-    elif _is_desc(hosp):
-        ws.cell(row=52, column=3).value = "X Desconocido"
-
-    # R52: C5="Nombre del Hospital:", C6-C8=EMPTY(hospital name)
-    hosp_nombre = g("hosp_nombre")
-    if hosp_nombre:
-        ws.cell(row=52, column=6).value = hosp_nombre
-
-    # R52: C9="Fecha hospitalizacion:", C12="      /      /"(date template)
-    d, m, y = _parse_date(g("hosp_fecha"))
-    if d:
-        ws.cell(row=52, column=12).value = f"  {d}  /  {m}  / {y}"
-
-    # --- Complicaciones (R54-55) ---
-    # R54: C1="Complicaciones", C2=EMPTY, C3="Si          No"(combined label), C4=EMPTY,
-    #       C5="Desconocido"(label, with E54:F54 merge)
-    # C7="Que complicaciones?", C8=EMPTY, C9=EMPTY, C10="Neumonia", C11=EMPTY,
-    # C12="Encefalitis", C13="Diarrea", C14="Trombocitopenia"
-    tiene_comp = g("tiene_complicaciones", g("complicaciones"))
-    if _chk(tiene_comp):
-        ws.cell(row=54, column=3).value = "X Si          No"
-    elif _is_no(tiene_comp):
-        ws.cell(row=54, column=3).value = "Si       X No"
-    elif _is_desc(tiene_comp):
-        ws.cell(row=54, column=5).value = "X Desconocido"
-
-    # Individual complications — mark with "X" prefix on label cells
-    if _chk(g("comp_neumonia")):
-        ws.cell(row=54, column=10).value = "X Neumonía"
-    if _chk(g("comp_encefalitis")):
-        ws.cell(row=54, column=12).value = "X Encefalitis"
-    if _chk(g("comp_diarrea")):
-        ws.cell(row=54, column=13).value = "X Diarrea"
-    if _chk(g("comp_trombocitopenia")):
-        ws.cell(row=54, column=14).value = "X Trombocitopenia"
-
-    # R55: C1="Otitis media aguda", C3="Ceguera", C5="Otro, especifique:"
-    if _chk(g("comp_otitis")):
-        ws.cell(row=55, column=1).value = "  X    Otitis media aguda"
-    if _chk(g("comp_ceguera")):
-        ws.cell(row=55, column=3).value = "  X    Ceguera"
-    comp_otra = g("comp_otra_texto", g("complicaciones_otra"))
-    if comp_otra:
-        ws.cell(row=55, column=5).value = f"X Otro: {comp_otra}"
-
-    # --- Aislamiento respiratorio (R56-57) ---
-    # R56: C1="Aislamiento resp.", C2=EMPTY, C3="    Si"(label), C4=EMPTY(X mark),
-    #       C5=" No"(label), C6="Desconocido"(label), C7=EMPTY
-    #       C8="Fecha inicio aislamiento:", C12="      /      /"(date template)
-    aisla = g("aislamiento_respiratorio")
-    if _chk(aisla):
-        ws.cell(row=56, column=4).value = "X"
-    elif _is_no(aisla):
-        ws.cell(row=56, column=5).value = "X No"
-    elif _is_desc(aisla):
-        ws.cell(row=56, column=6).value = "X Desconocido"
-
-    d, m, y = _parse_date(g("fecha_aislamiento"))
-    if d:
-        ws.cell(row=56, column=12).value = f"  {d}  /  {m}  / {y}"
-
-    # ===================================================================
-    # SECTION V: Factores de riesgo (Row 58-66)
-    # ===================================================================
-
-    # R59: Case confirmed in community — C12="Si", C13="No", C14="Desconocido"
-    # The empty cells for marks are C2-C11 area or we prefix the label
-    caso_com = g("caso_sospechoso_comunidad_3m")
-    if _chk(caso_com):
-        ws.cell(row=59, column=12).value = "  X Si"
-    elif _is_no(caso_com):
-        ws.cell(row=59, column=13).value = "X No"
-    elif _is_desc(caso_com):
-        ws.cell(row=59, column=14).value = "X Desconocido"
-
-    # R60: Contact with suspected case 7-23 days
-    contacto = g("contacto_sospechoso_7_23")
-    if _chk(contacto):
-        ws.cell(row=60, column=12).value = "  X Si"
-    elif _is_no(contacto):
-        ws.cell(row=60, column=13).value = "X No"
-    elif _is_desc(contacto):
-        ws.cell(row=60, column=14).value = "X Desconocido"
-
-    # R61: Traveled 7-23 days prior — C12="Si", C13="No"
-    viajo = g("viajo_7_23_previo")
-    if _chk(viajo):
-        ws.cell(row=61, column=12).value = "  X Si"
-    elif _is_no(viajo):
-        ws.cell(row=61, column=13).value = "X No"
-
-    # R62: Travel destination (whole row is mostly EMPTY for free text)
-    destino = g("destino_viaje")
-    viaje_pais = g("viaje_pais")
-    viaje_depto = g("viaje_departamento")
-    viaje_muni = g("viaje_municipio")
-    destino_full = destino
-    if viaje_pais or viaje_depto or viaje_muni:
-        parts = [p for p in [viaje_pais, viaje_depto, viaje_muni] if p]
-        destino_full = ", ".join(parts) if parts else destino
-    if destino_full:
-        ws.cell(row=62, column=2).value = destino_full
-
-    # R63: Travel dates — C12="/  /"(salida), C14="/  /"(entrada)
-    d, m, y = _parse_date(g("viaje_fecha_salida"))
-    if d:
-        ws.cell(row=63, column=12).value = f"{d}/{m}/{y}"
-    d, m, y = _parse_date(g("viaje_fecha_entrada"))
-    if d:
-        ws.cell(row=63, column=14).value = f"{d}/{m}/{y}"
-
-    # R65: Family member traveled abroad — C8="Si", C9="No"
-    fam_viajo = g("familiar_viajo_exterior")
-    if _chk(fam_viajo):
-        ws.cell(row=65, column=8).value = "X Si"
-    elif _is_no(fam_viajo):
-        ws.cell(row=65, column=9).value = "X No"
-
-    d, m, y = _parse_date(g("familiar_fecha_retorno"))
-    if d:
-        ws.cell(row=65, column=14).value = f"{d}/{m}/{y}"
-
-    # R66: Contact with pregnant woman — C8="Si", C9="No", C10="Desconocido"
-    cont_emb = g("contacto_embarazada")
-    if _chk(cont_emb):
-        ws.cell(row=66, column=8).value = "X Si"
-    elif _is_no(cont_emb):
-        ws.cell(row=66, column=9).value = "X No"
-    elif _is_desc(cont_emb):
-        ws.cell(row=66, column=10).value = "X Desconocido"
-
-    # ===================================================================
-    # SECTION VI: Medidas de respuesta (Row 67-76)
-    # ===================================================================
-
-    # R68: BAI — C7="Si", C8="No"
-    bai = g("bai_realizada")
-    if _chk(bai):
-        ws.cell(row=68, column=7).value = "  X Si"
-    elif _is_no(bai):
-        ws.cell(row=68, column=8).value = "X No"
-    bai_n = g("bai_casos_sospechosos")
-    if bai_n:
-        ws.cell(row=68, column=10).value = bai_n
-
-    # R69: BAC
-    bac = g("bac_realizada")
-    if _chk(bac):
-        ws.cell(row=69, column=7).value = "  X Si"
-    elif _is_no(bac):
-        ws.cell(row=69, column=8).value = "X No"
-    bac_n = g("bac_casos_sospechosos")
-    if bac_n:
-        ws.cell(row=69, column=10).value = bac_n
-
-    # R70: Vacunacion bloqueo — C7="Si", C8="No"
-    vac_bloq = g("vacunacion_bloqueo")
-    if _chk(vac_bloq):
-        ws.cell(row=70, column=7).value = "  X Si"
-    elif _is_no(vac_bloq):
-        ws.cell(row=70, column=8).value = "X No"
-
-    # R70: Monitoreo rapido — C14 "Si  No"
-    mon_rap = g("monitoreo_rapido_vacunacion")
-    if _chk(mon_rap):
-        ws.cell(row=70, column=14).value = "X Si            No"
-    elif _is_no(mon_rap):
-        ws.cell(row=70, column=14).value = "Si         X No"
-
-    # R71: Vacunacion barrido
-    vac_barr = g("vacunacion_barrido")
-    if _chk(vac_barr):
-        ws.cell(row=71, column=7).value = "  X Si"
-    elif _is_no(vac_barr):
-        ws.cell(row=71, column=8).value = "X No"
-
-    # R73-74: Fuente posible de contagio — labels with EMPTY adjacent cells
-    fc = g("fuente_posible_contagio", "").upper()
-    if "HOGAR" in fc or "CONTACTO" in fc:
-        ws.cell(row=73, column=1).value = "   X    Contacto en el hogar"
-    if "SERVICIO" in fc or "SALUD" in fc:
-        ws.cell(row=73, column=5).value = "X Servicio de salud"
-    if "EDUCATIVA" in fc or "ESCUELA" in fc:
-        ws.cell(row=73, column=7).value = "X Institución educativa"
-    if "PUBLICO" in fc or "PÚBLICO" in fc or "ESPACIO" in fc:
-        ws.cell(row=73, column=9).value = "X Espacio público"
-    if "COMUNIDAD" in fc:
-        ws.cell(row=73, column=13).value = "X"
-    if "EVENTO" in fc or "MASIVO" in fc:
-        ws.cell(row=74, column=1).value = "   X    Evento público masivo"
-    if "TRANSPORTE" in fc:
-        ws.cell(row=74, column=4).value = "X Transporte internacional"
-    if "DESCONOCIDO" in fc:
-        ws.cell(row=74, column=7).value = "X Desconocido"
-    fc_otro = g("fuente_contagio_otro")
-    if "OTRO" in fc or fc_otro:
-        ws.cell(row=74, column=9).value = f"X Otro: {fc_otro}"
-
-    # R75: Vitamina A — C5="Si", C6="No Desconocido"
-    vit_a = g("vitamina_a_administrada")
-    if _chk(vit_a):
-        ws.cell(row=75, column=5).value = " X Si"
-    elif _is_no(vit_a):
-        ws.cell(row=75, column=6).value = "X No"
-    elif _is_desc(vit_a):
-        ws.cell(row=75, column=7).value = "X"
-
-    vit_dosis = g("vitamina_a_dosis")
-    if vit_dosis:
-        ws.cell(row=75, column=9).value = vit_dosis
-
-    # ===================================================================
-    # SECTION VII: Laboratorio (Row 77-92)
-    # ===================================================================
-
-    # R78: Muestras obtenidas — G78:H78="Si Suero", I78:J78="Si Orina", K78="Si hisopado"
-    # These are labels. We need to mark the EMPTY cells adjacent to them.
-    suero = _chk(g("muestra_suero"))
-    orina = _chk(g("muestra_orina"))
-    hisopado = _chk(g("muestra_hisopado"))
-
-    if suero:
-        ws.cell(row=78, column=6).value = "X"
-    if orina:
-        ws.cell(row=78, column=7).value = "X Si Suero"  # prepend X
-    if hisopado:
-        ws.cell(row=78, column=9).value = "X Si Orina"
-
-    # Actually let me reconsider - the labels ARE at C7, C9, C11
-    # We mark by prepending X to the label text
-    if suero:
-        ws.cell(row=78, column=7).value = "X Si Suero"
-    if orina:
-        ws.cell(row=78, column=9).value = "X Si Orina"
-    if hisopado:
-        ws.cell(row=78, column=11).value = "X Si hisopado nasofaríngeo"
-
-    # R79: Motivo no recoleccion — append to label
-    motivo = g("motivo_no_recoleccion", g("motivo_no_3_muestras"))
-    if motivo:
-        label = ws.cell(row=79, column=1).value or ""
-        ws.cell(row=79, column=1).value = f"{label} {motivo}"
-
-    # Lab samples (rows 83-92)
-    # Structure per sample:
-    #   Col A-B: label (e.g. "Primera"/"Segunda"/"Orina"/"Hisopado")
-    #   Col C: fecha toma (EMPTY)
-    #   Col D-E: fecha envio (EMPTY merged)
-    #   Col F: antigeno label
-    #   Col G-I: tipo prueba labels (IgM/IgG/Avidez or RT-PCR)
-    #   Col J-L: resultado (EMPTY for values) — R82 has sub-headers IgM/IgG/Avidez
-    #   Col M: fecha resultado
-    #   Col N: secuenciacion
-
-    # Primera Suero (R83-84)
-    d, m, y = _parse_date(g("muestra_suero_fecha"))
-    if d:
-        ws.cell(row=83, column=3).value = f"{d}/{m}/{y}"
-
-    d_env, m_env, y_env = _parse_date(g("fecha_recepcion_laboratorio"))
-    if d_env:
-        ws.cell(row=83, column=4).value = f"{d_env}/{m_env}/{y_env}"
-
-    # Results — IgM col 10, IgG col 11, Avidez col 12
-    igm = g("resultado_igm_cualitativo")
-    igg = g("resultado_igg_cualitativo")
-    if igm:
-        ws.cell(row=83, column=10).value = igm
-    if igg:
-        ws.cell(row=83, column=11).value = igg
-
-    # Fecha resultado
-    d, m, y = _parse_date(g("fecha_resultado_laboratorio"))
-    if d:
-        ws.cell(row=83, column=13).value = f"{d}/{m}/{y}"
-
-    # Orina (R87-88)
-    d, m, y = _parse_date(g("muestra_orina_fecha"))
-    if d:
-        ws.cell(row=87, column=3).value = f"{d}/{m}/{y}"
-
-    pcr_orina = g("resultado_pcr_orina")
-    if pcr_orina:
-        ws.cell(row=87, column=10).value = pcr_orina
-
-    # Hisopado (R89-90)
-    d, m, y = _parse_date(g("muestra_hisopado_fecha"))
-    if d:
-        ws.cell(row=89, column=3).value = f"{d}/{m}/{y}"
-
-    pcr_hisop = g("resultado_pcr_hisopado")
-    if pcr_hisop:
-        ws.cell(row=89, column=10).value = pcr_hisop
-
-    # Process lab_muestras_json for detailed multi-sample data
-    lab_json = _safe_json_loads(g("lab_muestras_json"))
-    if lab_json and isinstance(lab_json, list):
-        for sample in lab_json:
-            if not isinstance(sample, dict):
-                continue
-            tipo = str(sample.get("tipo_muestra", "")).upper()
-            num = str(sample.get("numero_muestra", "1"))
-
-            if "SUERO" in tipo:
-                tr = 83 if num == "1" else 85  # Primera/Segunda suero
-            elif "ORINA" in tipo:
-                tr = 87
-            elif "HISOPADO" in tipo or "NASOFARINGEO" in tipo or "ASPIRADO" in tipo:
-                tr = 89
-            else:
-                tr = 91  # OTRO
-
-            d, m, y = _parse_date(str(sample.get("fecha_toma", "")))
-            if d:
-                ws.cell(row=tr, column=3).value = f"{d}/{m}/{y}"
-
-            d, m, y = _parse_date(str(sample.get("fecha_envio", "")))
-            if d:
-                ws.cell(row=tr, column=4).value = f"{d}/{m}/{y}"
-
-            res_igm = str(sample.get("resultado_igm", ""))
-            res_igg = str(sample.get("resultado_igg", ""))
-            res_avidez = str(sample.get("resultado_avidez", ""))
-            res_pcr = str(sample.get("resultado_pcr", ""))
-
-            if res_igm:
-                ws.cell(row=tr, column=10).value = res_igm
-            if res_igg:
-                ws.cell(row=tr, column=11).value = res_igg
-            if res_avidez:
-                ws.cell(row=tr, column=12).value = res_avidez
-
-            d, m, y = _parse_date(str(sample.get("fecha_resultado", "")))
-            if d:
-                ws.cell(row=tr, column=13).value = f"{d}/{m}/{y}"
-
-    # Secuenciacion (R91 C14 area — N81:N86 or N87:N88 or N89:N90 or N91:N92)
-    seq_res = g("secuenciacion_resultado")
-    seq_fecha = g("secuenciacion_fecha")
-    if seq_res or seq_fecha:
-        d, m, y = _parse_date(seq_fecha)
-        fecha_str = f" ({d}/{m}/{y})" if d else ""
-        ws.cell(row=91, column=14).value = f"{seq_res}{fecha_str}"
-
-    # ===================================================================
-    # SECTION VIII: Clasificacion (Row 93-109)
-    # ===================================================================
-
-    # R94: A94:E94="Clasificacion final", F94:J94="Criterio confirmacion", K94:N94="Criterio descarte"
-    # R95: A95:B95="Sarampion", C95:E95="Rubeola", F95:J95="Laboratorio", K95:M95="Laboratorial", N95="Clinico"
-    # R96: A96:B96="Descartado", C96:E96="Pendiente", F96:J96="Nexo epi", K96:M96="Rel. vacuna"
-    # R97: A97:E97="No cumple def", F97:J97="Clinico", K97:M97="Otro dx"
-
-    clasif = g("clasificacion_caso", "").upper()
-    # Prepend X to matching classification label
-    if "SARAMPION" in clasif or "SARAMPIÓN" in clasif:
-        ws.cell(row=95, column=1).value = "  X    Sarampión"
-    if "RUBEOLA" in clasif or "RUBÉOLA" in clasif:
-        ws.cell(row=95, column=3).value = "  X    Rubéola"
-    if "DESCARTADO" in clasif or "DESCARTA" in clasif:
-        ws.cell(row=96, column=1).value = "  X    Descartado"
-    if "PENDIENTE" in clasif:
-        ws.cell(row=96, column=3).value = "  X    Pendiente"
-    if "NO CUMPLE" in clasif or "DEFINICION" in clasif:
-        ws.cell(row=97, column=1).value = "  X   No cumple con la definición de caso"
-
-    # Criterio confirmacion
-    crit_conf = g("criterio_confirmacion", "").upper()
-    if "LABORATORIO" in crit_conf:
-        ws.cell(row=95, column=6).value = "  X    Laboratorio"
-    if "NEXO" in crit_conf or "EPIDEMIOLOG" in crit_conf:
-        ws.cell(row=96, column=6).value = "  X    Nexo epidemiológico"
-    if "CLINICO" in crit_conf or "CLÍNICO" in crit_conf:
-        ws.cell(row=97, column=6).value = "  X    Clínico"
-
-    # Criterio descarte
-    crit_desc = g("criterio_descarte", "").upper()
-    if "LABORATORI" in crit_desc:
-        ws.cell(row=95, column=11).value = "  X   Laboratorial"
-    if "CLINICO" in crit_desc or "CLÍNICO" in crit_desc:
-        ws.cell(row=95, column=14).value = "    X    Clínico"
-    if "VACUNA" in crit_desc:
-        ws.cell(row=96, column=11).value = "  X   Relacionado con la vacuna"
-    if "OTRO" in crit_desc:
-        ws.cell(row=97, column=11).value = f"  X   Otro: {g('criterio_descarte')}"
-
-    # R98: Fuente de infeccion de casos confirmados
-    # R99: A99:B99="Importado", C99:F99="Relacionado importacion", G99:H99="Pais importacion:"
-    # R100: A100:B100="Endemico", C100:F100="Fuente desconocida"
-    fuente_inf = g("fuente_infeccion", "").upper()
-    if "IMPORTADO" in fuente_inf and "RELACIONADO" not in fuente_inf:
-        ws.cell(row=99, column=1).value = "  X    Importado"
-    if "RELACIONADO" in fuente_inf:
-        ws.cell(row=99, column=3).value = "X Relacionado con la importación"
-    pais_imp = g("pais_importacion")
-    if pais_imp:
-        ws.cell(row=99, column=9).value = pais_imp
-    if "ENDEMICO" in fuente_inf or "ENDÉMICO" in fuente_inf:
-        ws.cell(row=100, column=1).value = "  X    Endémico"
-    if "DESCONOCID" in fuente_inf:
-        ws.cell(row=100, column=3).value = "   X     Fuente desconocida"
-
-    # R101: Contacto otro caso — C3="Si", C5="No", C6="Desconocido"
-    cont_otro = g("contacto_otro_caso")
-    if _chk(cont_otro):
-        ws.cell(row=101, column=2).value = "X"
-    elif _is_no(cont_otro):
-        ws.cell(row=101, column=4).value = "X"
-    elif _is_desc(cont_otro):
-        ws.cell(row=101, column=7).value = "X"
-
-    # R103-105: Analizado por
-    analizado = g("caso_analizado_por", "").upper()
-    if "CONAPI" in analizado:
-        ws.cell(row=103, column=1).value = "  X    CONAPI"
-    if "EPIDEMIOLOG" in analizado or "DIRECCION" in analizado:
-        ws.cell(row=103, column=3).value = "X Dirección de Epidemiológica y Gestión de riesgo"
-    if "COMISION" in analizado or "COMISIÓN" in analizado:
-        ws.cell(row=104, column=1).value = (
-            "  X    Comisión Nacional para verificar la interrupción "
-            "de la transmisión endémica"
-        )
-    analizado_otro = g("caso_analizado_por_otro")
-    if "OTRO" in analizado or analizado_otro:
-        ws.cell(row=105, column=1).value = f"  X    Otros: {analizado_otro}"
-
-    # R106-107: Condicion final del paciente
-    # R107: C1="Recuperado", C3="Con Secuelas", C6="Fallecido", C7="Desconocido"
-    condicion = g("condicion_final_paciente", g("condicion_egreso", "")).upper()
-    if "RECUPER" in condicion:
-        ws.cell(row=107, column=1).value = "X Recuperado"
-    elif "SECUELA" in condicion:
-        ws.cell(row=107, column=3).value = "X Con Secuelas"
-    elif "FALLEC" in condicion or "MUERT" in condicion:
-        ws.cell(row=107, column=6).value = "X Fallecido"
-    elif "DESCONOCID" in condicion:
-        ws.cell(row=107, column=7).value = "X Desconocido"
-
-    # Fecha defuncion — R106 C13 merged M106:N106 has template "     /     / "
-    d, m, y = _parse_date(g("fecha_defuncion"))
-    if d:
-        ws.cell(row=106, column=13).value = f"          {d}  /      {m}  / {y}"
-
-    # R108: Causa muerte — I108:N108 EMPTY merged
-    causa = g("causa_muerte_certificado")
-    if causa:
-        ws.cell(row=108, column=9).value = f"Causa de muerte según certificado de defunción: {causa}"
-
-    # R109: Observaciones — C2-C14 all EMPTY
-    obs = g("observaciones")
-    if obs:
-        ws.cell(row=109, column=2).value = obs
+
+class FichaBuilder:
+    def __init__(self, data):
+        self.d = data
+        self.el = []
+
+    def _a(self, e):
+        self.el.append(e)
+
+    def _sp(self, h=2):
+        self.el.append(Spacer(1, h))
+
+    def build(self):
+        self._page1()
+        self.el.append(PageBreak())
+        self._page2_with_contacts()
+        return self.el
+
+    # ===================== PAGE 1 =====================
+
+    def _page1(self):
+        self._header()
+        self._sp(2)
+        self._diagnostico()
+        self._sp(1)
+        self._definicion()
+        self._sp(2)
+        self._sec1()
+        self._sp(1)
+        self._sec2()
+        self._sp(1)
+        self._sec3()
+        self._sp(1)
+        self._sec4()
+
+    def _header(self):
+        d = self.d
+        # Header: Logo | Title | Version + top-right boxes
+        if LOGO_PATH:
+            try:
+                logo = Image(LOGO_PATH, width=38, height=38)
+            except Exception:
+                logo = _p('<b>MSPAS</b>', S_TITLE)
+        else:
+            logo = _p('<b>MSPAS</b>', S_TITLE)
+
+        title = Paragraph(
+            'MINISTERIO DE SALUD P\u00daBLICA Y ASISTENCIA SOCIAL<br/>'
+            '<font size="7.5">FICHA EPIDEMIOL\u00d3GICA DE VIGILANCIA DE SARAMPI\u00d3N RUB\u00c9OLA</font><br/>'
+            '<font size="6.5">Direcci\u00f3n de Epidemiolog\u00eda y Gesti\u00f3n del Riesgo</font>',
+            S_TITLE)
+
+        folio = _g(d, 'folio', _g(d, 'numero_ficha', ''))
+        no_caso = _g(d, 'no_caso', '')
+        codigo = _g(d, 'codigo_caso', '')
+        area = _g(d, 'area_salud_mspas', _g(d, 'departamento_residencia', ''))
+
+        right = Paragraph(
+            f'<font size="5.5">Versi\u00f3n 2026</font><br/>'
+            f'<font size="5">Folio: <b>{folio}</b></font><br/>'
+            f'<font size="5">No. caso: <b>{no_caso}</b></font><br/>'
+            f'<font size="5">C\u00f3digo: <b>{codigo}</b></font><br/>'
+            f'<font size="5">\u00c1rea: <b>{area}</b></font>',
+            ParagraphStyle('hdr_r', parent=S_VALUE_SM, alignment=TA_CENTER))
+
+        t = Table([[logo, title, right]],
+                  colWidths=[46, CONTENT_W - 46 - 110, 110],
+                  rowHeights=[48])
+        t.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ALIGN', (0,0), (0,0), 'CENTER'),
+            ('ALIGN', (1,0), (1,0), 'CENTER'),
+            ('ALIGN', (2,0), (2,0), 'CENTER'),
+            ('BOX', (0,0), (-1,-1), 0.8, BC),
+            ('LINEAFTER', (0,0), (0,0), 0.4, BC),
+            ('LINEAFTER', (1,0), (1,0), 0.4, BC),
+            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+        ]))
+        self._a(t)
+
+    def _diagnostico(self):
+        d = self.d
+        diag = _g(d, 'diagnostico_sospecha', _g(d, 'diagnostico_registrado', '')).upper()
+        is_sar = 'SARAMP' in diag or 'B05' in diag
+        is_rub = 'RUBEO' in diag or 'RUBE' in diag or 'B06' in diag
+        is_dengue = 'DENGUE' in diag or 'A90' in diag or 'A91' in diag
+        is_arbo = 'ARBO' in diag or 'ZIKA' in diag or 'CHIK' in diag
+        is_otra_febril = 'FEBRIL' in diag or 'EXANTEM' in diag
+        is_alta = 'ALTAMENTE' in diag
+        if not any([is_sar, is_rub, is_dengue, is_arbo, is_otra_febril, is_alta]):
+            is_sar = True
+
+        espec_arbo = _g(d, 'especifique_arbovirosis', '')
+        espec_febril = _g(d, 'especifique_febril', '')
+
+        row = [
+            _p('<b>Diagn\u00f3stico:</b>', S_LABEL),
+            _p(f'{_cb(is_sar)} Sarampi\u00f3n', S_CB_SM),
+            _p(f'{_cb(is_rub)} Rub\u00e9ola', S_CB_SM),
+            _p(f'{_cb(is_dengue)} Dengue', S_CB_SM),
+            _p(f'{_cb(is_arbo)} Otra Arbovirosis <font size="5">(Espec: {espec_arbo})</font>', S_CB_SM),
+            _p(f'{_cb(is_otra_febril)} Otra febril exantem\u00e1tica <font size="5">(Espec: {espec_febril})</font>', S_CB_SM),
+            _p(f'{_cb(is_alta)} Caso altamente sospechoso', S_CB_SM),
+        ]
+        self._a(_tbl([row], [0.10, 0.10, 0.09, 0.09, 0.22, 0.24, 0.16], 15,
+                      [('BACKGROUND', (0,0), (0,0), LIGHT_GRAY)]))
+
+    def _definicion(self):
+        self._a(Paragraph(
+            '<i>Sospecha rub\u00e9ola en:</i> Persona de cualquier edad en la que un trabajador '
+            'de salud sospeche infecci\u00f3n por rub\u00e9ola. '
+            '<i>Sospeche sarampi\u00f3n en:</i> Persona de cualquier edad que presente fiebre, '
+            'erupci\u00f3n y alguno de los siguientes: Tos, Coriza o Conjuntivitis.', S_DEF))
+
+    # -- Section 1: DATOS DE LA UNIDAD NOTIFICADORA --
+    def _sec1(self):
+        d = self.d
+        self._a(_section_hdr('1. DATOS DE LA UNIDAD NOTIFICADORA'))
+
+        # Row 1: Fecha Notificación | Dirección Área de Salud | Distrito de Salud | Servicio de Salud
+        self._a(_tbl([[
+            _date_lv('Fecha Notificaci\u00f3n', _g(d, 'fecha_notificacion')),
+            _lv('Direcci\u00f3n de \u00c1rea de Salud', _g(d, 'area_salud_mspas', _g(d, 'departamento_residencia'))),
+            _lv('Distrito de Salud', _g(d, 'distrito_salud_mspas')),
+            _lv('Servicio de Salud', _g(d, 'servicio_salud_mspas', _g(d, 'unidad_medica'))),
+        ]], [0.25, 0.25, 0.22, 0.28], 24))
+
+        # Row 2: Fecha Consulta | Fecha investig. domiciliaria | Nombre quien investiga | Cargo | Teléfono y correo
+        self._a(_tbl([[
+            _date_lv('Fecha Consulta', _g(d, 'fecha_registro_diagnostico', _g(d, 'fecha_captacion'))),
+            _date_lv('Fecha investig. domiciliaria', _g(d, 'fecha_inicio_investigacion')),
+            _lv('Nombre quien investiga', _g(d, 'nom_responsable')),
+            _lv('Cargo', _g(d, 'cargo_responsable')),
+            _lv('Tel\u00e9fono y correo', _g(d, 'telefono_responsable')),
+        ]], [0.20, 0.20, 0.28, 0.15, 0.17], 24))
+
+        # Row 3: Seguro Social / Establecimiento Privado
+        igss_u = _g(d, 'sector_vacunacion', _g(d, 'unidad_medica', '')).upper()
+        is_igss = 'IGSS' in igss_u
+        is_priv = 'PRIVAD' in igss_u
+        spec = _g(d, 'unidad_medica')
+
+        self._a(_tbl([[
+            _p(f'{_cb(is_igss)} <b>Seguro Social (IGSS)</b> Especifique: {spec if is_igss else ""}', S_CB),
+            _p(f'{_cb(is_priv)} <b>Establecimiento Privado</b> Especifique: {spec if is_priv else ""}', S_CB),
+        ]], [0.50, 0.50], 16))
+
+        # Row 4: Fuente de notificación (9 checkboxes)
+        fuente = _g(d, 'fuente_notificacion', '').upper()
+        is_serv = any(k in fuente for k in ('PUBLICA', 'PRIVADA', 'SERVICIO', 'SALUD'))
+        is_ic = 'CONTACTO' in fuente or 'INVESTIG' in fuente
+        is_lab = 'LABORAT' in fuente
+        is_com = 'COMUNIDAD' in fuente or 'RUMOR' in fuente
+        is_bai = 'BAI' in fuente or 'BUSQUEDA' in fuente
+        is_auto = 'AUTO' in fuente
+        is_bac = 'BAC' in fuente
+        is_otro = 'OTRO' in fuente
+        is_bal = 'BAL' in fuente
+        if fuente and not any([is_serv, is_ic, is_lab, is_com, is_bai, is_auto, is_bac, is_otro, is_bal]):
+            is_serv = True
+
+        ft = ' '.join(f'{_cb_sm(v)} {l}' for l, v in [
+            ('Serv.Salud', is_serv), ('Invest.Contacto', is_ic), ('Laborat.', is_lab),
+            ('Comunidad', is_com), ('BAI', is_bai), ('Autonot.', is_auto),
+            ('BAC', is_bac), ('Otro', is_otro), ('BAL', is_bal),
+        ])
+        self._a(_tbl([[
+            _p('<b>Fuente de notificaci\u00f3n:</b>', S_LABEL),
+            _p(ft, S_CB_XS),
+        ]], [0.18, 0.82], 15))
+
+    # -- Section 2: INFORMACIÓN DEL PACIENTE --
+    def _sec2(self):
+        d = self.d
+        self._a(_section_hdr('2. INFORMACI\u00d3N DEL PACIENTE'))
+
+        # Row 1: Nombres | Apellidos | Sexo M/F
+        sx = _g(d, 'sexo', '').upper()
+        self._a(_tbl([[
+            _lv('Nombres', _g(d, 'nombres')),
+            _lv('Apellidos', _g(d, 'apellidos')),
+            _p(f'<b><font size="6">Sexo:</font></b> {_cb(sx=="M")} M {_cb(sx=="F")} F', S_CB),
+        ]], [0.30, 0.40, 0.30], 20))
+
+        # Row 2: Fecha Nacimiento | Edad Años/Meses/Días | CUI (DPI/Pasaporte/Otro)
+        self._a(_tbl([[
+            _date_lv('Fecha de Nacimiento', _g(d, 'fecha_nacimiento')),
+            _lv('Edad A\u00f1os', _g(d, 'edad_anios')),
+            _lv('Meses', _g(d, 'edad_meses')),
+            _lv('D\u00edas', _g(d, 'edad_dias')),
+            _lv('C\u00f3digo \u00danico Identificaci\u00f3n (DPI/Pasaporte/Otro)', _g(d, 'cui', _g(d, 'afiliacion'))),
+        ]], [0.22, 0.08, 0.08, 0.08, 0.54], 24))
+
+        # Row 3: Nombre Tutor | Parentesco | CUI Tutor
+        self._a(_tbl([[
+            _lv('Nombre del Tutor/Encargado', _g(d, 'nombre_encargado')),
+            _lv('Parentesco', _g(d, 'parentesco_encargado')),
+            _lv('CUI del Tutor', _g(d, 'cui_encargado')),
+        ]], [0.45, 0.20, 0.35], 20))
+
+        # Row 4: Pueblo | Extranjero | Migrante | Embarazada | Trimestre
+        pueblo = _g(d, 'pueblo_etnia', '').upper()
+        is_lad = 'LADINO' in pueblo or 'MESTIZ' in pueblo
+        is_maya = 'MAYA' in pueblo
+        is_gar = 'GARIFUNA' in pueblo or 'GARÍFUNA' in pueblo
+        is_xin = 'XINCA' in pueblo
+        extran = _g(d, 'extranjero', '').upper()
+        migran = _g(d, 'migrante', '').upper()
+        emb = _g(d, 'esta_embarazada', '').upper()
+        trimestre = _g(d, 'trimestre_embarazo', '')
+
+        self._a(_tbl([[
+            _p(f'<b><font size="5">Pueblo:</font></b> {_cb_sm(is_lad)} Ladino {_cb_sm(is_maya)} Maya {_cb_sm(is_gar)} Gar\u00edfuna {_cb_sm(is_xin)} Xinca', S_CB_SM),
+            _p(f'<b><font size="5">Extranjero:</font></b> {_cb_sm(_chk(extran))} S\u00ed {_cb_sm(_is_no(extran))} No', S_CB_SM),
+            _p(f'<b><font size="5">Migrante:</font></b> {_cb_sm(_chk(migran))} S\u00ed {_cb_sm(_is_no(migran))} No', S_CB_SM),
+            _p(f'<b><font size="5">Embarazada:</font></b> {_cb_sm(_chk(emb))} S\u00ed {_cb_sm(_is_no(emb))} No', S_CB_SM),
+            _lv('Trimestre', trimestre),
+        ]], [0.35, 0.15, 0.15, 0.18, 0.17], 16))
+
+        # Row 5: Ocupación | Escolaridad | Teléfono
+        self._a(_tbl([[
+            _lv('Ocupaci\u00f3n', _g(d, 'ocupacion')),
+            _lv('Escolaridad', _g(d, 'escolaridad')),
+            _lv('Tel\u00e9fono', _g(d, 'telefono_encargado', _g(d, 'telefono_paciente'))),
+        ]], [0.35, 0.35, 0.30], 20))
+
+        # Row 6: País Residencia | Departamento | Municipio
+        self._a(_tbl([[
+            _lv('Pa\u00eds de Residencia', _g(d, 'pais_residencia', 'Guatemala')),
+            _lv('Departamento', _g(d, 'departamento_residencia')),
+            _lv('Municipio', _g(d, 'municipio_residencia')),
+        ]], [0.30, 0.35, 0.35], 20))
+
+        # Row 7: Lugar Poblado
+        self._a(_tbl([[
+            _lv('Lugar Poblado', _g(d, 'poblado')),
+        ]], [1.0], 18))
+
+        # Row 8: Dirección de Residencia
+        self._a(_tbl([[
+            _lv('Direcci\u00f3n de Residencia', _g(d, 'direccion_exacta')),
+        ]], [1.0], 18))
+
+    # -- Section 3: ANTECEDENTES MÉDICOS Y DE VACUNACIÓN --
+    def _sec3(self):
+        d = self.d
+        self._a(_section_hdr('3. ANTECEDENTES M\u00c9DICOS Y DE VACUNACI\u00d3N'))
+
+        # Row 1: Paciente vacunado Si/No/Desc/Verbal | Antecedentes médicos Si/No/Desc
+        vac = _g(d, 'vacunado', '').upper()
+        antec = _g(d, 'antecedentes_medicos', '').upper()
+        desn = _g(d, 'desnutricion', '').upper()
+        inmuno = _g(d, 'inmunocompromiso', '').upper()
+        cronica = _g(d, 'enfermedad_cronica', '').upper()
+
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Paciente Vacunado:</font></b> '
+               f'{_cb(vac in ("SI","SÍ"))} S\u00ed {_cb(vac=="NO")} No '
+               f'{_cb(_is_desc(vac))} Desc. {_cb(vac=="VERBAL")} Verbal', S_CB_SM),
+            _p(f'<b><font size="6">Antecedentes m\u00e9dicos:</font></b> '
+               f'{_cb(_chk(antec))} S\u00ed {_cb(_is_no(antec))} No {_cb(_is_desc(antec))} Desc.<br/>'
+               f'<font size="5">{_cb_sm(_chk(desn))} Desnutrici\u00f3n '
+               f'{_cb_sm(_chk(inmuno))} Inmunocompromiso '
+               f'{_cb_sm(_chk(cronica))} Enf.Cr\u00f3nica</font>', S_CB_SM),
+        ]], [0.45, 0.55], 24))
+
+        # Vaccine table: SPR / SR / SPRV rows x (Dosis | Fecha | Fuente Info | Sector)
+        # Header
+        fuente_vac = _g(d, 'fuente_info_vacuna', '').upper()
+        sector_vac = _g(d, 'sector_vacunacion', '').upper()
+
+        vac_hdr = [
+            _p('<b>Vacuna</b>', S_HDR),
+            _p('<b>Dosis</b>', S_HDR),
+            _p('<b>Fecha</b>', S_HDR),
+            _p('<b>Fuente de Informaci\u00f3n</b>', S_HDR),
+            _p('<b>Sector</b>', S_HDR),
+        ]
+
+        # Helper to build per-row fuente/sector legends (only checked if row has data)
+        def _fuente_for(has_data):
+            if has_data:
+                return (
+                    f'{_cb_sm("CARNE" in fuente_vac or "CARNÉ" in fuente_vac)} Carn\u00e9 '
+                    f'{_cb_sm("SIGSA 5A" in fuente_vac or "SIGSA5A" in fuente_vac)} SIGSA 5a '
+                    f'{_cb_sm("SIGSA 5B" in fuente_vac or "SIGSA5B" in fuente_vac)} SIGSA 5B '
+                    f'{_cb_sm("REGISTRO" in fuente_vac)} Reg.\u00danico '
+                    f'{_cb_sm("VERBAL" in fuente_vac)} Verbal'
+                )
+            return (
+                f'{_cb_sm(False)} Carn\u00e9 '
+                f'{_cb_sm(False)} SIGSA 5a '
+                f'{_cb_sm(False)} SIGSA 5B '
+                f'{_cb_sm(False)} Reg.\u00danico '
+                f'{_cb_sm(False)} Verbal'
+            )
+
+        def _sector_for(has_data):
+            if has_data:
+                return (
+                    f'{_cb_sm("MSPAS" in sector_vac)} MSPAS '
+                    f'{_cb_sm("IGSS" in sector_vac)} IGSS '
+                    f'{_cb_sm("PRIVAD" in sector_vac)} Privado'
+                )
+            return (
+                f'{_cb_sm(False)} MSPAS '
+                f'{_cb_sm(False)} IGSS '
+                f'{_cb_sm(False)} Privado'
+            )
+
+        # SPR row
+        dosis_spr = _g(d, 'numero_dosis_spr', _g(d, 'dosis_spr', ''))
+        fecha_spr = _g(d, 'fecha_ultima_dosis_spr', _g(d, 'fecha_ultima_dosis', ''))
+        dd_s, mm_s, yy_s = _parse_date(fecha_spr)
+        f_spr = f'{dd_s}/{mm_s}/{yy_s}' if dd_s else ''
+        has_spr = bool(dosis_spr or dd_s)
+
+        # SR row
+        dosis_sr = _g(d, 'numero_dosis_sr', '')
+        fecha_sr = _g(d, 'fecha_ultima_dosis_sr', '')
+        dd_sr, mm_sr, yy_sr = _parse_date(fecha_sr)
+        f_sr = f'{dd_sr}/{mm_sr}/{yy_sr}' if dd_sr else ''
+        has_sr = bool(dosis_sr or dd_sr)
+
+        # SPRV row
+        dosis_sprv = _g(d, 'numero_dosis_sprv', '')
+        fecha_sprv = _g(d, 'fecha_ultima_dosis_sprv', '')
+        dd_sv, mm_sv, yy_sv = _parse_date(fecha_sprv)
+        f_sprv = f'{dd_sv}/{mm_sv}/{yy_sv}' if dd_sv else ''
+        has_sprv = bool(dosis_sprv or dd_sv)
+
+        vac_rows = [
+            vac_hdr,
+            [_p('<b>SPR</b>', S_VALUE_SM), _p(dosis_spr, S_VALUE_C), _p(f_spr, S_VALUE_C),
+             _p(_fuente_for(has_spr), S_CB_XS), _p(_sector_for(has_spr), S_CB_XS)],
+            [_p('<b>SR</b>', S_VALUE_SM), _p(dosis_sr, S_VALUE_C), _p(f_sr, S_VALUE_C),
+             _p(_fuente_for(has_sr), S_CB_XS), _p(_sector_for(has_sr), S_CB_XS)],
+            [_p('<b>SPRV</b>', S_VALUE_SM), _p(dosis_sprv, S_VALUE_C), _p(f_sprv, S_VALUE_C),
+             _p(_fuente_for(has_sprv), S_CB_XS), _p(_sector_for(has_sprv), S_CB_XS)],
+        ]
+
+        self._a(_tbl(vac_rows, [0.10, 0.07, 0.15, 0.45, 0.23],
+                      [14, 16, 16, 16],
+                      [('BACKGROUND', (0,0), (-1,0), LIGHT_GRAY),
+                       ('ALIGN', (1,0), (2,-1), 'CENTER')]))
+
+    # -- Section 4: DATOS CLÍNICOS --
+    def _sec4(self):
+        d = self.d
+        self._a(_section_hdr('4. DATOS CL\u00cdNICOS'))
+
+        # Row 1: Fecha Inicio Síntomas | Fecha Inicio Fiebre | Fecha Inicio Exantema/Rash
+        self._a(_tbl([[
+            _date_lv('Fecha Inicio S\u00edntomas', _g(d, 'fecha_inicio_sintomas')),
+            _date_lv('Fecha Inicio Fiebre', _g(d, 'fecha_inicio_fiebre')),
+            _date_lv('Fecha Inicio Exantema/Rash', _g(d, 'fecha_inicio_erupcion')),
+        ]], [0.34, 0.33, 0.33], 24))
+
+        # Signs table: 2 parallel columns
+        left = [('Fiebre', 'signo_fiebre'), ('Exantema', 'signo_exantema'),
+                ('Tos', 'signo_tos'), ('Conjuntivitis', 'signo_conjuntivitis')]
+        right = [('Coriza', 'signo_coriza'), ('Koplik', 'signo_manchas_koplik'),
+                 ('Artralgia', 'signo_artralgia'), ('Adenopat\u00edas', 'signo_adenopatias')]
+
+        hdr = [_p('<b>Signo</b>', S_HDR), _p('<b>S\u00ed</b>', S_HDR), _p('<b>No</b>', S_HDR),
+               _p('<b>Desc</b>', S_HDR),
+               _p('<b>Signo</b>', S_HDR), _p('<b>S\u00ed</b>', S_HDR), _p('<b>No</b>', S_HDR),
+               _p('<b>Desc</b>', S_HDR)]
+
+        rows = [hdr]
+        for i in range(4):
+            ln, lk = left[i]
+            rn, rk = right[i]
+            lv, rv = _g(d, lk, ''), _g(d, rk, '')
+            rows.append([
+                _p(ln, S_VALUE_SM), _p(_cb(_chk(lv)), S_VALUE_C), _p(_cb(_is_no(lv)), S_VALUE_C), _p(_cb(_is_desc(lv)), S_VALUE_C),
+                _p(rn, S_VALUE_SM), _p(_cb(_chk(rv)), S_VALUE_C), _p(_cb(_is_no(rv)), S_VALUE_C), _p(_cb(_is_desc(rv)), S_VALUE_C),
+            ])
+
+        sw = [0.15, 0.055, 0.055, 0.07, 0.02, 0.15, 0.055, 0.055, 0.07]
+        # The middle col (0.02) is a separator — but that adds a 9th col.
+        # Simpler: use 8 cols like before
+        sw = [0.18, 0.055, 0.055, 0.07, 0.18, 0.055, 0.055, 0.07]
+        rem = 1.0 - sum(sw)
+        sw[3] += rem / 2
+        sw[7] += rem / 2
+
+        st = _tbl(rows, sw, [13] * 5,
+                  [('BACKGROUND', (0,0), (-1,0), LIGHT_GRAY),
+                   ('ALIGN', (1,0), (3,-1), 'CENTER'),
+                   ('ALIGN', (5,0), (7,-1), 'CENTER')])
+        self._a(st)
+
+        # Row: Temp C°
+        self._a(_tbl([[
+            _lv('Temperatura C\u00b0', _g(d, 'temperatura_celsius')),
+        ]], [1.0], 16))
+
+        # Hospitalización
+        hosp = _g(d, 'hospitalizado', '').upper()
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Hospitalizaci\u00f3n:</font></b> {_cb(hosp in ("SI","SÍ"))} S\u00ed {_cb(hosp=="NO")} No {_cb(_is_desc(hosp))} Desc.', S_CB),
+            _lv('Nombre Hospital', _g(d, 'hosp_nombre')),
+            _date_lv('Fecha Hospitalizaci\u00f3n', _g(d, 'hosp_fecha')),
+        ]], [0.30, 0.40, 0.30], 22))
+
+        # Complicaciones
+        comp = _g(d, 'complicaciones', '').upper()
+        comp_det = _g(d, 'complicaciones_detalle', '').upper()
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Complicaciones:</font></b> {_cb(_chk(comp))} S\u00ed {_cb(_is_no(comp))} No {_cb(_is_desc(comp))} Desc.', S_CB_SM),
+            _p(f'{_cb_sm("NEUMON" in comp_det)} Neumon\u00eda '
+               f'{_cb_sm("ENCEFAL" in comp_det)} Encefalitis '
+               f'{_cb_sm("DIARR" in comp_det)} Diarrea '
+               f'{_cb_sm("TROMB" in comp_det)} Trombocitopenia '
+               f'{_cb_sm("OTITIS" in comp_det)} Otitis '
+               f'{_cb_sm("CEGUE" in comp_det)} Ceguera '
+               f'{_cb_sm("OTRA" in comp_det)} Otra', S_CB_XS),
+        ]], [0.30, 0.70], 16))
+
+        # Aislamiento Respiratorio
+        aisl = _g(d, 'aislamiento_respiratorio', '').upper()
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Aislamiento Respiratorio:</font></b> '
+               f'{_cb(_chk(aisl))} S\u00ed {_cb(_is_no(aisl))} No {_cb(_is_desc(aisl))} Desc.', S_CB),
+            _date_lv('Fecha Aislamiento', _g(d, 'fecha_aislamiento')),
+        ]], [0.55, 0.45], 20))
+
+    # ===================== PAGE 2 =====================
+
+    # -- Section 5: FACTORES DE RIESGO --
+    def _sec5(self):
+        d = self.d
+        self._a(_section_hdr('5. FACTORES DE RIESGO'))
+
+        # Caso confirmado en comunidad
+        caso_com = _g(d, 'caso_sospechoso_comunidad_3m', '')
+        self._a(_tbl([[
+            _p('<b><font size="6">Caso confirmado en la comunidad:</font></b>', S_LABEL),
+            _p(f'{_cb(_chk(caso_com))} S\u00ed', S_CB_SM),
+            _p(f'{_cb(_is_no(caso_com))} No', S_CB_SM),
+            _p(f'{_cb(_is_desc(caso_com))} Desconocido', S_CB_SM),
+        ]], [0.45, 0.12, 0.12, 0.31], 14))
+
+        # Contacto con caso 7-23 días
+        cont_7_23 = _g(d, 'contacto_sospechoso_7_23', '')
+        self._a(_tbl([[
+            _p('<b><font size="6">Contacto con caso 7-23 d\u00edas previos:</font></b>', S_LABEL),
+            _p(f'{_cb(_chk(cont_7_23))} S\u00ed', S_CB_SM),
+            _p(f'{_cb(_is_no(cont_7_23))} No', S_CB_SM),
+            _p(f'{_cb(_is_desc(cont_7_23))} Desconocido', S_CB_SM),
+        ]], [0.45, 0.12, 0.12, 0.31], 14))
+
+        # Viajó 7-23 días
+        viajo = _g(d, 'viajo_7_23_previo', '')
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Viaj\u00f3 7-23 d\u00edas previos:</font></b> {_cb(_chk(viajo))} S\u00ed {_cb(_is_no(viajo))} No', S_CB),
+            _lv('Pa\u00eds/Depto/Municipio', _g(d, 'lugar_viaje', _g(d, 'procedencia_contacto'))),
+        ]], [0.40, 0.60], 18))
+
+        # Fecha Salida | Fecha Entrada | Persona viajó exterior | Fecha Retorno
+        self._a(_tbl([[
+            _date_lv('Fecha Salida', _g(d, 'fecha_salida_viaje')),
+            _date_lv('Fecha Entrada', _g(d, 'fecha_entrada_viaje')),
+            _p(f'<b><font size="6">Persona viaj\u00f3 al exterior:</font></b> '
+               f'{_cb(_chk(_g(d, "persona_viajo_exterior")))} S\u00ed '
+               f'{_cb(_is_no(_g(d, "persona_viajo_exterior")))} No', S_CB_SM),
+            _date_lv('Fecha Retorno', _g(d, 'fecha_retorno_viaje')),
+        ]], [0.22, 0.22, 0.34, 0.22], 24))
+
+        # Contacto embarazada
+        cont_emb = _g(d, 'contacto_embarazada', '')
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Contacto con Embarazada:</font></b> '
+               f'{_cb(_chk(cont_emb))} S\u00ed {_cb(_is_no(cont_emb))} No '
+               f'{_cb(_is_desc(cont_emb))} Desconocido', S_CB),
+        ]], [1.0], 14))
+
+        # Fuente posible de contagio (9 checkboxes)
+        fuente_cont = _g(d, 'fuente_posible_contagio', '').upper()
+        fc_items = [
+            ('Hogar', 'HOGAR'), ('Trabajo', 'TRABAJO'), ('Escuela', 'ESCUELA'),
+            ('Viaje', 'VIAJE'), ('Hospital', 'HOSPITAL'), ('Mercado', 'MERCADO'),
+            ('Transporte', 'TRANSPORTE'), ('Evento masivo', 'EVENTO'),
+            ('Otro', 'OTRO'),
+        ]
+        fc_str = ' '.join(f'{_cb_sm(k in fuente_cont)} {l}' for l, k in fc_items)
+        self._a(_tbl([[
+            _p('<b><font size="6">Fuente posible de contagio:</font></b>', S_LABEL),
+            _p(fc_str, S_CB_XS),
+        ]], [0.22, 0.78], 15))
+
+        # Contacto confirmado
+        cont_conf = _g(d, 'contacto_confirmado', '')
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Contacto con caso confirmado de sarampi\u00f3n o rub\u00e9ola:</font></b> '
+               f'{_cb(_chk(cont_conf))} S\u00ed {_cb(_is_no(cont_conf))} No', S_CB),
+        ]], [1.0], 14))
+
+    # -- Section 6: ACCIONES DE RESPUESTA --
+    def _sec6(self):
+        d = self.d
+        self._a(_section_hdr('6. ACCIONES DE RESPUESTA'))
+
+        bai = _g(d, 'busqueda_activa_institucional', '')
+        bai_num = _g(d, 'bai_numero_casos', '')
+        bac = _g(d, 'busqueda_activa_comunitaria', '')
+        bac_num = _g(d, 'bac_numero_casos', '')
+        blq = _g(d, 'vacunacion_bloqueo', '')
+        mrc = _g(d, 'monitoreo_rapido_coberturas', '')
+        barrido = _g(d, 'barrido_vacunacion', '')
+        vitA = _g(d, 'vitamina_a', '')
+        vitA_dosis = _g(d, 'vitamina_a_dosis', '')
+
+        self._a(_tbl([
+            [_p(f'<b>BAI:</b> {_cb(_chk(bai))} S\u00ed {_cb(_is_no(bai))} No', S_CB),
+             _lv('N\u00famero de casos BAI', bai_num),
+             _p(f'<b>BAC:</b> {_cb(_chk(bac))} S\u00ed {_cb(_is_no(bac))} No', S_CB),
+             _lv('N\u00famero de casos BAC', bac_num)],
+            [_p(f'<b>Vacunaci\u00f3n bloqueo:</b> {_cb(_chk(blq))} S\u00ed {_cb(_is_no(blq))} No', S_CB),
+             _p(f'<b>Monitoreo r\u00e1pido:</b> {_cb(_chk(mrc))} S\u00ed {_cb(_is_no(mrc))} No', S_CB),
+             _p(f'<b>Barrido:</b> {_cb(_chk(barrido))} S\u00ed {_cb(_is_no(barrido))} No', S_CB),
+             _p(f'<b>Vitamina A:</b> {_cb(_chk(vitA))} S\u00ed {_cb(_is_no(vitA))} No Dosis: {vitA_dosis}', S_CB_SM)],
+        ], [0.25, 0.25, 0.25, 0.25], [15, 15]))
+
+        self._a(_tbl([[_lv('Observaciones acciones de respuesta', _g(d, 'observaciones_acciones'))]], [1.0], 20))
+
+    # -- Section 7: LABORATORIO --
+    def _sec7(self):
+        d = self.d
+        self._a(_section_hdr('7. LABORATORIO'))
+
+        # Tipo muestra checkboxes
+        tipo_m = _g(d, 'tipo_muestra', '').upper()
+        rec = _g(d, 'recolecto_muestra', '').upper()
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Tipo Muestra:</font></b> '
+               f'{_cb_sm("SUERO" in tipo_m or rec in ("SI","SÍ"))} Suero '
+               f'{_cb_sm("ORINA" in tipo_m)} Orina '
+               f'{_cb_sm("HISOP" in tipo_m)} Hisopado NF '
+               f'{_cb_sm("OTRO" in tipo_m)} Otro', S_CB_SM),
+            _lv('\u00bfPor qu\u00e9 no 3 muestras?', _g(d, 'motivo_no_3_muestras', _g(d, 'motivo_no_recoleccion'))),
+        ]], [0.45, 0.55], 18))
+
+        # Lab results matrix: 5 rows x multiple cols
+        # Cols: Muestra | No.Muestra | F.Toma | F.Envío | Sarampión(IgM|IgG|Avidez) | Rubéola(IgM|IgG|Avidez) | Secuenciación
+        cw = [0.10, 0.07, 0.08, 0.08, 0.065, 0.065, 0.065, 0.065, 0.065, 0.065, 0.08]
+        rem = 1.0 - sum(cw)
+        cw[-1] += rem
+
+        # Header row 1: spans for Sarampión and Rubéola
+        h1 = [_p('', S_HDR), _p('', S_HDR), _p('', S_HDR), _p('', S_HDR),
+              _p('<b>Sarampi\u00f3n</b>', S_HDR), '', '',
+              _p('<b>Rub\u00e9ola</b>', S_HDR), '', '',
+              _p('', S_HDR)]
+
+        # Header row 2
+        h2 = [_p('<b>Muestra</b>', S_HDR), _p('<b>No.</b>', S_HDR),
+              _p('<b>F.Toma</b>', S_HDR), _p('<b>F.Env\u00edo</b>', S_HDR),
+              _p('<b>IgM</b>', S_HDR), _p('<b>IgG</b>', S_HDR), _p('<b>Avidez</b>', S_HDR),
+              _p('<b>IgM</b>', S_HDR), _p('<b>IgG</b>', S_HDR), _p('<b>Avidez</b>', S_HDR),
+              _p('<b>Secuenc.</b>', S_HDR)]
+
+        muestras = [
+            ('Suero 1', 'muestra_suero_fecha', 'muestra_suero_envio', 'suero'),
+            ('Suero 2', 'muestra_suero2_fecha', 'muestra_suero2_envio', 'suero2'),
+            ('Orina', 'muestra_orina_fecha', 'muestra_orina_envio', 'orina'),
+            ('Hisopado NF', 'muestra_hisopado_fecha', 'muestra_hisopado_envio', 'hisopado'),
+            ('Otro', 'muestra_otro_fecha', 'muestra_otro_envio', 'otro'),
+        ]
+
+        def _res(v):
+            vu = (v or '').upper()
+            if vu in ('POSITIVO', 'POS', 'REACTIVO', '+', 'SI', '1'): return '+'
+            if vu in ('NEGATIVO', 'NEG', 'NO REACTIVO', '-', 'NO', '0'): return '-'
+            if vu in ('INDETERMINADO', 'IND', '3'): return '?'
+            if vu in ('INADECUADO', 'INADEC', '2'): return 'Inadec'
+            return (v or '')[:6]
+
+        data_rows = []
+        for ml, ft, fe, pfx in muestras:
+            dd_t, mm_t, yy_t = _parse_date(_g(d, ft))
+            dd_e, mm_e, yy_e = _parse_date(_g(d, fe))
+            ft_s = f'{dd_t}/{mm_t}' if dd_t else ''
+            fe_s = f'{dd_e}/{mm_e}' if dd_e else ''
+            no_muestra = _g(d, f'no_muestra_{pfx}', '')
+
+            data_rows.append([
+                _p(ml, S_VALUE_SM), _p(no_muestra, S_VALUE_C),
+                _p(ft_s, S_VALUE_C), _p(fe_s, S_VALUE_C),
+                _p(_res(_g(d, f'resultado_igm_sarampion_{pfx}', _g(d, 'resultado_igm_cualitativo', '') if pfx == 'suero' else '')), S_VALUE_C),
+                _p(_res(_g(d, f'resultado_igg_sarampion_{pfx}', _g(d, 'resultado_igg_cualitativo', '') if pfx == 'suero' else '')), S_VALUE_C),
+                _p(_res(_g(d, f'resultado_avidez_sarampion_{pfx}', '')), S_VALUE_C),
+                _p(_res(_g(d, f'resultado_igm_rubeola_{pfx}', '')), S_VALUE_C),
+                _p(_res(_g(d, f'resultado_igg_rubeola_{pfx}', '')), S_VALUE_C),
+                _p(_res(_g(d, f'resultado_avidez_rubeola_{pfx}', '')), S_VALUE_C),
+                _p(_res(_g(d, f'resultado_secuenciacion_{pfx}', '')), S_VALUE_C),
+            ])
+
+        all_rows = [h1, h2] + data_rows
+        rh = [13, 14] + [14] * len(data_rows)
+
+        self._a(_tbl(all_rows, cw, rh, [
+            ('BACKGROUND', (0,0), (-1,1), LIGHT_GRAY),
+            ('ALIGN', (1,0), (-1,-1), 'CENTER'),
+            ('SPAN', (4,0), (6,0)),   # Sarampión
+            ('SPAN', (7,0), (9,0)),   # Rubéola
+            ('SPAN', (0,0), (0,1)),   # Muestra
+            ('SPAN', (1,0), (1,1)),   # No.
+            ('SPAN', (2,0), (2,1)),   # F.Toma
+            ('SPAN', (3,0), (3,1)),   # F.Envío
+            ('SPAN', (10,0), (10,1)), # Secuenc
+        ]))
+
+        # Results legend
+        self._a(_tbl([[
+            _p('<font size="4.5"><b>Resultados:</b> 0=Negativo  1=Positivo  2=Inadecuado  3=Indeterminado  4=No procesado  5=Alta avidez  6=Baja avidez</font>', S_LEGEND),
+        ]], [1.0], 10))
+
+        # Lab receptor
+        self._a(_tbl([[
+            _lv('Laboratorio receptor', _g(d, 'laboratorio_receptor', 'Lab. Nacional de Salud (LNS)')),
+            _date_lv('Fecha recepci\u00f3n LNS', _g(d, 'fecha_recepcion_laboratorio')),
+            _date_lv('Fecha resultado LNS', _g(d, 'fecha_resultado_laboratorio')),
+        ]], [0.40, 0.30, 0.30], 18))
+
+    def _page2_with_contacts(self):
+        self._sec5()
+        self._sp(1)
+        self._sec6()
+        self._sp(1)
+        self._sec7()
+        self._sp(1)
+        self._sec8()
+
+    # -- Section 8: CLASIFICACIÓN --
+    def _sec8(self):
+        """Section 8 with classification, then signatures."""
+        d = self.d
+        self._a(_section_hdr('8. CLASIFICACI\u00d3N'))
+
+        # Clasificación Final
+        cl = _g(d, 'clasificacion_caso', '').upper()
+        self._a(_tbl([[
+            _p('<b><font size="6">Clasificaci\u00f3n Final:</font></b>', S_LABEL),
+            _p(f'{_cb("SARAMP" in cl)} Sarampi\u00f3n '
+               f'{_cb("RUBEO" in cl or "RUBÉO" in cl)} Rub\u00e9ola '
+               f'{_cb("DESCART" in cl)} Descartado '
+               f'{_cb("PENDIENT" in cl)} Pendiente '
+               f'{_cb("NO CUMPLE" in cl)} No cumple def.', S_CB_SM),
+        ]], [0.18, 0.82], 16))
+
+        # Criterio Confirmación
+        crit_conf = _g(d, 'criterio_confirmacion', '').upper()
+        cont_otro = _g(d, 'contacto_otro_caso', '')
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Criterio Confirmaci\u00f3n:</font></b> '
+               f'{_cb("LAB" in crit_conf)} Laboratorio '
+               f'{_cb("NEXO" in crit_conf)} Nexo Epidemiol\u00f3gico '
+               f'{_cb("CLIN" in crit_conf)} Cl\u00ednico', S_CB_SM),
+            _p(f'<b><font size="6">Contacto Otro Caso:</font></b> '
+               f'{_cb(_chk(cont_otro))} S\u00ed {_cb(_is_no(cont_otro))} No', S_CB_SM),
+        ]], [0.65, 0.35], 16))
+
+        # Criterio Descartar
+        crit_desc = _g(d, 'criterio_descarte', '').upper()
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Criterio para Descartar:</font></b> '
+               f'{_cb("LAB" in crit_desc)} Laboratorio '
+               f'{_cb("VACUN" in crit_desc)} Vacuna '
+               f'{_cb("CLIN" in crit_desc)} Cl\u00ednico', S_CB_SM),
+        ]], [1.0], 15))
+
+        # Fuente Infección
+        fuente_inf = _g(d, 'fuente_infeccion', '').upper()
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Fuente Infecci\u00f3n:</font></b> '
+               f'{_cb("IMPORT" in fuente_inf)} Importado '
+               f'{_cb("RELACION" in fuente_inf)} Relacionado '
+               f'{_cb("ENDEM" in fuente_inf or "ENDÉM" in fuente_inf)} End\u00e9mico '
+               f'{_cb("DESCON" in fuente_inf)} Desconocida', S_CB_SM),
+            _lv('Pa\u00eds', _g(d, 'pais_fuente_infeccion')),
+        ]], [0.70, 0.30], 16))
+
+        # Caso Analizado Por
+        analiz = _g(d, 'caso_analizado_por', '').upper()
+        self._a(_tbl([[
+            _p(f'<b><font size="6">Caso Analizado Por:</font></b> '
+               f'{_cb("CONAPI" in analiz)} CONAPI '
+               f'{_cb("DEGR" in analiz)} DEGR '
+               f'{_cb("COMISION" in analiz or "COMISIÓN" in analiz)} Comisi\u00f3n '
+               f'{_cb("OTRO" in analiz)} Otros', S_CB_SM),
+        ]], [1.0], 15))
+
+        # Fecha Clasificación | Condición Final
+        egreso = _g(d, 'condicion_egreso', _g(d, 'condicion_final_paciente', '')).upper()
+        self._a(_tbl([[
+            _date_lv('Fecha Clasificaci\u00f3n', _g(d, 'fecha_clasificacion_final')),
+            _p(f'<b><font size="6">Condici\u00f3n Final:</font></b> '
+               f'{_cb("RECUP" in egreso or "MEJOR" in egreso)} Recuperado '
+               f'{_cb("SECUEL" in egreso)} Con Secuelas '
+               f'{_cb("FALLEC" in egreso or "MUERT" in egreso)} Fallecido '
+               f'{_cb("DESCON" in egreso or _is_desc(egreso))} Desconocido', S_CB_SM),
+        ]], [0.30, 0.70], 22))
+
+        # Fecha Defunción | Causa Muerte
+        self._a(_tbl([[
+            _date_lv('Fecha Defunci\u00f3n', _g(d, 'fecha_defuncion')),
+            _lv('Causa de Muerte', _g(d, 'causa_muerte')),
+        ]], [0.35, 0.65], 22))
+
+        # Observaciones
+        self._a(_tbl([[_lv('Observaciones', _g(d, 'observaciones'))]], [1.0], 28))
+
+        # Signatures
+        self._sp(6)
+        sig_style = ParagraphStyle('sig', parent=S_VALUE, alignment=TA_CENTER, fontSize=6)
+        sig = Table([[
+            _p('_' * 35 + '<br/><b>Firma del Investigador</b>', sig_style),
+            _p('_' * 35 + '<br/><b>Firma del Responsable</b>', sig_style),
+            _p('_' * 35 + '<br/><b>Sello</b>', sig_style),
+        ]], colWidths=[CONTENT_W * 0.33, CONTENT_W * 0.34, CONTENT_W * 0.33],
+           rowHeights=[30])
+        sig.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ]))
+        self._a(sig)
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-
-def _find_libreoffice() -> str:
-    """Find the LibreOffice executable on the system."""
-    candidates = [
-        "libreoffice",
-        "soffice",
-        "/usr/bin/libreoffice",
-        "/usr/local/bin/libreoffice",
-        "/usr/bin/soffice",
-        "/opt/homebrew/bin/soffice",
-        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-        "/usr/lib/libreoffice/program/soffice",
-        "/opt/libreoffice/program/soffice",
-    ]
-    for candidate in candidates:
-        if shutil.which(candidate):
-            return candidate
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return "libreoffice"
-
-
 def generar_ficha_v2_pdf(data: dict) -> bytes:
-    """Generate PDF using Excel template + LibreOffice headless.
-
-    Args:
-        data: Dictionary with patient/case data (keys match database.COLUMNS).
-
-    Returns:
-        PDF file contents as bytes.
-
-    Raises:
-        FileNotFoundError: If template not found.
-        RuntimeError: If LibreOffice conversion fails.
-    """
-    from openpyxl import load_workbook
-
-    if not os.path.exists(TEMPLATE_PATH):
-        raise FileNotFoundError(f"Template not found: {TEMPLATE_PATH}")
-
-    with tempfile.TemporaryDirectory(prefix="ficha_pdf_") as tmpdir:
-        xlsx_path = os.path.join(tmpdir, "ficha.xlsx")
-        shutil.copy2(TEMPLATE_PATH, xlsx_path)
-
-        wb = load_workbook(xlsx_path)
-        ws = wb["Hoja1"]
-        _fill_hoja1(ws, data)
-        wb.save(xlsx_path)
-
-        lo_bin = _find_libreoffice()
-        # Use unique user profile to allow parallel conversions
-        user_profile = os.path.join(tmpdir, "lo_profile")
-        os.makedirs(user_profile, exist_ok=True)
-
-        result = subprocess.run(
-            [
-                lo_bin,
-                "--headless",
-                "--norestore",
-                f"-env:UserInstallation=file://{user_profile}",
-                "--convert-to",
-                "pdf",
-                "--outdir",
-                tmpdir,
-                xlsx_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=os.environ.copy(),
-        )
-
-        if result.returncode != 0:
-            logger.error(
-                "LibreOffice conversion failed (rc=%d): stderr=%s stdout=%s",
-                result.returncode,
-                result.stderr[:500],
-                result.stdout[:500],
-            )
-            raise RuntimeError(
-                f"PDF conversion failed (rc={result.returncode}): "
-                f"{(result.stderr or result.stdout)[:300]}"
-            )
-
-        pdf_path = os.path.join(tmpdir, "ficha.pdf")
-        if not os.path.exists(pdf_path):
-            import glob as _glob
-            pdfs = _glob.glob(os.path.join(tmpdir, "*.pdf"))
-            if pdfs:
-                pdf_path = pdfs[0]
-            else:
-                raise RuntimeError(
-                    f"PDF not generated. stdout: {result.stdout[:200]}, "
-                    f"stderr: {result.stderr[:200]}"
-                )
-
-        with open(pdf_path, "rb") as f:
-            return f.read()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=LETTER,
+        leftMargin=MARGIN, rightMargin=MARGIN,
+        topMargin=MARGIN, bottomMargin=MARGIN,
+        title="Ficha Epidemiologica - Sarampion/Rubeola",
+        author="IGSS Epidemiologia")
+    elements = FichaBuilder(data).build()
+    doc.build(elements)
+    buf.seek(0)
+    return buf.read()
 
 
 def generar_fichas_v2_bulk(records: list, merge: bool = True) -> bytes:
-    """Generate multiple PDFs from a list of records.
-
-    Args:
-        records: List of dicts, each with patient/case data.
-        merge: If True, returns a single merged PDF. If False, returns a ZIP.
-
-    Returns:
-        PDF bytes (merged) or ZIP bytes (individual files).
-
-    Raises:
-        ValueError: If records list is empty.
-    """
     if not records:
         raise ValueError("No records provided")
-
     if merge:
-        try:
-            from PyPDF2 import PdfMerger
-        except ImportError:
-            from pypdf import PdfMerger
-
-        merger = PdfMerger()
-        for i, rec in enumerate(records):
-            try:
-                pdf_bytes = generar_ficha_v2_pdf(rec)
-                merger.append(io.BytesIO(pdf_bytes))
-            except Exception as e:
-                rid = rec.get("registro_id", f"record_{i}")
-                logger.warning("Failed to generate PDF for %s: %s", rid, e)
-                continue
-
-        if not merger.pages:
-            raise RuntimeError("No PDFs were generated successfully")
-
-        output = io.BytesIO()
-        merger.write(output)
-        merger.close()
-        return output.getvalue()
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=LETTER,
+            leftMargin=MARGIN, rightMargin=MARGIN,
+            topMargin=MARGIN, bottomMargin=MARGIN,
+            title="Fichas Epidemiologicas - Sarampion/Rubeola",
+            author="IGSS Epidemiologia")
+        all_el = []
+        for data in records:
+            all_el.extend(FichaBuilder(data).build())
+        doc.build(all_el)
+        buf.seek(0)
+        return buf.read()
     else:
-        import zipfile
-
-        output = io.BytesIO()
-        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
-            for i, rec in enumerate(records):
-                rid = rec.get("registro_id", f"unknown_{i}")
-                try:
-                    pdf_bytes = generar_ficha_v2_pdf(rec)
-                    zf.writestr(f"ficha_godata_{rid}.pdf", pdf_bytes)
-                except Exception as e:
-                    logger.warning("Failed to generate PDF for %s: %s", rid, e)
-                    continue
-        return output.getvalue()
+        zbuf = io.BytesIO()
+        with zipfile.ZipFile(zbuf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for i, data in enumerate(records):
+                pdf = generar_ficha_v2_pdf(data)
+                n = _g(data, 'nombres', 'caso')
+                a = _g(data, 'apellidos', '')
+                zf.writestr(f"{i+1:03d}_{n}_{a}.pdf".replace(' ', '_'), pdf)
+        zbuf.seek(0)
+        return zbuf.read()
 
 
 # ---------------------------------------------------------------------------
-# Backward compatibility aliases
+# CLI test
 # ---------------------------------------------------------------------------
-generar_ficha_pdf = generar_ficha_v2_pdf
-generar_fichas_bulk = generar_fichas_v2_bulk
+
+if __name__ == '__main__':
+    sample = {
+        'nombres': 'LUISA FERNANDA', 'apellidos': 'RAMIREZ CASTILLO DE LOPEZ',
+        'sexo': 'F', 'fecha_nacimiento': '1988-11-20', 'edad_anios': '37',
+        'edad_meses': '4', 'edad_dias': '5',
+        'diagnostico_sospecha': 'Sarampion',
+        'departamento_residencia': 'QUETZALTENANGO', 'municipio_residencia': 'QUETZALTENANGO',
+        'poblado': 'QUETZALTENANGO - CIUDAD',
+        'direccion_exacta': '12 Avenida 5-67 Zona 3, Quetzaltenango',
+        'pueblo_etnia': 'Maya', 'comunidad_linguistica': "K'iche'",
+        'unidad_medica': 'HOSPITAL GENERAL DE QUETZALTENANGO',
+        'fecha_notificacion': '2026-03-25',
+        'fecha_registro_diagnostico': '2026-03-25',
+        'nom_responsable': 'DRA. CARMEN PATRICIA LOPEZ',
+        'cargo_responsable': 'EPIDEMIOLOGA',
+        'telefono_responsable': '5555-1234',
+        'nombre_encargado': 'CARLOS EDUARDO RAMIREZ LOPEZ',
+        'ocupacion': 'Enfermera', 'escolaridad': 'Universitario',
+        'signo_fiebre': 'SI', 'signo_exantema': 'SI', 'signo_tos': 'SI',
+        'signo_coriza': 'SI', 'signo_conjuntivitis': 'SI',
+        'signo_manchas_koplik': 'NO', 'signo_artralgia': 'DESCONOCIDO',
+        'signo_adenopatias': 'DESCONOCIDO',
+        'temperatura_celsius': '39.5',
+        'hospitalizado': 'SI', 'hosp_nombre': 'Hospital General de Quetzaltenango IGSS',
+        'hosp_fecha': '2026-03-22',
+        'complicaciones': 'NO',
+        'aislamiento_respiratorio': 'SI', 'fecha_aislamiento': '2026-03-22',
+        'clasificacion_caso': 'CONFIRMADO SARAMPION',
+        'condicion_final_paciente': 'Recuperado',
+        'recolecto_muestra': 'SI',
+        'vacunado': 'SI', 'dosis_spr': '2', 'fuente_info_vacuna': 'Carne de Vacunacion',
+        'sector_vacunacion': 'IGSS',
+        'fecha_inicio_sintomas': '2026-03-18', 'semana_epidemiologica': '13',
+        'fecha_captacion': '2026-03-20',
+        'fecha_inicio_erupcion': '2026-03-19', 'fecha_inicio_fiebre': '2026-03-18',
+        'contacto_sospechoso_7_23': 'SI', 'caso_sospechoso_comunidad_3m': 'NO',
+        'viajo_7_23_previo': 'SI',
+        'lugar_viaje': 'Ciudad de Guatemala',
+        'contacto_confirmado': 'NO',
+        'busqueda_activa_institucional': 'SI',
+        'busqueda_activa_comunitaria': 'SI',
+        'vacunacion_bloqueo': 'SI',
+        'monitoreo_rapido_coberturas': 'SI',
+        'muestra_suero_fecha': '2026-03-20', 'muestra_hisopado_fecha': '2026-03-20',
+        'muestra_orina_fecha': '2026-03-21',
+        'fecha_recepcion_laboratorio': '2026-03-21', 'fecha_resultado_laboratorio': '2026-03-24',
+        'resultado_igm_cualitativo': 'POSITIVO', 'resultado_igg_cualitativo': 'NEGATIVO',
+        'resultado_igm_sarampion_suero': 'POSITIVO', 'resultado_igg_sarampion_suero': 'POSITIVO',
+        'resultado_igm_sarampion_suero2': 'POSITIVO', 'resultado_igg_sarampion_suero2': 'POSITIVO',
+        'resultado_igm_sarampion_hisopado': 'POSITIVO', 'resultado_igg_sarampion_hisopado': 'POSITIVO',
+        'resultado_secuenciacion_hisopado': 'POSITIVO',
+        'resultado_igm_sarampion_orina': 'POSITIVO', 'resultado_igg_sarampion_orina': 'NEGATIVO',
+        'resultado_secuenciacion_orina': 'POSITIVO',
+        'fecha_clasificacion_final': '2026-03-25',
+        'responsable_clasificacion': 'DRA. CARMEN PATRICIA LOPEZ MENDEZ',
+        'observaciones': 'Caso confirmado. IgM reactivo 4.85, PCR positivo genotipo D8. 12 contactos en seguimiento.',
+    }
+    pdf = generar_ficha_v2_pdf(sample)
+    out = '/tmp/ficha_audit_final.pdf'
+    with open(out, 'wb') as f:
+        f.write(pdf)
+    print(f"PDF: {out} ({len(pdf)} bytes, valid={pdf[:5] == b'%PDF-'})")
