@@ -103,6 +103,16 @@ export default function FormWizard() {
       }
     }
 
+    // Auto-clear motivo_no_3_muestras when all 3 samples are SI
+    if (['muestra_suero', 'muestra_hisopado', 'muestra_orina'].includes(fieldId)) {
+      const suero = (fieldId === 'muestra_suero' ? value : formData.muestra_suero) || ''
+      const hisop = (fieldId === 'muestra_hisopado' ? value : formData.muestra_hisopado) || ''
+      const orina = (fieldId === 'muestra_orina' ? value : formData.muestra_orina) || ''
+      if (suero === 'SI' && hisop === 'SI' && orina === 'SI') {
+        updateField('motivo_no_3_muestras', '')
+      }
+    }
+
     // Auto-calculate trimestre from semanas_embarazo
     if (fieldId === 'semanas_embarazo' && value) {
       const semanas = parseInt(value)

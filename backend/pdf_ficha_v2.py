@@ -2,7 +2,7 @@
 PDF Generator for MSPAS Sarampion/Rubeola Form — Excel Template Version.
 
 Opens the official MSPAS 2026 Excel template (.xlsx), fills in patient data,
-and converts to PDF via LibreOffice.  Produces a pixel-perfect 1-page replica
+and converts to PDF via LibreOffice.  Produces a pixel-perfect 2-page replica
 because the template already contains all borders, fonts, colors, and merged cells.
 
 Public API:
@@ -987,11 +987,11 @@ def generar_ficha_v2_pdf(data: dict) -> bytes:
 
         _fill_template(ws, data)
 
-        # Ensure print settings force 1-page output
+        # Print settings: fit width to 1 page, let height flow naturally (2+ pages)
         ws.page_setup.orientation = "portrait"
         ws.page_setup.paperSize = 1  # Letter
         ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 1
+        ws.page_setup.fitToHeight = 0  # No height constraint — natural pagination
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.page_setup.scale = None  # Let fitToPage control sizing
         ws.print_area = "A1:T82"
@@ -1036,11 +1036,11 @@ def generar_fichas_v2_bulk(records: list, merge: bool = True) -> bytes:
 
             _fill_template(ws, rec)
 
-            # Ensure 1-page output
+            # Print settings: fit width to 1 page, let height flow naturally (2+ pages)
             ws.page_setup.orientation = "portrait"
             ws.page_setup.paperSize = 1
             ws.page_setup.fitToWidth = 1
-            ws.page_setup.fitToHeight = 1
+            ws.page_setup.fitToHeight = 0  # No height constraint — natural pagination
             ws.sheet_properties.pageSetUpPr.fitToPage = True
             ws.page_setup.scale = None
             ws.print_area = "A1:T82"
