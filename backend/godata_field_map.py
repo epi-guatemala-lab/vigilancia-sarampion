@@ -478,9 +478,16 @@ def _to_iso_date(date_str: str) -> Optional[str]:
 
 
 def _safe_int(val, default=0) -> int:
+    """Convert to int, extracting first numeric value from text like '2 dosis'."""
     try:
         return int(val)
     except (ValueError, TypeError):
+        # Try to extract a number from text (e.g. "2 dosis" → 2, "Más de 3" → 3)
+        if val:
+            import re
+            match = re.search(r'(\d+)', str(val))
+            if match:
+                return int(match.group(1))
         return default
 
 
@@ -713,7 +720,7 @@ def map_record_to_godata(record: dict) -> Dict:
     if dept_das and distrito:
         dms_var = _resolve_dms_variable(dept_das, distrito)
         if dms_var:
-            qa[dms_var] = _qa_val(_godata_text(distrito))
+            qa[dms_var] = _qa_val(_godata_option(distrito))
 
     # Servicio de Salud (cascadeado por departamento)
     servicio = _get(d, "servicio_salud_mspas") or _get(d, "unidad_medica")
@@ -721,7 +728,7 @@ def map_record_to_godata(record: dict) -> Dict:
         muni_for_serv = _get(d, "municipio_residencia")
         serv_var = _resolve_servicio_variable(dept_das, muni_for_serv)
         if serv_var:
-            qa[serv_var] = _qa_val(_godata_text(servicio))
+            qa[serv_var] = _qa_val(_godata_option(servicio))
 
     # Fecha de consulta
     fecha_consulta = _to_iso_date(_get(d, "fecha_registro_diagnostico") or _get(d, "fecha_consulta"))
@@ -806,17 +813,17 @@ def map_record_to_godata(record: dict) -> Dict:
 
     # País/Departamento/Municipio de residencia
     pais_res = _get(d, "pais_residencia") or "GUATEMALA"
-    qa["pais_de_residencia_"] = _qa_val(_godata_text(pais_res))
+    qa["pais_de_residencia_"] = _qa_val(_godata_option(pais_res))
 
     dept_res = _get(d, "departamento_residencia")
     if dept_res:
-        qa["departamento_de_residencia_"] = _qa_val(_godata_text(dept_res))
+        qa["departamento_de_residencia_"] = _qa_val(_godata_option(dept_res))
 
     muni_res = _get(d, "municipio_residencia")
     if dept_res and muni_res:
         muni_var = _resolve_municipio_variable(dept_res)
         if muni_var:
-            qa[muni_var] = _qa_val(_godata_text(muni_res))
+            qa[muni_var] = _qa_val(_godata_option(muni_res))
 
     # Dirección y lugar poblado
     direccion = _get(d, "direccion_exacta")
@@ -1047,7 +1054,7 @@ def map_record_to_godata(record: dict) -> Dict:
     if has_any_action:
         qa["acciones_de_respuesta"] = _qa_val("SI")
     else:
-        qa["acciones_de_respuesta"] = [{}]
+        qa["acciones_de_respuesta"] = _qa_val("NO")
 
     # BAI
     if bai in ("SI", "SÍ"):

@@ -16,6 +16,27 @@ logger = logging.getLogger(__name__)
 _FERNET_KEY = os.environ.get('MSPAS_ENCRYPT_KEY', '')
 
 
+def _get_fernet():
+    """Get Fernet encryption instance for credential storage.
+    Used by both MSPAS and GoData modules for encrypting saved credentials.
+    """
+    key = os.environ.get("FERNET_KEY", "") or _FERNET_KEY
+    if not key:
+        # Generate a key from API_SECRET_KEY for dev/fallback
+        try:
+            from config import API_SECRET_KEY
+            import hashlib
+            import base64
+            key = base64.urlsafe_b64encode(hashlib.sha256(API_SECRET_KEY.encode()).digest()).decode()
+        except Exception:
+            return None
+    try:
+        key_bytes = key.encode() if isinstance(key, str) else key
+        return Fernet(key_bytes)
+    except Exception:
+        return None
+
+
 def get_connection():
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")

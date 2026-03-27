@@ -1349,14 +1349,101 @@ def godata_get_config_endpoint(x_api_key: str = Header(None)):
 
 
 @app.post("/api/godata/test")
-def godata_test_connection(x_api_key: str = Header(None)):
-    """Probar conexión con GoData."""
+async def godata_test_connection(request: Request, x_api_key: str = Header(None)):
+    """Probar conexión con GoData. Accepts temp credentials in body or uses saved config."""
+    verify_api_key(x_api_key)
+    # Try to read body (may be empty for saved-config test)
+    body = {}
+    try:
+        if request.headers.get("content-type", "").startswith("application/json"):
+            body = await request.json()
+    except Exception:
+        pass
+    # Use credentials from body (temporary test) or from saved config
+    if body and body.get("godata_url"):
+        url = body["godata_url"].strip().rstrip("/")
+        user = body.get("username", "").strip()
+        pwd = body.get("password", "")
+        outbreak_id = body.get("outbreak_id", "").strip()
+    else:
+        url, user, pwd, outbreak_id = get_godata_credentials()
+    if not url:
+        raise HTTPException(400, "GoData no está configurado")
+    client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
+    result = client.test_connection()
+    # Normalize response to include success/message for frontend compatibility
+    if result.get("status") == "ok":
+        result["success"] = True
+        result["message"] = f"Conexión exitosa. Autenticado correctamente."
+    else:
+        result["success"] = False
+        result["message"] = result.get("detail", "Error de conexión")
+    return result
+
+
+@app.get("/api/godata/outbreaks")
+def godata_list_outbreaks(x_api_key: str = Header(None)):
+    """Lista brotes disponibles en GoData."""
+    verify_api_key(x_api_key)
+    url, user, pwd, _ = get_godata_credentials()
+    if not url:
+        raise HTTPException(400, "GoData no está configurado")
+    client = GoDataClient(base_url=url, username=user, password=pwd)
+    try:
+        return client.get_outbreaks()
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo brotes de GoData: {e}")
+
+
+@app.get("/api/godata/users")
+def godata_list_users(
+    limit: int = 100, offset: int = 0,
+    x_api_key: str = Header(None)
+):
+    """Lista usuarios visibles en GoData."""
+    verify_api_key(x_api_key)
+    url, user, pwd, _ = get_godata_credentials()
+    if not url:
+        raise HTTPException(400, "GoData no está configurado")
+    client = GoDataClient(base_url=url, username=user, password=pwd)
+    try:
+        return client._get(client._api_url("/users"), params={"limit": limit, "skip": offset})
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo usuarios de GoData: {e}")
+
+
+@app.get("/api/godata/templates")
+def godata_list_templates(
+    limit: int = 100, offset: int = 0,
+    x_api_key: str = Header(None)
+):
+    """Lista templates disponibles en GoData."""
     verify_api_key(x_api_key)
     url, user, pwd, outbreak_id = get_godata_credentials()
     if not url:
         raise HTTPException(400, "GoData no está configurado")
     client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
-    return client.test_connection()
+    try:
+        return client._get(client._api_url("/templates"), params={"limit": limit, "skip": offset})
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo templates de GoData: {e}")
+
+
+@app.get("/api/godata/reference-data")
+def godata_reference_data(
+    category: str = None,
+    x_api_key: str = Header(None)
+):
+    """Lista datos de referencia de GoData."""
+    verify_api_key(x_api_key)
+    url, user, pwd, _ = get_godata_credentials()
+    if not url:
+        raise HTTPException(400, "GoData no está configurado")
+    client = GoDataClient(base_url=url, username=user, password=pwd)
+    try:
+        return client.get_reference_data(category=category)
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo reference data de GoData: {e}")
 
 
 @app.get("/api/godata/queue")

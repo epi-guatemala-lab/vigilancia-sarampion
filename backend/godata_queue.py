@@ -238,6 +238,14 @@ def try_claim_for_sync(registro_id: str) -> bool:
 
 def mark_synced(registro_id: str, godata_case_id: str):
     """Marca registro como sincronizado exitosamente."""
+    # Get outbreak_id from config to fill godata_outbreak_id in registros
+    outbreak_id = ""
+    try:
+        config = get_godata_config()
+        outbreak_id = config.get("outbreak_id", "")
+    except Exception:
+        pass
+
     conn = sqlite3.connect(DB_PATH, timeout=30)
     try:
         conn.execute("""
@@ -249,14 +257,15 @@ def mark_synced(registro_id: str, godata_case_id: str):
                 updated_at = datetime('now')
             WHERE registro_id = ?
         """, (godata_case_id, registro_id))
-        # También actualizar el registro principal
+        # También actualizar el registro principal (including outbreak_id)
         conn.execute("""
             UPDATE registros
             SET godata_case_id = ?,
                 godata_sync_status = 'SYNCED',
-                godata_last_sync = datetime('now')
+                godata_last_sync = datetime('now'),
+                godata_outbreak_id = ?
             WHERE registro_id = ?
-        """, (godata_case_id, registro_id))
+        """, (godata_case_id, outbreak_id, registro_id))
         conn.commit()
     finally:
         conn.close()
