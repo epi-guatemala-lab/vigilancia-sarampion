@@ -770,6 +770,11 @@ def map_record_to_godata(record: dict) -> Dict:
     else:
         qa["diagnostico_de_sospecha_"] = _qa_val("SARAMPIÓN")
 
+    # Caso altamente sospechoso (sub-question of diagnostico)
+    dx_raw = _get(d, "diagnostico_sospecha")
+    if isinstance(dx_raw, str) and "altamente" in dx_raw.lower():
+        qa["caso_altamente_sospechoso_de_sarampion"] = _qa_val("SI")
+
     # ─── Sección 1: Unidad Notificadora ─────────────────
     # Dirección de Área de Salud (departamento)
     dept_das = _get(d, "departamento_das") or _get(d, "departamento_residencia")
@@ -809,21 +814,23 @@ def map_record_to_godata(record: dict) -> Dict:
         qa["fecha_de_investigacion_domiciliaria"] = _qa_val(fecha_visita)
 
     # Investigador
-    investigador = _get(d, "nombre_investigador") or _get(d, "nombre_quien_investiga")
+    investigador = _get(d, "nombre_investigador") or _get(d, "nombre_quien_investiga") or _get(d, "nom_responsable")
     if investigador:
         qa["nombre_de_quien_investiga"] = _qa_val(_godata_text(investigador))
-    cargo = _get(d, "cargo_investigador") or _get(d, "cargo_quien_investiga")
+    cargo = _get(d, "cargo_investigador") or _get(d, "cargo_quien_investiga") or _get(d, "cargo_responsable")
     if cargo:
         qa["cargo_de_quien_investiga"] = _qa_val(_godata_text(cargo))
 
     # Teléfono y correo del investigador
-    tel_inv = _get(d, "telefono_investigador")
+    tel_inv = (_get(d, "telefono_investigador") or _get(d, "telefono_responsable")).replace("-", "").replace(" ", "")
     if tel_inv:
         tel_val = _safe_int(tel_inv)
-        qa["telefono"] = _qa_val(tel_val if tel_val else tel_inv)
-    correo_inv = _get(d, "correo_investigador")
+        qa["telefono"] = [{"value": tel_val or tel_inv}]
+    correo_inv = _get(d, "correo_investigador") or _get(d, "correo_responsable")
     if correo_inv:
         qa["correo_electronico"] = _qa_val(correo_inv)
+    else:
+        qa["correo_electronico"] = [{}]
 
     # Otro establecimiento (IGSS)
     if _get(d, "es_seguro_social").upper() == "SI" or _get(d, "unidad_medica"):
@@ -855,9 +862,19 @@ def map_record_to_godata(record: dict) -> Dict:
         qa["nombre_del_tutor_"] = _qa_val("NO")
 
     # Pueblo / etnia
-    pueblo = _get(d, "pueblo") or _get(d, "etnia")
-    if pueblo:
-        qa["pueblo"] = _qa_val(_godata_option(pueblo))
+    etnia = _get(d, "pueblo") or _get(d, "pueblo_etnia") or _get(d, "etnia")
+    _pueblo_map = {
+        "LADINO": "LADINO", "MAYA": "MAYA", "GARIFUNA": "GARÍFUNA",
+        "GARÍFUNA": "GARÍFUNA", "XINCA": "XINCA", "EXTRANJERO": "EXTRANJERO",
+        "DESCONOCIDO": "DESCONOCIDO",
+    }
+    if etnia:
+        qa["pueblo"] = _qa_val(_pueblo_map.get(etnia.upper(), etnia.upper()))
+
+    # Comunidad lingüística
+    com_ling = _get(d, "comunidad_linguistica")
+    if com_ling:
+        qa["comunidad_linguistica"] = _qa_val(com_ling)  # Keep original case with accents
 
     # Extranjero / Migrante
     extranjero = _get(d, "es_extranjero").upper()
@@ -906,31 +923,65 @@ def map_record_to_godata(record: dict) -> Dict:
     if vacunado in ("SI", "SÍ", "YES"):
         qa["paciente_vacunado_"] = _qa_val("SI")
 
-        # Tipo de vacuna (multi-answer)
-        tipo_vac = _get(d, "tipo_vacuna").upper()
-        vac_label = _TIPO_VACUNA_MAP.get(tipo_vac)
-        if vac_label:
-            qa["tipo_de_vacuna_recibida_"] = _qa_val([vac_label])
+        # Tipo de vacuna (MULTIPLE_ANSWERS array — detect from individual dose fields)
+        vaccines = []
+        if _get(d, "dosis_spr") or _get(d, "numero_dosis_spr"):
+            vaccines.append("SPR \u2013 Sarampión Paperas Rubéola")
+        if _get(d, "dosis_sr") or _get(d, "numero_dosis_sr"):
+            vaccines.append("SR \u2013 Sarampión Rubéola")
+        if _get(d, "dosis_sprv"):
+            vaccines.append("SPRV \u2013 Sarampión Paperas Rubéola Varicela")
+        # Fallback to legacy tipo_vacuna
+        if not vaccines:
+            tipo_vac = _get(d, "tipo_vacuna").upper()
+            vac_label = _TIPO_VACUNA_MAP.get(tipo_vac)
+            if vac_label:
+                vaccines.append(vac_label)
+        if vaccines:
+            qa["tipo_de_vacuna_recibida_"] = [{"value": vaccines}]
 
-        # Número de dosis
+        # Número de dosis SPR (primary)
         n_dosis = _safe_int(_get(d, "numero_dosis_spr") or _get(d, "numero_dosis"))
         if n_dosis:
             qa["numero_de_dosis"] = _qa_val(n_dosis)
 
-        # Fecha última dosis
+        # Número de dosis SR (separate trailing underscore key)
+        dosis_sr = _get(d, "dosis_sr") or _get(d, "numero_dosis_sr")
+        if dosis_sr:
+            qa["numero_de_dosis_"] = [{"value": _safe_int(dosis_sr)}]
+
+        # Fecha última dosis SPR (primary)
         fecha_ult_dosis = _to_iso_date(_get(d, "fecha_ultima_dosis") or _get(d, "fecha_ultima_spr"))
         if fecha_ult_dosis:
             qa["fecha_de_la_ultima_dosis"] = _qa_val(fecha_ult_dosis)
 
+        # Fecha última dosis SR (separate trailing underscore key)
+        fecha_sr = _to_iso_date(_get(d, "fecha_ultima_sr"))
+        if fecha_sr:
+            qa["fecha_de_la_ultima_dosis_"] = _qa_val(fecha_sr)
+
         # Fuente información vacunación
         fuente_vac = _get(d, "fuente_info_vacuna").upper()
-        fuente_vac_mapped = _FUENTE_INFO_VACUNA_MAP.get(fuente_vac)
+        _fuente_vac_map = {
+            "CARNÉ DE VACUNACIÓN": "CARNÉ DE VACUNACIÓN",
+            "CARNE DE VACUNACION": "CARNÉ DE VACUNACIÓN",
+            "EN CARNE": "CARNÉ DE VACUNACIÓN",
+            "EN CARNÉ": "CARNÉ DE VACUNACIÓN",
+            "SIGSA 5A CUADERNO": "SIGSA 5A CUADERNO",
+            "EN SIGSA 5A": "SIGSA 5A CUADERNO",
+            "SIGSA 5B OTROS GRUPOS": "SIGSA 5B OTROS GRUPOS",
+            "SIGSA 5B/REGISTRO UNICO": "SIGSA 5B OTROS GRUPOS",
+            "REGISTRO UNICO DE VACUNACION": "REGISTRO ÚNICO DE VACUNACIÓN",
+            "REGISTRO ÚNICO DE VACUNACIÓN": "REGISTRO ÚNICO DE VACUNACIÓN",
+            "VERBAL": "VERBAL",
+        }
+        fuente_vac_mapped = _fuente_vac_map.get(fuente_vac) or _FUENTE_INFO_VACUNA_MAP.get(fuente_vac)
         if fuente_vac_mapped:
             qa["fuente_de_la_informacion_sobre_la_vacunacion_"] = _qa_val(fuente_vac_mapped)
 
         # Sector de vacunación
         sector = _get(d, "sector_vacunacion").upper()
-        if sector in ("MSPAS", "IGSS", "PRIVADO"):
+        if sector:
             qa["vacunacion_en_el_sector_"] = _qa_val(sector)
     elif vacunado in ("NO",):
         qa["paciente_vacunado_"] = _qa_val("NO")
@@ -941,12 +992,21 @@ def map_record_to_godata(record: dict) -> Dict:
     antecedentes = _get(d, "tiene_antecedentes_medicos").upper()
     if antecedentes in ("SI", "SÍ"):
         qa["antecedentes_medicos_"] = _qa_val("SI")
-        ant_especifico = _get(d, "antecedentes_medicos_detalle")
-        if ant_especifico:
-            # Multi-answer array
-            items = [_godata_text(x.strip()) for x in ant_especifico.split(",") if x.strip()]
-            if items:
-                qa["especifique_ant"] = _qa_val(items)
+        # Build from specific sub-fields first, fallback to comma-separated text
+        ant_list = []
+        if _get(d, "antecedente_desnutricion").upper() in ("SI", "SÍ"):
+            ant_list.append("DESNUTRICIÓN")
+        if _get(d, "antecedente_inmunocompromiso").upper() in ("SI", "SÍ"):
+            ant_list.append("INMUNOCOMPROMISO")
+        if _get(d, "antecedente_enfermedad_cronica").upper() in ("SI", "SÍ"):
+            ant_list.append("ENFERMEDAD CRÓNICA")
+        # Fallback to comma-separated text
+        if not ant_list:
+            ant_especifico = _get(d, "antecedentes_medicos_detalle")
+            if ant_especifico:
+                ant_list = [_godata_text(x.strip()) for x in ant_especifico.split(",") if x.strip()]
+        if ant_list:
+            qa["especifique_ant"] = [{"value": ant_list}]
     else:
         qa["antecedentes_medicos_"] = _qa_val("NO")
 
@@ -1062,11 +1122,20 @@ def map_record_to_godata(record: dict) -> Dict:
         qa["factores_de_riesgo"] = _qa_val("Si")
         qa["viajo_durante_los_7_23_dias"] = _qa_val("Si")
 
+        # Lugares visitados y rutas de desplazamiento
+        qa["lugares_visitados_y_rutas_de_desplazamiento_del_caso"] = _qa_val("1")
+
         # País/destino del viaje
         viaje_pais = _get(d, "viaje_pais")
         viaje_depto = _get(d, "viaje_departamento")
         viaje_muni = _get(d, "viaje_municipio")
         destino_legacy = _get(d, "destino_viaje")
+
+        # Resolve a destination text for displacement route fields
+        destino_text = viaje_muni or viaje_depto or viaje_pais or destino_legacy
+        if destino_text:
+            qa["sitio_ruta_de_desplazamiento_2"] = _qa_val(_godata_text(destino_text))
+            qa["direccion_del_lugar_y_rutas_de_desplazamiento_2"] = _qa_val(_godata_text(destino_text))
 
         if viaje_pais and viaje_pais.upper() not in ("GUATEMALA",):
             qa["pais_departamento_y_municipio"] = _qa_val("OTRO")
@@ -1088,6 +1157,7 @@ def map_record_to_godata(record: dict) -> Dict:
             qa["fecha_de_entrada_viaje"] = _qa_val(fecha_entrada)
     elif viajo == "NO":
         qa["viajo_durante_los_7_23_dias"] = _qa_val("No")
+        qa["lugares_visitados_y_rutas_de_desplazamiento_del_caso"] = _qa_val("2")
 
     # Persona de la casa viajó al exterior
     familiar_viajo = _get(d, "familiar_viajo_exterior").upper()
@@ -1159,6 +1229,12 @@ def map_record_to_godata(record: dict) -> Dict:
         qa["hubo_vacunacion_con_barrido_documentado"] = _qa_val("1")
     elif vac_barrido == "NO":
         qa["hubo_vacunacion_con_barrido_documentado"] = _qa_val("2")
+
+    # Placeholder: por_que_no_acciones_respuesta (empty when actions exist)
+    if not has_any_action:
+        qa["por_que_no_acciones_respuesta"] = [{}]
+    else:
+        qa["por_que_no_acciones_respuesta"] = [{}]
 
     # Vitamina A
     vitamina = _get(d, "vitamina_a").upper()

@@ -7,7 +7,7 @@ import { useFormState } from '../hooks/useFormState.js'
 import { useConditionalFields } from '../hooks/useConditionalFields.js'
 import { cleanHiddenFieldData } from '../config/conditionalLogic.js'
 import { useGoogleSheets } from '../hooks/useGoogleSheets.js'
-import { validatePage } from '../utils/validation.js'
+import { validatePage, validateCrossFieldDates } from '../utils/validation.js'
 import { getEpiWeek } from '../utils/formatters.js'
 import { pageLabels, formFields, diagnosticosMap, getMunicipios } from '../config/formSchema.js'
 
@@ -16,6 +16,7 @@ export default function FormWizard() {
   const [errors, setErrors] = useState({})
   const [showSuccess, setShowSuccess] = useState(false)
   const [registroId, setRegistroId] = useState(null)
+  const [dateWarnings, setDateWarnings] = useState([])
 
   const {
     formData,
@@ -263,6 +264,20 @@ export default function FormWizard() {
       return
     }
 
+    // Cross-field date validation (warnings, not blocking)
+    const warnings = validateCrossFieldDates(formData)
+    if (warnings.length > 0) {
+      setDateWarnings(warnings)
+      const proceed = window.confirm(
+        'Se detectaron posibles inconsistencias en fechas:\n\n' +
+        warnings.map((w, i) => `${i + 1}. ${w}`).join('\n') +
+        '\n\n¿Desea continuar con el envío?'
+      )
+      if (!proceed) return
+    } else {
+      setDateWarnings([])
+    }
+
     // Verificar duplicado por afiliación + fecha (no bloqueo total)
     const afiliacion = formData.afiliacion || ''
     const fecha = formData.fecha_notificacion || ''
@@ -281,6 +296,7 @@ export default function FormWizard() {
     cleanedData.establecimiento_privado = 'NO'     // Nunca privado
     cleanedData.establecimiento_privado_nombre = ''
     // fuente_notificacion: no aplica al IGSS (no hacen investigación de campo)
+    cleanedData.form_version = 'v2'                // GoData format marker
     const result = await submit(cleanedData)
     if (result?.success) {
       setRegistroId(result.registro_id)
@@ -293,6 +309,7 @@ export default function FormWizard() {
     resetForm()
     setCurrentStep(1)
     setErrors({})
+    setDateWarnings([])
     setShowSuccess(false)
     setRegistroId(null)
     setSubmitError(null)
@@ -335,6 +352,20 @@ export default function FormWizard() {
           <span>
             <strong>Sin conexión.</strong> Los datos se guardarán y se enviarán al reconectarse.
           </span>
+        </div>
+      )}
+
+      {dateWarnings.length > 0 && (
+        <div className="mb-5 bg-yellow-50 border border-yellow-200/60 rounded-xl p-4 text-sm text-yellow-800 shadow-sm">
+          <div className="flex items-center gap-2 mb-2 font-semibold">
+            <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            Advertencias de fechas
+          </div>
+          <ul className="list-disc list-inside space-y-1">
+            {dateWarnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
         </div>
       )}
 

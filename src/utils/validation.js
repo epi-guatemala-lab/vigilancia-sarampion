@@ -106,3 +106,55 @@ export function validatePage(fields, formData) {
 
   return { isValid, errors }
 }
+
+/**
+ * Validación cruzada de fechas — retorna advertencias (no bloquean el envío)
+ */
+export function validateCrossFieldDates(formData) {
+  const warnings = []
+
+  const parse = (key) => {
+    const v = formData[key]
+    if (!v) return null
+    const d = new Date(v + 'T00:00:00')
+    return isNaN(d.getTime()) ? null : d
+  }
+
+  const fechaSintomas = parse('fecha_inicio_sintomas')
+  const fechaNotificacion = parse('fecha_notificacion')
+  const fechaFiebre = parse('fecha_inicio_fiebre')
+  const fechaErupcion = parse('fecha_inicio_erupcion')
+  const fechaHosp = parse('hosp_fecha')
+  const fechaEgreso = parse('fecha_egreso')
+  const fechaDefuncion = parse('fecha_defuncion')
+  const fechaNacimiento = parse('fecha_nacimiento')
+  const fechaSalida = parse('viaje_fecha_salida')
+  const fechaEntrada = parse('viaje_fecha_entrada')
+
+  if (fechaSintomas && fechaNotificacion && fechaSintomas > fechaNotificacion) {
+    warnings.push('La fecha de inicio de síntomas es posterior a la fecha de notificación.')
+  }
+  if (fechaFiebre && fechaNotificacion && fechaFiebre > fechaNotificacion) {
+    warnings.push('La fecha de inicio de fiebre es posterior a la fecha de notificación.')
+  }
+  if (fechaErupcion && fechaNotificacion && fechaErupcion > fechaNotificacion) {
+    warnings.push('La fecha de inicio de erupción es posterior a la fecha de notificación.')
+  }
+  if (fechaHosp && fechaSintomas && fechaHosp < fechaSintomas) {
+    warnings.push('La fecha de hospitalización es anterior a la fecha de inicio de síntomas.')
+  }
+  if (fechaEgreso && fechaHosp && fechaEgreso < fechaHosp) {
+    warnings.push('La fecha de egreso es anterior a la fecha de hospitalización.')
+  }
+  if (fechaDefuncion && fechaSintomas && fechaDefuncion < fechaSintomas) {
+    warnings.push('La fecha de defunción es anterior a la fecha de inicio de síntomas.')
+  }
+  if (fechaNacimiento && fechaNotificacion && fechaNacimiento >= fechaNotificacion) {
+    warnings.push('La fecha de nacimiento no es anterior a la fecha de notificación.')
+  }
+  if (fechaSalida && fechaEntrada && fechaSalida > fechaEntrada) {
+    warnings.push('La fecha de salida del viaje es posterior a la fecha de entrada/retorno.')
+  }
+
+  return warnings
+}

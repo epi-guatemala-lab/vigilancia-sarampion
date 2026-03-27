@@ -1295,9 +1295,20 @@ export const formFields = [
     required: false,
     searchable: true,
     options: [
-      'GUATEMALA', 'MÉXICO', 'HONDURAS', 'EL SALVADOR', 'BELICE', 'NICARAGUA', 'COSTA RICA', 'PANAMÁ',
-      'ESTADOS UNIDOS', 'COLOMBIA', 'VENEZUELA', 'BRASIL', 'ARGENTINA', 'PERÚ', 'CHILE',
-      'ESPAÑA', 'FRANCIA', 'ITALIA', 'ALEMANIA', 'REINO UNIDO', 'CANADÁ', 'CHINA', 'INDIA', 'JAPÓN',
+      'GUATEMALA',
+      // Centroamérica
+      'MÉXICO', 'HONDURAS', 'EL SALVADOR', 'BELICE', 'NICARAGUA', 'COSTA RICA', 'PANAMÁ',
+      // Caribe
+      'REPÚBLICA DOMINICANA', 'HAITÍ', 'CUBA', 'JAMAICA', 'PUERTO RICO',
+      // Sudamérica
+      'COLOMBIA', 'VENEZUELA', 'BRASIL', 'ARGENTINA', 'PERÚ', 'CHILE', 'ECUADOR', 'BOLIVIA', 'URUGUAY', 'PARAGUAY',
+      // Norteamérica
+      'ESTADOS UNIDOS', 'CANADÁ',
+      // Europa
+      'ESPAÑA', 'FRANCIA', 'ITALIA', 'ALEMANIA', 'REINO UNIDO',
+      // Asia
+      'CHINA', 'INDIA', 'JAPÓN', 'COREA DEL SUR',
+      // Otro
       'OTRO',
     ],
     conditional: { dependsOn: 'viajo_7_23_previo', showWhen: 'SI' },
@@ -1891,13 +1902,29 @@ export const formFields = [
   {
     id: 'pais_importacion',
     label: 'País de Importación',
-    type: 'text',
+    type: 'select',
     page: 9,
     required: false,
-    placeholder: 'País de origen de la importación',
+    searchable: true,
+    options: [
+      'GUATEMALA',
+      // Centroamérica
+      'MÉXICO', 'HONDURAS', 'EL SALVADOR', 'BELICE', 'NICARAGUA', 'COSTA RICA', 'PANAMÁ',
+      // Caribe
+      'REPÚBLICA DOMINICANA', 'HAITÍ', 'CUBA', 'JAMAICA', 'PUERTO RICO',
+      // Sudamérica
+      'COLOMBIA', 'VENEZUELA', 'BRASIL', 'ARGENTINA', 'PERÚ', 'CHILE', 'ECUADOR', 'BOLIVIA', 'URUGUAY', 'PARAGUAY',
+      // Norteamérica
+      'ESTADOS UNIDOS', 'CANADÁ',
+      // Europa
+      'ESPAÑA', 'FRANCIA', 'ITALIA', 'ALEMANIA', 'REINO UNIDO',
+      // Asia
+      'CHINA', 'INDIA', 'JAPÓN', 'COREA DEL SUR',
+      // Otro
+      'OTRO',
+    ],
     conditional: { dependsOn: 'fuente_infeccion', showWhen: 'Importado' },
     colSpan: 'half',
-    validation: { maxLength: 60 },
   },
   {
     id: 'contacto_otro_caso',
