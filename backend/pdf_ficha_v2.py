@@ -448,10 +448,12 @@ class FichaBuilder:
             _lv('Lugar Poblado', _g(d, 'poblado')),
         ]], [1.0], 18))
 
-        # Row 8: Dirección de Residencia
+        # Row 8: Dirección de Residencia (dynamic height for long addresses)
+        addr = _g(d, 'direccion_exacta')
+        addr_h = 26 if len(addr) > 60 else 18
         self._a(_tbl([[
-            _lv('Direcci\u00f3n de Residencia', _g(d, 'direccion_exacta')),
-        ]], [1.0], 18))
+            _lv('Direcci\u00f3n de Residencia', addr),
+        ]], [1.0], addr_h))
 
     # -- Section 3: ANTECEDENTES MÉDICOS Y DE VACUNACIÓN --
     def _sec3(self):
@@ -610,11 +612,13 @@ class FichaBuilder:
 
         # Hospitalización
         hosp = _g(d, 'hospitalizado', '').upper()
+        hosp_name = _g(d, 'hosp_nombre')
+        hosp_h = 30 if len(hosp_name) > 50 else 22
         self._a(_tbl([[
             _p(f'<b><font size="6">Hospitalizaci\u00f3n:</font></b> {_cb(hosp in ("SI","SÍ"))} S\u00ed {_cb(hosp=="NO")} No {_cb(_is_desc(hosp))} Desc.', S_CB),
-            _lv('Nombre Hospital', _g(d, 'hosp_nombre')),
+            _lv('Nombre Hospital', hosp_name),
             _date_lv('Fecha Hospitalizaci\u00f3n', _g(d, 'hosp_fecha')),
-        ]], [0.30, 0.40, 0.30], 22))
+        ]], [0.30, 0.40, 0.30], hosp_h))
 
         # Complicaciones
         comp = _g(d, 'complicaciones', '').upper()
@@ -692,9 +696,9 @@ class FichaBuilder:
         fuente_cont = _g(d, 'fuente_posible_contagio', '').upper()
         fc_items = [
             ('Hogar', 'HOGAR'), ('Trabajo', 'TRABAJO'), ('Escuela', 'ESCUELA'),
-            ('Viaje', 'VIAJE'), ('Hospital', 'HOSPITAL'), ('Mercado', 'MERCADO'),
-            ('Transporte', 'TRANSPORTE'), ('Evento masivo', 'EVENTO'),
-            ('Otro', 'OTRO'),
+            ('Viaje', 'VIAJE'), ('Serv.Salud', 'SERVICIO'), ('Hospital', 'HOSPITAL'),
+            ('Mercado', 'MERCADO'), ('Transporte', 'TRANSPORTE'),
+            ('Evento masivo', 'EVENTO'), ('Otro', 'OTRO'),
         ]
         fc_str = ' '.join(f'{_cb_sm(k in fuente_cont)} {l}' for l, k in fc_items)
         self._a(_tbl([[
@@ -742,15 +746,19 @@ class FichaBuilder:
         d = self.d
         self._a(_section_hdr('7. LABORATORIO'))
 
-        # Tipo muestra checkboxes
+        # Tipo muestra checkboxes (also detect from sample date fields)
         tipo_m = _g(d, 'tipo_muestra', '').upper()
         rec = _g(d, 'recolecto_muestra', '').upper()
+        has_suero = 'SUERO' in tipo_m or rec in ('SI', 'SÍ') or bool(_g(d, 'muestra_suero_fecha'))
+        has_orina = 'ORINA' in tipo_m or bool(_g(d, 'muestra_orina_fecha'))
+        has_hisop = 'HISOP' in tipo_m or bool(_g(d, 'muestra_hisopado_fecha'))
+        has_otro = 'OTRO' in tipo_m or bool(_g(d, 'muestra_otro_fecha'))
         self._a(_tbl([[
             _p(f'<b><font size="6">Tipo Muestra:</font></b> '
-               f'{_cb_sm("SUERO" in tipo_m or rec in ("SI","SÍ"))} Suero '
-               f'{_cb_sm("ORINA" in tipo_m)} Orina '
-               f'{_cb_sm("HISOP" in tipo_m)} Hisopado NF '
-               f'{_cb_sm("OTRO" in tipo_m)} Otro', S_CB_SM),
+               f'{_cb_sm(has_suero)} Suero '
+               f'{_cb_sm(has_orina)} Orina '
+               f'{_cb_sm(has_hisop)} Hisopado NF '
+               f'{_cb_sm(has_otro)} Otro', S_CB_SM),
             _lv('\u00bfPor qu\u00e9 no 3 muestras?', _g(d, 'motivo_no_3_muestras', _g(d, 'motivo_no_recoleccion'))),
         ]], [0.45, 0.55], 18))
 
@@ -853,12 +861,13 @@ class FichaBuilder:
 
         # Clasificación Final
         cl = _g(d, 'clasificacion_caso', '').upper()
+        is_pending = 'PENDIENT' in cl or 'SOSPECH' in cl
         self._a(_tbl([[
             _p('<b><font size="6">Clasificaci\u00f3n Final:</font></b>', S_LABEL),
             _p(f'{_cb("SARAMP" in cl)} Sarampi\u00f3n '
                f'{_cb("RUBEO" in cl or "RUBÉO" in cl)} Rub\u00e9ola '
                f'{_cb("DESCART" in cl)} Descartado '
-               f'{_cb("PENDIENT" in cl)} Pendiente '
+               f'{_cb(is_pending)} Pendiente '
                f'{_cb("NO CUMPLE" in cl)} No cumple def.', S_CB_SM),
         ]], [0.18, 0.82], 16))
 
@@ -876,11 +885,20 @@ class FichaBuilder:
 
         # Criterio Descartar
         crit_desc = _g(d, 'criterio_descarte', '').upper()
+        crit_desc_other = ''
+        # If criterio_descarte is a disease name (not a standard criterion), show it as "Otro"
+        is_crit_lab = 'LAB' in crit_desc
+        is_crit_vac = 'VACUN' in crit_desc
+        is_crit_clin = 'CLIN' in crit_desc
+        is_crit_other = bool(crit_desc) and not any([is_crit_lab, is_crit_vac, is_crit_clin])
+        if is_crit_other:
+            crit_desc_other = _g(d, 'criterio_descarte', '')
         self._a(_tbl([[
             _p(f'<b><font size="6">Criterio para Descartar:</font></b> '
-               f'{_cb("LAB" in crit_desc)} Laboratorio '
-               f'{_cb("VACUN" in crit_desc)} Vacuna '
-               f'{_cb("CLIN" in crit_desc)} Cl\u00ednico', S_CB_SM),
+               f'{_cb(is_crit_lab)} Laboratorio '
+               f'{_cb(is_crit_vac)} Vacuna '
+               f'{_cb(is_crit_clin)} Cl\u00ednico '
+               f'{_cb(is_crit_other)} Otro <font size="5">{crit_desc_other}</font>', S_CB_SM),
         ]], [1.0], 15))
 
         # Fuente Infección
@@ -921,8 +939,18 @@ class FichaBuilder:
             _lv('Causa de Muerte', _g(d, 'causa_muerte')),
         ]], [0.35, 0.65], 22))
 
-        # Observaciones
-        self._a(_tbl([[_lv('Observaciones', _g(d, 'observaciones'))]], [1.0], 28))
+        # Observaciones (dynamic height based on text length)
+        obs_text = _g(d, 'observaciones')
+        obs_len = len(obs_text)
+        if obs_len > 300:
+            obs_h = 55
+        elif obs_len > 200:
+            obs_h = 45
+        elif obs_len > 100:
+            obs_h = 38
+        else:
+            obs_h = 28
+        self._a(_tbl([[_lv('Observaciones', obs_text)]], [1.0], obs_h))
 
         # Signatures
         self._sp(6)
