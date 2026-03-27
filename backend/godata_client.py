@@ -217,6 +217,16 @@ class GoDataClient:
         resp = self._get(self._outbreak_url("/cases/count"))
         return resp.get("count", 0)
 
+    def get_cases_per_classification(self) -> Dict:
+        """Obtiene conteo de casos agrupados por clasificación.
+
+        GET /outbreaks/{id}/cases/per-classification/count
+
+        Returns:
+            Dict con claves como 'LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_SUSPECT': N
+        """
+        return self._get(self._outbreak_url("/cases/per-classification/count"))
+
     def find_case_by_visual_id(self, visual_id: str) -> Optional[Dict]:
         """Busca caso por visualId (nuestro registro_id)."""
         import json

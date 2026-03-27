@@ -742,6 +742,60 @@ La cuenta actual (practica4@gmail.com) es insuficiente. Se necesita una cuenta c
 
 ---
 
+## 16. Hallazgos Criticos de la Exploracion API (2026-03-27)
+
+### 16.1. Doble sistema de clasificacion
+GoData Guatemala tiene DOS sistemas de clasificacion que deben setearse por separado:
+
+1. **`case.classification`** (campo estandar GoData) — Usado por dashboards, filtros y reportes nativos de GoData. Si no se setea, el caso aparece como "Sin clasificar" en la UI.
+2. **`questionnaireAnswers.clasificacion_final`** (cuestionario personalizado Guatemala) — Codigos numericos (1=Sarampion, 2=Rubeola, 3=Descartado, 5=Pendiente).
+
+**Los 5 casos reales existentes (SR-0001 a SR-0005) tienen `classification=null`** porque los operadores guatemaltecos solo llenan el cuestionario pero no setean el campo estandar. Esto es un problema de entrenamiento, no de la API.
+
+**Nuestro codigo setea AMBOS** en `godata_field_map.py:map_record_to_godata()`.
+
+### 16.2. outcomeId nunca seteado
+Similar a classification, el campo `outcomeId` (condicion final del paciente) no esta seteado en ninguno de los 7 casos existentes. Los operadores solo llenan `condicion_final_del_paciente` en el cuestionario.
+
+Nuestro codigo setea ambos: `case.outcomeId` (estandar) y `qa.condicion_final_del_paciente` (cuestionario).
+
+### 16.3. Import mappings disponibles
+Guatemala tiene 3 templates de importacion configurados:
+- **`plantilla contactos W`** — importacion de contactos
+- **`Laboratorio_recoded`** — importacion de casos
+- **`plantilla laboratorio - W`** — importacion de datos de laboratorio
+
+Estos podrian usarse para importacion masiva via `/api/outbreaks/{id}/cases/import` en lugar de llamadas individuales POST.
+
+### 16.4. Endpoint per-classification count
+```
+GET /api/outbreaks/{id}/cases/per-classification/count
+```
+Retorna conteo de casos agrupados por clasificacion. Util para dashboard sin descargar todos los casos.
+
+### 16.5. Idioma "Espanol GTRC"
+- ID: `d86b2070-fad9-4699-8be9-a8ae5cc0edd2`
+- Es la traduccion personalizada de Guatemala (editable, no read-only)
+- Contiene todas las traducciones del cuestionario en espanol
+- Los otros idiomas (english_us, spanish_es, etc.) son read-only
+
+### 16.6. Follow-ups, events, relationships vacios
+Todos los endpoints de rastreo de contactos existen y son accesibles pero no contienen datos:
+- 0 contactos, 0 eventos, 0 seguimientos, 0 relaciones
+- Estas features son para rastreo de contactos que Guatemala aun no usa en este brote de entrenamiento
+
+### 16.7. Cero resultados de laboratorio
+Ninguno de los 7 casos tiene lab-results registrados via la API de laboratorio. Los datos de laboratorio solo existen dentro del cuestionario (`questionnaireAnswers`).
+
+Nuestro codigo envia resultados de laboratorio SEPARADAMENTE via POST `/cases/{id}/lab-results`, lo cual es correcto y complementa los datos del cuestionario.
+
+### 16.8. Validacion server-side inexistente
+GoData acepta **cualquier payload** sin validar campos obligatorios, formatos de fecha, ni valores de referencia. Un POST con `{"firstName": ""}` es aceptado sin error.
+
+Por esto, implementamos `validate_godata_payload()` en `godata_field_map.py` para validacion client-side antes del envio.
+
+---
+
 ## Archivos JSON de referencia
 
 Todos los datos crudos estan guardados en `/tmp/godata_api_exploration/`:

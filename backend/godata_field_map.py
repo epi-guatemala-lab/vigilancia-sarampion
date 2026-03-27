@@ -655,12 +655,18 @@ def map_record_to_godata(record: dict) -> Dict:
         "dateOfOnset": _to_iso_date(_get(d, "fecha_inicio_sintomas")),
     }
 
-    # Clasificación (campo estándar GoData)
+    # Clasificación (campo estándar GoData — MUST be set for GoData filters/dashboard)
+    # NOTE: All 5 existing Guatemala cases have classification=null because
+    # operators only fill questionnaireAnswers.clasificacion_final but not this
+    # standard field. We set BOTH to ensure proper GoData filtering.
     clasificacion = _get(d, "clasificacion_caso").upper()
     if clasificacion in CLASSIFICATION_MAP:
         case["classification"] = CLASSIFICATION_MAP[clasificacion]
+    else:
+        # Default to SUSPECT for unclassified cases
+        case["classification"] = "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_SUSPECT"
 
-    # Condición final / Outcome (campo estándar GoData)
+    # Condición final / Outcome (campo estándar GoData — same issue as classification)
     condicion = _get(d, "condicion_final_paciente") or _get(d, "condicion_egreso")
     if condicion:
         cond_upper = condicion.upper()
@@ -668,6 +674,11 @@ def map_record_to_godata(record: dict) -> Dict:
             case["outcomeId"] = OUTCOME_MAP[cond_upper]
             if cond_upper in ("FALLECIDO", "MUERTO", "3"):
                 case["dateOfOutcome"] = _to_iso_date(_get(d, "fecha_defuncion"))
+
+    # Riesgo y estado de investigación (campos estándar GoData)
+    # Sarampión es SIEMPRE alto riesgo en Guatemala
+    case["riskLevel"] = "LNG_REFERENCE_DATA_CATEGORY_RISK_LEVEL_3_HIGH"
+    case["investigationStatus"] = "LNG_REFERENCE_DATA_CATEGORY_INVESTIGATION_STATUS_UNDER_INVESTIGATION"
 
     # Embarazo
     embarazada = _get(d, "esta_embarazada").upper()
@@ -1348,3 +1359,73 @@ def _map_legacy_lab(record: dict) -> List[Dict]:
             })
 
     return results
+
+
+# ═══════════════════════════════════════════════════════════
+# VALIDACIÓN PRE-ENVÍO
+# ═══════════════════════════════════════════════════════════
+
+def validate_godata_payload(payload: dict) -> List[str]:
+    """Valida un payload GoData antes de enviarlo. Retorna lista de advertencias.
+
+    GoData tiene CERO validación server-side (acepta cualquier payload),
+    por lo que la validación debe ser client-side.
+
+    Args:
+        payload: Dict generado por map_record_to_godata()
+
+    Returns:
+        Lista de strings con advertencias. Lista vacía = payload válido.
+    """
+    warnings = []
+
+    # Campos obligatorios del modelo GoData (visibleAndMandatory en outbreak config)
+    if not payload.get("firstName"):
+        warnings.append("firstName vacio — se requiere nombre del paciente")
+    if not payload.get("lastName"):
+        warnings.append("lastName vacio — se requiere apellido del paciente")
+    if not payload.get("dateOfReporting"):
+        warnings.append("dateOfReporting vacio — se requiere fecha de notificacion")
+    if not payload.get("dateOfOnset"):
+        warnings.append("dateOfOnset vacio — se requiere fecha de inicio de sintomas")
+    if not payload.get("gender"):
+        warnings.append("gender vacio — se requiere sexo del paciente")
+
+    # Campos estándar GoData que deben estar seteados
+    classification = payload.get("classification", "")
+    if not classification:
+        warnings.append("classification vacio — GoData no podra filtrar/clasificar este caso")
+
+    # Validar formato de fechas (deben ser YYYY-MM-DDT00:00:00.000Z)
+    _DATE_FIELDS = ("dateOfReporting", "dateOfOnset", "dob", "dateOfOutcome")
+    for field in _DATE_FIELDS:
+        val = payload.get(field)
+        if val and (not isinstance(val, str) or len(val) < 24 or "T" not in val or not val.endswith("Z")):
+            warnings.append(f"{field} formato invalido: '{val}' — esperado YYYY-MM-DDT00:00:00.000Z")
+
+    # Validar questionnaireAnswers
+    qa = payload.get("questionnaireAnswers", {})
+    if not qa:
+        warnings.append("questionnaireAnswers vacio — no hay datos del cuestionario")
+    else:
+        # Detectar secciones vacías que no deberían enviarse solas
+        empty_sections = [k for k, v in qa.items() if v == [{}] or v == [{"value": ""}]]
+        if empty_sections:
+            warnings.append(f"Secciones QA con valor vacio: {empty_sections}")
+
+        # Campos requeridos en el cuestionario Guatemala
+        if "fecha_de_inicio_de_exantema_rash_" not in qa:
+            warnings.append("QA: fecha_de_inicio_de_exantema_rash_ faltante (requerido en template Guatemala)")
+        if "paciente_vacunado_" not in qa:
+            warnings.append("QA: paciente_vacunado_ faltante (requerido en template Guatemala)")
+        if "direccion_de_area_de_salud" not in qa:
+            warnings.append("QA: direccion_de_area_de_salud faltante (requerido en template Guatemala)")
+
+    # Validar age
+    age = payload.get("age", {})
+    if age:
+        years = age.get("years", 0)
+        if isinstance(years, int) and years > 120:
+            warnings.append(f"age.years={years} — posible dato invalido (>120 anios)")
+
+    return warnings
