@@ -540,6 +540,45 @@ def get_fase1_pending(limit: int = 50) -> list:
         conn.close()
 
 
+def requeue_for_update(registro_id: str) -> bool:
+    """Move a 'completo' record back to 'subido_fase1' for re-update via Fase 2."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        cursor = conn.execute("""
+            UPDATE godata_queue
+            SET estado = 'subido_fase1',
+                updated_at = datetime('now')
+            WHERE registro_id = ?
+              AND estado = 'completo'
+        """, (registro_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def unapprove_records(ids: list) -> dict:
+    """Move records from 'aprobado' back to 'pendiente'."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        count = 0
+        for rid in ids:
+            cursor = conn.execute("""
+                UPDATE godata_queue
+                SET estado = 'pendiente',
+                    aprobado_por = NULL,
+                    fecha_aprobacion = NULL,
+                    updated_at = datetime('now')
+                WHERE registro_id = ?
+                  AND estado = 'aprobado'
+            """, (rid,))
+            count += cursor.rowcount
+        conn.commit()
+        return {"unapproved": count}
+    finally:
+        conn.close()
+
+
 def try_claim_for_fase2(registro_id: str) -> bool:
     """Atomic: claim record for Phase 2 update. Only works on subido_fase1 or error_fase2."""
     conn = sqlite3.connect(DB_PATH, timeout=30)

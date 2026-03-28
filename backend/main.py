@@ -53,6 +53,7 @@ from godata_queue import (
     get_next_visual_id, save_visual_id,
     mark_fase1_sent, mark_complete, mark_error_fase1, mark_error_fase2,
     get_fase1_pending, try_claim_for_fase2,
+    requeue_for_update, unapprove_records,
 )
 from godata_client import GoDataClient
 from godata_field_map import (
@@ -1946,6 +1947,52 @@ def godata_send_fase2_batch(x_api_key: str = Header(None)):
             logger.error(f"GoData fase2 error for {registro_id}: {e}")
 
     return results
+
+
+@app.post("/api/godata/requeue-update/{registro_id}")
+def godata_requeue_update(registro_id: str, x_api_key: str = Header(None)):
+    """Move completed case back to subido_fase1 for re-update."""
+    verify_api_key(x_api_key)
+    if requeue_for_update(registro_id):
+        return {"status": "ok", "message": "Caso listo para re-actualización"}
+    raise HTTPException(400, "Caso no está en estado 'completo' o no existe")
+
+
+@app.post("/api/godata/queue/unapprove")
+async def godata_unapprove(request: Request, x_api_key: str = Header(None)):
+    """Move approved records back to pending."""
+    verify_api_key(x_api_key)
+    body = await request.json()
+    ids = body.get("ids", [])
+    if not ids:
+        raise HTTPException(400, "Debe enviar lista de ids")
+    return unapprove_records(ids)
+
+
+@app.get("/api/godata/case/{registro_id}")
+def godata_get_case(registro_id: str, x_api_key: str = Header(None)):
+    """Fetch case data from GoData for comparison."""
+    verify_api_key(x_api_key)
+    status = godata_get_sync_status(registro_id)
+    godata_case_id = status.get("godata_case_id", "")
+    if not godata_case_id:
+        raise HTTPException(404, "Caso no tiene GoData ID")
+
+    url, user, pwd, outbreak_id = get_godata_credentials()
+    if not url:
+        raise HTTPException(400, "GoData no está configurado")
+
+    client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
+    try:
+        case = client.get_case(godata_case_id)
+        return {
+            "godata_case": case,
+            "godata_case_id": godata_case_id,
+            "visual_id": case.get("visualId"),
+            "qa_keys": len(case.get("questionnaireAnswers", {})),
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Error consultando GoData: {e}")
 
 
 if __name__ == "__main__":
