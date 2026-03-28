@@ -301,6 +301,7 @@ _SERVICIO_SALUD_VARIABLE_MAP = {
 _CLASIFICACION_FINAL_MAP = {
     "CONFIRMADO SARAMPIÓN": "1",
     "CONFIRMADO SARAMPION": "1",
+    "CONFIRMADO": "1",       # Bare "CONFIRMADO" defaults to sarampión (outbreak context)
     "SARAMPION": "1",
     "SARAMPIÓN": "1",
     "CONFIRMADO RUBÉOLA": "2",
@@ -636,12 +637,27 @@ def map_record_to_godata(record: dict) -> Dict:
     d = record
 
     # ─── Campos base del modelo Person/Case ─────────────
+    # Resolve name: prefer nombres/apellidos, fallback to nombre_apellido
+    _raw_nombres = _get(d, "nombres")
+    _raw_apellidos = _get(d, "apellidos")
+    if not _raw_nombres and not _raw_apellidos:
+        # Fallback: split nombre_apellido (combined full name field)
+        _full_name = _get(d, "nombre_apellido")
+        if _full_name:
+            _parts = _full_name.strip().split()
+            if len(_parts) >= 2:
+                _raw_nombres = _parts[0]
+                _raw_apellidos = " ".join(_parts[1:])
+            elif len(_parts) == 1:
+                _raw_nombres = _parts[0]
+                _raw_apellidos = ""
+
     # Split nombres: first word = firstName, rest = middleName
-    _nombres_parts = _godata_text(_get(d, "nombres")).split()
+    _nombres_parts = _godata_text(_raw_nombres).split() if _raw_nombres else []
     case = {
         "firstName": _nombres_parts[0] if _nombres_parts else "",
         "middleName": " ".join(_nombres_parts[1:]) if len(_nombres_parts) > 1 else "",
-        "lastName": _godata_text(_get(d, "apellidos")),
+        "lastName": _godata_text(_raw_apellidos) if _raw_apellidos else "",
         "gender": GENDER_MAP.get(_get(d, "sexo").upper(), ""),
         "dob": _to_iso_date(_get(d, "fecha_nacimiento")),
         "age": {
