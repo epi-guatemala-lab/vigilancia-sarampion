@@ -89,6 +89,24 @@ def _safe_json(val):
 
 
 # ---------------------------------------------------------------------------
+# Lab result abbreviation (cells are narrow)
+# ---------------------------------------------------------------------------
+
+_LAB_ABBREV = {
+    'REACTIVO': 'R+', 'NO REACTIVO': 'NR', 'INDETERMINADO': 'IND',
+    'POSITIVO': 'POS', 'NEGATIVO': 'NEG', 'PENDIENTE': 'PEND',
+    'NO APLICA': 'N/A', 'N/A': 'N/A',
+}
+
+
+def _lab_val(val: str) -> str:
+    """Abbreviate lab result for narrow cells."""
+    if not val:
+        return val
+    return _LAB_ABBREV.get(val.upper().strip(), val)
+
+
+# ---------------------------------------------------------------------------
 # Cell writing helpers
 # ---------------------------------------------------------------------------
 
@@ -107,14 +125,21 @@ def _write(ws, row, col, value):
 
 
 def _check(ws, row, col, condition):
-    """Replace ☐ with ☒ if condition is True. Leave unchanged otherwise."""
+    """Mark checkbox: prepend ☒ to existing label text, or write ☒ if cell is empty."""
     if condition:
         from openpyxl.cell.cell import MergedCell
         cell = ws.cell(row=row, column=col)
         if isinstance(cell, MergedCell):
             logger.warning("Attempted check on merged cell R%d:C%d, skipping", row, col)
             return
-        cell.value = "☒"
+        existing = cell.value
+        if existing and str(existing).strip():
+            # Prepend ☒ to existing label (e.g., "Si" → "☒ Si")
+            text = str(existing).strip()
+            if not text.startswith('☒'):
+                cell.value = f"☒ {text}"
+        else:
+            cell.value = "☒"
 
 
 def _write_date(ws, row, col_d, col_m, col_y, date_str):
@@ -276,8 +301,8 @@ def _fill_template(ws, d: dict):
     _write(ws, 18, 2, _g(d, 'nombres'))      # B18:F18 = data
     _write(ws, 18, 9, _g(d, 'apellidos'))     # I18:N18 = data
     sexo = _g(d, 'sexo', '').upper()
-    _check(ws, 18, 16, sexo in ('M', 'MASCULINO'))  # P18 = Masculino checkbox
-    _check(ws, 18, 18, sexo in ('F', 'FEMENINO'))   # R18 = Femenino checkbox
+    _check(ws, 18, 16, sexo in ('M', 'MASCULINO'))  # P18 = ☒ Masculino
+    _check(ws, 18, 18, sexo in ('F', 'FEMENINO'))   # R18 = ☒ Femenino
 
     # R19: A19:A20='Fecha De Nacimiento', B19='Día', C19='Mes', D19='Año',
     #      E19:E20='Edad', F19='Años', G19='Meses', H19='Días',
@@ -306,10 +331,10 @@ def _fill_template(ws, d: dict):
     #      J22='Migrante', K22='Si', L22=empty, M22='No', N22=empty,
     #      O22:P22='Embarazada', Q22='Si', R22=empty, S22='No', T22=empty
     pueblo = _g(d, 'pueblo_etnia', '').upper()
-    _check(ws, 22, 2, 'LADINO' in pueblo or 'MESTIZO' in pueblo)    # B22
-    _check(ws, 22, 3, 'MAYA' in pueblo)                              # C22
-    _check(ws, 22, 4, 'GARIF' in pueblo)                             # D22
-    _check(ws, 22, 5, 'XINCA' in pueblo)                             # E22
+    _check(ws, 22, 2, 'LADINO' in pueblo or 'MESTIZO' in pueblo)    # B22 = ☒ Ladino
+    _check(ws, 22, 3, 'MAYA' in pueblo)                              # C22 = ☒ Maya
+    _check(ws, 22, 4, 'GARIF' in pueblo)                             # D22 = ☒ Garífuna
+    _check(ws, 22, 5, 'XINCA' in pueblo)                             # E22 = ☒ Xinca
 
     pais = _g(d, 'pais_residencia', '').upper()
     es_extranjero = pais and pais not in ('GUATEMALA', 'GT', '')
@@ -744,10 +769,10 @@ def _fill_template(ws, d: dict):
             # Results
             res_igm = sample.get('resultado_igm', sample.get('resultado_virus', ''))
             if res_igm:
-                _write(ws, target_row, 9, res_igm)     # I col = IgM
+                _write(ws, target_row, 9, _lab_val(res_igm))     # I col = IgM
             res_igg = sample.get('resultado_igg', '')
             if res_igg:
-                _write(ws, target_row, 10, res_igg)    # J col = IgG
+                _write(ws, target_row, 10, _lab_val(res_igg))    # J col = IgG
             res_avidez = sample.get('resultado_avidez', '')
             if res_avidez:
                 _write(ws, target_row, 11, res_avidez)  # K col = Avidez
@@ -775,10 +800,10 @@ def _fill_template(ws, d: dict):
 
         res_igm = _g(d, 'resultado_igm_sarampion_suero', _g(d, 'resultado_igm_cualitativo', ''))
         if res_igm:
-            _write(ws, 61, 9, res_igm)   # I61 = IgM
+            _write(ws, 61, 9, _lab_val(res_igm))   # I61 = IgM
         res_igg = _g(d, 'resultado_igg_sarampion_suero', _g(d, 'resultado_igg_cualitativo', ''))
         if res_igg:
-            _write(ws, 61, 10, res_igg)  # J61 = IgG
+            _write(ws, 61, 10, _lab_val(res_igg))  # J61 = IgG
 
         dd, mm, yyyy = _parse_date(_g(d, 'fecha_resultado_laboratorio', ''))
         if dd:
@@ -991,7 +1016,7 @@ def generar_ficha_v2_pdf(data: dict) -> bytes:
         ws.page_setup.orientation = "portrait"
         ws.page_setup.paperSize = 1  # Letter
         ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0  # No height constraint — natural pagination
+        ws.page_setup.fitToHeight = 0
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.page_setup.scale = None  # Let fitToPage control sizing
         ws.print_area = "A1:T82"
@@ -1040,7 +1065,7 @@ def generar_fichas_v2_bulk(records: list, merge: bool = True) -> bytes:
             ws.page_setup.orientation = "portrait"
             ws.page_setup.paperSize = 1
             ws.page_setup.fitToWidth = 1
-            ws.page_setup.fitToHeight = 0  # No height constraint — natural pagination
+            ws.page_setup.fitToHeight = 0
             ws.sheet_properties.pageSetUpPr.fitToPage = True
             ws.page_setup.scale = None
             ws.print_area = "A1:T82"
