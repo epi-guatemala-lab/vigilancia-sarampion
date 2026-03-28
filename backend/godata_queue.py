@@ -146,7 +146,9 @@ def get_godata_credentials() -> tuple:
 # ═══════════════════════════════════════════════════════════
 
 # Estados válidos
-ESTADOS = ("pendiente", "aprobado", "sincronizando", "sincronizado", "error", "duplicado")
+ESTADOS = ("pendiente", "aprobado", "subido_fase1", "completo",
+           "error_fase1", "error_fase2", "sincronizando", "sincronizado",
+           "error", "duplicado")
 
 _ALLOWED_UPDATE_COLS = {
     "estado", "godata_case_id", "godata_visual_id", "intentos", "ultimo_error",
@@ -259,7 +261,7 @@ def approve_records(ids: list, usuario: str = "api") -> dict:
                     fecha_aprobacion = datetime('now'),
                     updated_at = datetime('now')
                 WHERE registro_id = ?
-                  AND estado IN ('pendiente', 'error')
+                  AND estado IN ('pendiente', 'error', 'error_fase1')
             """, (usuario, registro_id))
             approved += cursor.rowcount
         conn.commit()
@@ -411,5 +413,146 @@ def get_sync_status(registro_id: str) -> dict:
             (registro_id,)
         ).fetchone()
         return dict(row) if row else {"estado": "no_enqueued"}
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════════
+# 2-PHASE SYNC FUNCTIONS
+# ═══════════════════════════════════════════════════════════
+
+def mark_fase1_sent(registro_id: str, godata_case_id: str):
+    """Mark record as Phase 1 sent (case created in GoData).
+
+    Case exists in GoData with basic data. Ready for Phase 2 (lab + classification).
+    """
+    outbreak_id = ""
+    try:
+        config = get_godata_config()
+        outbreak_id = config.get("outbreak_id", "")
+    except Exception:
+        pass
+
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        conn.execute("""
+            UPDATE godata_queue
+            SET estado = 'subido_fase1',
+                godata_case_id = ?,
+                ultimo_error = NULL,
+                updated_at = datetime('now')
+            WHERE registro_id = ?
+        """, (godata_case_id, registro_id))
+        # Also update the main registros table
+        conn.execute("""
+            UPDATE registros
+            SET godata_case_id = ?,
+                godata_sync_status = 'FASE1',
+                godata_last_sync = datetime('now'),
+                godata_outbreak_id = ?
+            WHERE registro_id = ?
+        """, (godata_case_id, outbreak_id, registro_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_complete(registro_id: str):
+    """Mark record as complete (Phase 2 successful — fully synced)."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        conn.execute("""
+            UPDATE godata_queue
+            SET estado = 'completo',
+                fecha_sync = datetime('now'),
+                ultimo_error = NULL,
+                updated_at = datetime('now')
+            WHERE registro_id = ?
+        """, (registro_id,))
+        conn.execute("""
+            UPDATE registros
+            SET godata_sync_status = 'SYNCED',
+                godata_last_sync = datetime('now')
+            WHERE registro_id = ?
+        """, (registro_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_error_fase1(registro_id: str, error: str):
+    """Phase 1 error — case was NOT created in GoData."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        conn.execute("""
+            UPDATE godata_queue
+            SET estado = 'error_fase1',
+                ultimo_error = ?,
+                updated_at = datetime('now')
+            WHERE registro_id = ?
+        """, (error[:500], registro_id))
+        conn.execute("""
+            UPDATE registros
+            SET godata_sync_status = 'ERROR_F1'
+            WHERE registro_id = ?
+        """, (registro_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_error_fase2(registro_id: str, error: str):
+    """Phase 2 error — case exists in GoData but update failed."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        conn.execute("""
+            UPDATE godata_queue
+            SET estado = 'error_fase2',
+                ultimo_error = ?,
+                updated_at = datetime('now')
+            WHERE registro_id = ?
+        """, (error[:500], registro_id))
+        conn.execute("""
+            UPDATE registros
+            SET godata_sync_status = 'ERROR_F2'
+            WHERE registro_id = ?
+        """, (registro_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_fase1_pending(limit: int = 50) -> list:
+    """Get records in subido_fase1 state ready for Phase 2."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute("""
+            SELECT q.registro_id, q.godata_case_id
+            FROM godata_queue q
+            WHERE q.estado = 'subido_fase1' AND q.intentos < 5
+            ORDER BY q.id ASC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [{"registro_id": row["registro_id"], "godata_case_id": row["godata_case_id"]}
+                for row in rows]
+    finally:
+        conn.close()
+
+
+def try_claim_for_fase2(registro_id: str) -> bool:
+    """Atomic: claim record for Phase 2 update. Only works on subido_fase1 or error_fase2."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        cursor = conn.execute("""
+            UPDATE godata_queue
+            SET estado = 'sincronizando',
+                intentos = intentos + 1,
+                updated_at = datetime('now')
+            WHERE registro_id = ?
+              AND estado IN ('subido_fase1', 'error_fase2')
+        """, (registro_id,))
+        conn.commit()
+        return cursor.rowcount > 0
     finally:
         conn.close()

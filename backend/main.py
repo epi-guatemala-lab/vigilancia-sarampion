@@ -51,9 +51,14 @@ from godata_queue import (
     get_sync_status as godata_get_sync_status,
     get_approved_for_sync, recover_stuck_syncs,
     get_next_visual_id, save_visual_id,
+    mark_fase1_sent, mark_complete, mark_error_fase1, mark_error_fase2,
+    get_fase1_pending, try_claim_for_fase2,
 )
 from godata_client import GoDataClient
-from godata_field_map import map_record_to_godata, map_lab_samples_to_godata, validate_godata_payload
+from godata_field_map import (
+    map_record_to_godata, map_lab_samples_to_godata, validate_godata_payload,
+    map_record_to_godata_fase1, map_record_to_godata_fase2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1655,6 +1660,292 @@ def godata_preview(registro_id: str, x_api_key: str = Header(None)):
         "lab_results": lab_payloads,
         "lab_results_count": len(lab_payloads),
     }
+
+
+# ═══════════════════════════════════════════════════════════
+# GoData 2-Phase Sync Endpoints
+# ═══════════════════════════════════════════════════════════
+
+@app.post("/api/godata/send-fase1/{registro_id}")
+def godata_send_fase1(registro_id: str, x_api_key: str = Header(None)):
+    """Phase 1: Create case in GoData with basic data (patient, symptoms, vaccination).
+    Classification forced to SUSPECT. Lab results NOT included."""
+    verify_api_key(x_api_key)
+    from database import get_registro_by_id
+
+    record = get_registro_by_id(registro_id)
+    if not record:
+        raise HTTPException(404, "Registro no encontrado")
+
+    # Claim for sync (must be in 'aprobado' or 'error_fase1' state)
+    if not try_claim_for_sync(registro_id):
+        # Also allow error_fase1 retries
+        from godata_queue import get_sync_status
+        status = get_sync_status(registro_id)
+        if status.get("estado") == "error_fase1":
+            # Manually set to sincronizando for retry
+            import sqlite3
+            from config import DB_PATH
+            conn = sqlite3.connect(DB_PATH, timeout=30)
+            try:
+                conn.execute("""
+                    UPDATE godata_queue
+                    SET estado = 'sincronizando', intentos = intentos + 1, updated_at = datetime('now')
+                    WHERE registro_id = ? AND estado = 'error_fase1'
+                """, (registro_id,))
+                conn.commit()
+            finally:
+                conn.close()
+        else:
+            raise HTTPException(409, f"Registro no está aprobado para fase 1 (estado: {status.get('estado')})")
+
+    url, user, pwd, outbreak_id = get_godata_credentials()
+    if not url:
+        mark_error_fase1(registro_id, "GoData no está configurado")
+        raise HTTPException(400, "GoData no está configurado")
+
+    client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
+    try:
+        # Check if already has a GoData case ID (skip creation)
+        record_godata_id = record.get("godata_case_id", "")
+        if record_godata_id and not record_godata_id.startswith("DRYRUN"):
+            mark_fase1_sent(registro_id, record_godata_id)
+            return {"status": "already_exists", "godata_case_id": record_godata_id}
+
+        # Generate sequential visualId
+        visual_id = get_next_visual_id()
+
+        # Check for duplicates
+        existing = client.find_case_by_visual_id(registro_id)
+        if existing:
+            godata_mark_duplicate(registro_id, existing.get("id", ""))
+            return {"status": "duplicate", "godata_case_id": existing.get("id")}
+
+        # Build Phase 1 payload (basic data, classification=SUSPECT)
+        case_payload = map_record_to_godata_fase1(record)
+        case_payload["visualId"] = visual_id
+
+        warnings = validate_godata_payload(case_payload)
+        if warnings:
+            logger.warning(f"GoData fase1 payload warnings for {registro_id}: {warnings}")
+
+        result = client.create_case(case_payload)
+        godata_case_id = result.get("id", "")
+
+        save_visual_id(registro_id, visual_id)
+        mark_fase1_sent(registro_id, godata_case_id)
+
+        return {
+            "status": "fase1_sent",
+            "godata_case_id": godata_case_id,
+            "visual_id": visual_id,
+            "warnings": warnings,
+            "dry_run": result.get("dry_run", False),
+        }
+    except Exception as e:
+        mark_error_fase1(registro_id, str(e))
+        raise HTTPException(500, f"Error en fase 1 GoData: {e}")
+
+
+@app.post("/api/godata/send-fase1-batch")
+def godata_send_fase1_batch(x_api_key: str = Header(None)):
+    """Phase 1 batch: Create all approved cases in GoData with basic data."""
+    verify_api_key(x_api_key)
+    from database import get_registro_by_id
+
+    recover_stuck_syncs()
+
+    ids = get_approved_for_sync(limit=100)
+    if not ids:
+        return {"processed": 0, "message": "No hay registros aprobados para fase 1"}
+
+    url, user, pwd, outbreak_id = get_godata_credentials()
+    if not url:
+        raise HTTPException(400, "GoData no está configurado")
+
+    client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
+    results = {"processed": 0, "success": 0, "errors": 0, "duplicates": 0, "details": []}
+
+    for registro_id in ids:
+        results["processed"] += 1
+        if not try_claim_for_sync(registro_id):
+            continue
+
+        record = get_registro_by_id(registro_id)
+        if not record:
+            mark_error_fase1(registro_id, "Registro no encontrado en BD")
+            results["errors"] += 1
+            continue
+
+        try:
+            record_godata_id = record.get("godata_case_id", "")
+            if record_godata_id and not record_godata_id.startswith("DRYRUN"):
+                mark_fase1_sent(registro_id, record_godata_id)
+                results["duplicates"] += 1
+                continue
+
+            visual_id = get_next_visual_id()
+
+            existing = client.find_case_by_visual_id(registro_id)
+            if existing:
+                godata_mark_duplicate(registro_id, existing.get("id", ""))
+                results["duplicates"] += 1
+                continue
+
+            case_payload = map_record_to_godata_fase1(record)
+            case_payload["visualId"] = visual_id
+
+            warnings = validate_godata_payload(case_payload)
+            if warnings:
+                logger.warning(f"GoData fase1 warnings for {registro_id}: {warnings}")
+
+            result = client.create_case(case_payload)
+            godata_case_id = result.get("id", "")
+
+            save_visual_id(registro_id, visual_id)
+            mark_fase1_sent(registro_id, godata_case_id)
+            results["success"] += 1
+            results["details"].append({
+                "registro_id": registro_id,
+                "godata_case_id": godata_case_id,
+                "visual_id": visual_id,
+                "dry_run": result.get("dry_run", False),
+            })
+        except Exception as e:
+            mark_error_fase1(registro_id, str(e))
+            results["errors"] += 1
+            logger.error(f"GoData fase1 error for {registro_id}: {e}")
+
+    return results
+
+
+@app.post("/api/godata/send-fase2/{registro_id}")
+def godata_send_fase2(registro_id: str, x_api_key: str = Header(None)):
+    """Phase 2: Update case in GoData with lab results, classification, and condition.
+    Sends ALL fields (Phase 1 + Phase 2) because PUT replaces questionnaireAnswers."""
+    verify_api_key(x_api_key)
+    from database import get_registro_by_id
+
+    record = get_registro_by_id(registro_id)
+    if not record:
+        raise HTTPException(404, "Registro no encontrado")
+
+    # Claim for Phase 2
+    if not try_claim_for_fase2(registro_id):
+        from godata_queue import get_sync_status
+        status = get_sync_status(registro_id)
+        raise HTTPException(409, f"Registro no está listo para fase 2 (estado: {status.get('estado')})")
+
+    # Get the godata_case_id assigned during Phase 1
+    from godata_queue import get_sync_status
+    queue_status = get_sync_status(registro_id)
+    godata_case_id = queue_status.get("godata_case_id", "")
+    if not godata_case_id:
+        mark_error_fase2(registro_id, "No hay godata_case_id — fase 1 no se completó")
+        raise HTTPException(400, "Registro no tiene godata_case_id. Ejecute fase 1 primero.")
+
+    url, user, pwd, outbreak_id = get_godata_credentials()
+    if not url:
+        mark_error_fase2(registro_id, "GoData no está configurado")
+        raise HTTPException(400, "GoData no está configurado")
+
+    client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
+    try:
+        # Build Phase 2 payload (COMPLETE data including classification + lab)
+        case_payload = map_record_to_godata_fase2(record)
+
+        # Keep the visualId from Phase 1
+        visual_id = queue_status.get("godata_visual_id", "")
+        if visual_id:
+            case_payload["visualId"] = visual_id
+
+        warnings = validate_godata_payload(case_payload)
+        if warnings:
+            logger.warning(f"GoData fase2 payload warnings for {registro_id}: {warnings}")
+
+        # PUT update replaces the entire case
+        result = client.update_case(godata_case_id, case_payload)
+
+        mark_complete(registro_id)
+
+        return {
+            "status": "complete",
+            "godata_case_id": godata_case_id,
+            "warnings": warnings,
+            "dry_run": result.get("dry_run", False),
+        }
+    except Exception as e:
+        mark_error_fase2(registro_id, str(e))
+        raise HTTPException(500, f"Error en fase 2 GoData: {e}")
+
+
+@app.post("/api/godata/send-fase2-batch")
+def godata_send_fase2_batch(x_api_key: str = Header(None)):
+    """Phase 2 batch: Update all subido_fase1 cases with lab results and classification."""
+    verify_api_key(x_api_key)
+    from database import get_registro_by_id
+
+    recover_stuck_syncs()
+
+    pending = get_fase1_pending(limit=100)
+    if not pending:
+        return {"processed": 0, "message": "No hay registros en subido_fase1 para fase 2"}
+
+    url, user, pwd, outbreak_id = get_godata_credentials()
+    if not url:
+        raise HTTPException(400, "GoData no está configurado")
+
+    client = GoDataClient(base_url=url, username=user, password=pwd, outbreak_id=outbreak_id)
+    results = {"processed": 0, "success": 0, "errors": 0, "details": []}
+
+    for item in pending:
+        registro_id = item["registro_id"]
+        godata_case_id = item["godata_case_id"]
+        results["processed"] += 1
+
+        if not godata_case_id:
+            mark_error_fase2(registro_id, "No hay godata_case_id")
+            results["errors"] += 1
+            continue
+
+        if not try_claim_for_fase2(registro_id):
+            continue
+
+        record = get_registro_by_id(registro_id)
+        if not record:
+            mark_error_fase2(registro_id, "Registro no encontrado en BD")
+            results["errors"] += 1
+            continue
+
+        try:
+            case_payload = map_record_to_godata_fase2(record)
+
+            # Keep the visualId from Phase 1
+            from godata_queue import get_sync_status
+            queue_status = get_sync_status(registro_id)
+            visual_id = queue_status.get("godata_visual_id", "")
+            if visual_id:
+                case_payload["visualId"] = visual_id
+
+            warnings = validate_godata_payload(case_payload)
+            if warnings:
+                logger.warning(f"GoData fase2 warnings for {registro_id}: {warnings}")
+
+            result = client.update_case(godata_case_id, case_payload)
+
+            mark_complete(registro_id)
+            results["success"] += 1
+            results["details"].append({
+                "registro_id": registro_id,
+                "godata_case_id": godata_case_id,
+                "dry_run": result.get("dry_run", False),
+            })
+        except Exception as e:
+            mark_error_fase2(registro_id, str(e))
+            results["errors"] += 1
+            logger.error(f"GoData fase2 error for {registro_id}: {e}")
+
+    return results
 
 
 if __name__ == "__main__":

@@ -1505,3 +1505,47 @@ def validate_godata_payload(payload: dict) -> List[str]:
             warnings.append(f"age.years={years} — posible dato invalido (>120 anios)")
 
     return warnings
+
+
+# ═══════════════════════════════════════════════════════════
+# MAPEO POR FASES (2-Phase Sync)
+# ═══════════════════════════════════════════════════════════
+
+def map_record_to_godata_fase1(record: dict) -> Dict:
+    """Phase 1: Basic case data for initial creation. Classification = SUSPECT.
+
+    Creates the case in GoData with patient demographics, symptoms, and vaccination
+    data, but WITHOUT lab results or final classification (not yet known).
+    """
+    payload = map_record_to_godata(record)
+
+    # Override classification to SUSPECT (we don't know the final classification yet)
+    payload["classification"] = "LNG_REFERENCE_DATA_CATEGORY_CASE_CLASSIFICATION_SUSPECT"
+
+    # Remove outcome (not known yet)
+    payload.pop("outcomeId", None)
+
+    # Remove classification-related QA fields from questionnaireAnswers
+    qa = payload.get("questionnaireAnswers", {})
+    fase2_keys = [
+        "clasificacion", "clasificacion_final",
+        "criterio_de_confirmacion_sarampion", "criterio_de_confirmacion_rubeola",
+        "criterio_para_descartar", "fuente_de_infeccion_de_los_casos_confirmados",
+        "importado_pais_de_importacion", "pais_de_importacion",
+        "caso_analizado_por", "fecha_de_clasificacion",
+        "condicion_final_del_paciente", "contacto_de_otro_caso",
+    ]
+    for key in fase2_keys:
+        qa.pop(key, None)
+
+    return payload
+
+
+def map_record_to_godata_fase2(record: dict) -> Dict:
+    """Phase 2: COMPLETE case data including lab results and classification.
+
+    Sends ALL fields (Phase 1 + Phase 2) because GoData PUT replaces
+    questionnaireAnswers entirely — partial updates would lose Phase 1 data.
+    """
+    # This is the full mapping — same as map_record_to_godata
+    return map_record_to_godata(record)
