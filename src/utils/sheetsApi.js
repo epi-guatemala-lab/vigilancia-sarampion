@@ -120,8 +120,14 @@ export function removePendingSubmission(id) {
 
 export async function retryPendingSubmissions() {
   const pending = getPendingSubmissions()
-  for (const item of pending) {
+  for (let i = 0; i < pending.length; i++) {
+    const item = pending[i]
     try {
+      // Exponential backoff between retries: 2s, 4s, 8s... (avoids rate limit)
+      if (i > 0) {
+        const delay = Math.min(2000 * Math.pow(2, i - 1), 30000)
+        await new Promise(r => setTimeout(r, delay))
+      }
       await submitToSheets(item.data)
       removePendingSubmission(item.id)
     } catch {

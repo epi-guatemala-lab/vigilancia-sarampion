@@ -270,6 +270,13 @@ async def crear_registro(request: Request):
             detail=f"Ya existe un registro para afiliación {afiliacion} con fecha {fecha}",
         )
 
+    # Validate that at least a name is provided
+    _nombres = sanitize_value(data.get("nombres", ""))
+    _apellidos = sanitize_value(data.get("apellidos", ""))
+    _nombre_apellido = sanitize_value(data.get("nombre_apellido", ""))
+    if not _nombres and not _apellidos and not _nombre_apellido:
+        raise HTTPException(400, "Se requiere al menos nombre o apellido del paciente")
+
     clean = {}
     for col in COLUMNS:
         clean[col] = sanitize_value(data.get(col, ""))
@@ -1512,18 +1519,14 @@ def godata_sync_single(registro_id: str, x_api_key: str = Header(None)):
             mark_synced(registro_id, record_godata_id)
             return {"status": "duplicate", "godata_case_id": record_godata_id}
 
-        # Generate sequential visualId (SR-NNNN)
-        visual_id = get_next_visual_id()
-
-        # Verificar duplicado por registro_id (not the newly generated visual_id)
+        # Verificar duplicado por registro_id
         existing = client.find_case_by_visual_id(registro_id)
         if existing:
             godata_mark_duplicate(registro_id, existing.get("id", ""))
             return {"status": "duplicate", "godata_case_id": existing.get("id")}
 
-        # Crear caso with generated visualId
+        # Do NOT set visualId — let GoData auto-assign from its SR-9999 mask
         case_payload = map_record_to_godata(record)
-        case_payload["visualId"] = visual_id
 
         # Validate payload before sending
         warnings = validate_godata_payload(case_payload)
@@ -1533,8 +1536,10 @@ def godata_sync_single(registro_id: str, x_api_key: str = Header(None)):
         result = client.create_case(case_payload)
         godata_case_id = result.get("id", "")
 
-        # Save the visual_id we used
-        save_visual_id(registro_id, visual_id)
+        # Read the visualId that GoData auto-assigned
+        visual_id = result.get("visualId", "")
+        if visual_id:
+            save_visual_id(registro_id, visual_id)
 
         # Agregar resultados de laboratorio
         lab_results = map_lab_samples_to_godata(record)
@@ -1598,18 +1603,15 @@ def godata_sync_batch(x_api_key: str = Header(None)):
                 results["duplicates"] += 1
                 continue
 
-            # Generate sequential visualId (SR-NNNN)
-            visual_id = get_next_visual_id()
-
-            # Verificar duplicado por registro_id (not the newly generated visual_id)
+            # Verificar duplicado por registro_id
             existing = client.find_case_by_visual_id(registro_id)
             if existing:
                 godata_mark_duplicate(registro_id, existing.get("id", ""))
                 results["duplicates"] += 1
                 continue
 
+            # Do NOT set visualId — let GoData auto-assign from its SR-9999 mask
             case_payload = map_record_to_godata(record)
-            case_payload["visualId"] = visual_id
 
             # Validate payload before sending
             warnings = validate_godata_payload(case_payload)
@@ -1619,8 +1621,10 @@ def godata_sync_batch(x_api_key: str = Header(None)):
             result = client.create_case(case_payload)
             godata_case_id = result.get("id", "")
 
-            # Save the visual_id we used
-            save_visual_id(registro_id, visual_id)
+            # Read the visualId that GoData auto-assigned
+            visual_id = result.get("visualId", "")
+            if visual_id:
+                save_visual_id(registro_id, visual_id)
 
             lab_results = map_lab_samples_to_godata(record)
             for lab in lab_results:
@@ -1713,18 +1717,14 @@ def godata_send_fase1(registro_id: str, x_api_key: str = Header(None)):
             mark_fase1_sent(registro_id, record_godata_id)
             return {"status": "already_exists", "godata_case_id": record_godata_id}
 
-        # Generate sequential visualId
-        visual_id = get_next_visual_id()
-
         # Check for duplicates
         existing = client.find_case_by_visual_id(registro_id)
         if existing:
             godata_mark_duplicate(registro_id, existing.get("id", ""))
             return {"status": "duplicate", "godata_case_id": existing.get("id")}
 
-        # Build Phase 1 payload (basic data, classification=SUSPECT)
+        # Build Phase 1 payload — do NOT set visualId, let GoData auto-assign
         case_payload = map_record_to_godata_fase1(record)
-        case_payload["visualId"] = visual_id
 
         warnings = validate_godata_payload(case_payload)
         if warnings:
@@ -1733,7 +1733,10 @@ def godata_send_fase1(registro_id: str, x_api_key: str = Header(None)):
         result = client.create_case(case_payload)
         godata_case_id = result.get("id", "")
 
-        save_visual_id(registro_id, visual_id)
+        # Read the visualId that GoData auto-assigned
+        visual_id = result.get("visualId", "")
+        if visual_id:
+            save_visual_id(registro_id, visual_id)
         mark_fase1_sent(registro_id, godata_case_id)
 
         return {
@@ -1785,16 +1788,14 @@ def godata_send_fase1_batch(x_api_key: str = Header(None)):
                 results["duplicates"] += 1
                 continue
 
-            visual_id = get_next_visual_id()
-
             existing = client.find_case_by_visual_id(registro_id)
             if existing:
                 godata_mark_duplicate(registro_id, existing.get("id", ""))
                 results["duplicates"] += 1
                 continue
 
+            # Do NOT set visualId — let GoData auto-assign
             case_payload = map_record_to_godata_fase1(record)
-            case_payload["visualId"] = visual_id
 
             warnings = validate_godata_payload(case_payload)
             if warnings:
@@ -1803,7 +1804,10 @@ def godata_send_fase1_batch(x_api_key: str = Header(None)):
             result = client.create_case(case_payload)
             godata_case_id = result.get("id", "")
 
-            save_visual_id(registro_id, visual_id)
+            # Read the visualId that GoData auto-assigned
+            visual_id = result.get("visualId", "")
+            if visual_id:
+                save_visual_id(registro_id, visual_id)
             mark_fase1_sent(registro_id, godata_case_id)
             results["success"] += 1
             results["details"].append({

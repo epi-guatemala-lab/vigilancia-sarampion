@@ -665,10 +665,15 @@ def map_record_to_godata(record: dict) -> Dict:
             "months": _safe_int(_get(d, "edad_meses")),
         },
         "occupation": _godata_text(_get(d, "ocupacion")),
-        "visualId": _get(d, "registro_id"),
+        # visualId omitted — GoData auto-assigns from SR-9999 mask
         "dateOfReporting": _to_iso_date(_get(d, "fecha_notificacion")),
         "isDateOfReportingApproximate": False,
-        "dateOfOnset": _to_iso_date(_get(d, "fecha_inicio_sintomas")),
+        "dateOfOnset": (
+            _to_iso_date(_get(d, "fecha_inicio_sintomas"))
+            or _to_iso_date(_get(d, "fecha_inicio_erupcion"))
+            or _to_iso_date(_get(d, "fecha_inicio_fiebre"))
+            or _to_iso_date(_get(d, "fecha_notificacion"))
+        ),
     }
 
     # Clasificación (campo estándar GoData — MUST be set for GoData filters/dashboard)
@@ -804,6 +809,18 @@ def map_record_to_godata(record: dict) -> Dict:
         else:
             qa["direccion_de_area_de_salud"] = _qa_val(_godata_option(dept_das))
 
+    # Fallback: ensure direccion_de_area_de_salud is ALWAYS set when departamento is known
+    if "direccion_de_area_de_salud" not in qa:
+        dept_fallback = _get(d, "departamento_residencia")
+        if dept_fallback:
+            dept_fb_upper = _strip_accents(dept_fallback).upper().strip()
+            if dept_fb_upper == "GUATEMALA":
+                muni_fb = (_get(d, "municipio_residencia") or "").upper().strip()
+                das_fb = _GUATEMALA_MUNICIPIO_TO_DAS.get(muni_fb, "GUATEMALA CENTRAL")
+                qa["direccion_de_area_de_salud"] = _qa_val(das_fb)
+            else:
+                qa["direccion_de_area_de_salud"] = _qa_val(_godata_option(dept_fallback))
+
     # DMS (cascadeado por departamento)
     distrito = _get(d, "distrito_salud") or _get(d, "municipio_residencia")
     if dept_das and distrito:
@@ -845,8 +862,6 @@ def map_record_to_godata(record: dict) -> Dict:
     correo_inv = _get(d, "correo_investigador") or _get(d, "correo_responsable")
     if correo_inv:
         qa["correo_electronico"] = _qa_val(correo_inv)
-    else:
-        qa["correo_electronico"] = [{}]
 
     # Otro establecimiento (IGSS)
     if _get(d, "es_seguro_social").upper() == "SI" or _get(d, "unidad_medica"):
@@ -1246,11 +1261,7 @@ def map_record_to_godata(record: dict) -> Dict:
     elif vac_barrido == "NO":
         qa["hubo_vacunacion_con_barrido_documentado"] = _qa_val("2")
 
-    # Placeholder: por_que_no_acciones_respuesta (empty when actions exist)
-    if not has_any_action:
-        qa["por_que_no_acciones_respuesta"] = [{}]
-    else:
-        qa["por_que_no_acciones_respuesta"] = [{}]
+    # por_que_no_acciones_respuesta: omitted when empty (no useful data)
 
     # Vitamina A
     vitamina = _get(d, "vitamina_a").upper()
