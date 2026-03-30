@@ -54,7 +54,7 @@ export default function SuccessScreen({ onNewForm, isOffline, registroId, pacien
       </div>
 
       {/* Constancia card */}
-      <div className="max-w-sm mx-auto rounded-2xl overflow-hidden shadow-igss-lg border border-igss-200">
+      <div className="print-constancia max-w-sm mx-auto rounded-2xl overflow-hidden shadow-igss-lg border border-igss-200">
         {/* Card header */}
         <div className="bg-gradient-to-r from-igss-800 to-igss-700 px-5 py-3 flex items-center gap-3">
           <img
@@ -196,6 +196,45 @@ export default function SuccessScreen({ onNewForm, isOffline, registroId, pacien
             stroke-dashoffset: 0;
             opacity: 1;
             transform: scale(1);
+          }
+        }
+
+        @media print {
+          /* Ocultar todo excepto la constancia */
+          body > *:not(#root) { display: none !important; }
+          header, footer, nav, .no-print { display: none !important; }
+
+          /* El contenedor principal del app */
+          #root > * { display: none !important; }
+          #root > *:has(.print-constancia) { display: block !important; }
+
+          /* Solo mostrar la constancia */
+          .fade-in > *:not(.print-constancia) { display: none !important; }
+          .print-constancia {
+            display: block !important;
+            margin: 0 auto !important;
+            max-width: 100% !important;
+            width: 350px !important;
+            box-shadow: none !important;
+            border: 2px solid #1a3d2e !important;
+            break-inside: avoid;
+          }
+
+          /* Ajustar página */
+          @page {
+            size: auto;
+            margin: 15mm;
+          }
+
+          /* Mostrar título antes de la constancia */
+          .print-constancia::before {
+            content: "CONSTANCIA DE REGISTRO - Vigilancia Sarampión IGSS";
+            display: block;
+            text-align: center;
+            font-size: 10pt;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #1a3d2e;
           }
         }
       `}</style>
