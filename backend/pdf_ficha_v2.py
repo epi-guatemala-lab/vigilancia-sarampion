@@ -122,24 +122,43 @@ def _write(ws, row, col, value):
         logger.warning("Attempted write to merged cell R%d:C%d, skipping", row, col)
         return
     cell.value = value
+    # Make data values bold to distinguish from labels
+    from openpyxl.styles import Font
+    if value and str(value).strip():
+        old_font = cell.font
+        cell.font = Font(
+            name=old_font.name or 'Calibri',
+            size=old_font.size or 9,
+            bold=True,
+        )
 
 
 def _check(ws, row, col, condition):
-    """Mark checkbox: prepend ☒ to existing label text, or write ☒ if cell is empty."""
+    """Mark checkbox: prepend ☒ to existing label text, or write ☒ if cell is empty.
+    Makes the checkbox BOLD for visibility."""
     if condition:
         from openpyxl.cell.cell import MergedCell
+        from openpyxl.styles import Font
+        from copy import copy
         cell = ws.cell(row=row, column=col)
         if isinstance(cell, MergedCell):
             logger.warning("Attempted check on merged cell R%d:C%d, skipping", row, col)
             return
         existing = cell.value
         if existing and str(existing).strip():
-            # Prepend ☒ to existing label (e.g., "Si" → "☒ Si")
             text = str(existing).strip()
             if not text.startswith('☒'):
                 cell.value = f"☒ {text}"
         else:
             cell.value = "☒"
+        # Make the checkbox text BOLD for visibility
+        old_font = cell.font
+        cell.font = Font(
+            name=old_font.name or 'Calibri',
+            size=old_font.size or 9,
+            bold=True,
+            color='000000',
+        )
 
 
 def _write_date(ws, row, col_d, col_m, col_y, date_str):
@@ -314,7 +333,13 @@ def _fill_template(ws, d: dict):
     _write(ws, 20, 7, _g(d, 'edad_meses'))    # G20 = Meses data
     _write(ws, 20, 8, _g(d, 'edad_dias'))     # H20 = Días data
     cui = _g(d, 'numero_identificacion', _g(d, 'afiliacion', ''))
-    _write(ws, 19, 11, cui)                    # K19:T19 = CUI data
+    tipo_id = _g(d, 'tipo_identificacion', '')
+    if tipo_id and cui:
+        _write(ws, 19, 11, f"{tipo_id}: {cui}")   # K19:T19 = CUI data
+    elif cui:
+        _write(ws, 19, 11, cui)                     # K19:T19 = CUI data
+    elif tipo_id:
+        _write(ws, 19, 11, f"{tipo_id}: (sin dato)")  # K19:T19
 
     # R21: A21:B21='Nombre del Tutor', C21:E21=data, F21:G21='Parentesco', H21:T21=data
     _write(ws, 21, 3, _g(d, 'nombre_encargado'))     # C21:E21 = tutor name data
@@ -335,11 +360,12 @@ def _fill_template(ws, d: dict):
     _check(ws, 22, 3, 'MAYA' in pueblo)                              # C22 = ☒ Maya
     _check(ws, 22, 4, 'GARIF' in pueblo)                             # D22 = ☒ Garífuna
     _check(ws, 22, 5, 'XINCA' in pueblo)                             # E22 = ☒ Xinca
+    _check(ws, 22, 6, 'EXTRANJERO' in pueblo)                        # F22 = ☒ Extranjero
 
     pais = _g(d, 'pais_residencia', '').upper()
-    es_extranjero = pais and pais not in ('GUATEMALA', 'GT', '')
-    _check(ws, 22, 8, es_extranjero)        # H22 = Si
-    _check(ws, 22, 9, not es_extranjero)     # I22 = No
+    es_extranjero = 'EXTRANJERO' in pueblo or (pais and pais not in ('GUATEMALA', 'GT', ''))
+    _check(ws, 22, 8, es_extranjero)        # H22 = Si (Extranjero)
+    _check(ws, 22, 9, not es_extranjero)     # I22 = No (Extranjero)
 
     migrante = _g(d, 'es_migrante', '')
     _check(ws, 22, 11, _chk(migrante))      # K22 = Si
@@ -351,11 +377,11 @@ def _fill_template(ws, d: dict):
 
     # R23: A23:B23='Trimestre de Embarazo', C23:D23='Ocupación', E23:H23=data(ocupación),
     #      I23:J23='Escolaridad', K23:O23=data(escolaridad), P23:Q23='Teléfono', R23:T23=data(tel)
-    _write(ws, 23, 3, _g(d, 'trimestre_embarazo'))   # C23:D23 — rewrite label with data
-    # Actually C23='Ocupación' label. Trimestre goes... let me check.
-    # R23: A23:B23='Trimestre de Embarazo' (label), so trimestre data could go after it.
-    # But there's no explicit data cell. The layout has no empty merge for trimestre.
-    # We'll put trimestre value between the label. Skip if no dedicated cell.
+    # Trimestre de embarazo: A23:B23 is the label "Trimestre de Embarazo"
+    # No dedicated data cell exists; overwrite label to include the value
+    trimestre = _g(d, 'trimestre_embarazo')
+    if trimestre:
+        _write(ws, 23, 1, f"Trimestre: {trimestre}")
 
     _write(ws, 23, 5, _g(d, 'ocupacion'))            # E23:H23 = data
     _write(ws, 23, 11, _g(d, 'escolaridad'))          # K23:O23 = data
@@ -733,61 +759,87 @@ def _fill_template(ws, d: dict):
 
     if lab_json:
         # Structured lab data — map to template rows
-        # Expected structure: list of dicts with tipo_muestra, virus, fecha_toma, etc.
+        # JSON uses "slot" field: suero_1, suero_2, orina_1, hisopado_1, otro
+        # Each sample has sarampion_igm/igg/avidez and rubeola_igm/igg/avidez
+        # Template rows: 61/62=1a Suero, 63/64=2da Suero, 65/66=Orina,
+        #                67/68=Hisopado, 69/70=Otro
+        # Odd row = Sarampión, Even row = Rubéola
+
+        _SLOT_ROW_MAP = {
+            'suero_1': (61, 62),
+            'suero_2': (63, 64),
+            'orina_1': (65, 66),
+            'hisopado_1': (67, 68),
+            'otro': (69, 70),
+        }
+
         for sample in lab_json:
             if not isinstance(sample, dict):
                 continue
-            tipo = str(sample.get('tipo_muestra', '')).upper()
-            virus = str(sample.get('virus', 'SARAMPION')).upper()
-            numero = str(sample.get('numero_muestra', '1'))
 
-            # Determine target row
-            if 'SUERO' in tipo:
-                if numero == '2' or '2' in tipo:
-                    row_s, row_r = 63, 64
-                else:
-                    row_s, row_r = 61, 62
-            elif 'ORINA' in tipo:
-                row_s, row_r = 65, 66
-            elif 'HISOP' in tipo:
-                row_s, row_r = 67, 68
+            # Determine target rows from slot field
+            slot = str(sample.get('slot', '')).lower().strip()
+            if slot in _SLOT_ROW_MAP:
+                row_s, row_r = _SLOT_ROW_MAP[slot]
             else:
-                row_s, row_r = 69, 70
+                # Fallback: try tipo_muestra field
+                tipo = str(sample.get('tipo_muestra', '')).upper()
+                if 'SUERO' in tipo:
+                    numero = str(sample.get('numero_muestra', '1'))
+                    if numero == '2' or '2' in tipo:
+                        row_s, row_r = 63, 64
+                    else:
+                        row_s, row_r = 61, 62
+                elif 'ORINA' in tipo:
+                    row_s, row_r = 65, 66
+                elif 'HISOP' in tipo:
+                    row_s, row_r = 67, 68
+                else:
+                    row_s, row_r = 69, 70
 
-            target_row = row_r if 'RUBE' in virus else row_s
-
-            # Fecha toma
+            # Fecha toma — shared between sarampión/rubéola, write on sarampión row
             dd, mm, yyyy = _parse_date(sample.get('fecha_toma', ''))
             if dd:
-                _write(ws, target_row, 4, f"{dd}/{mm}/{yyyy}")  # D col
+                _write(ws, row_s, 4, f"{dd}/{mm}/{yyyy}")  # D col sarampión row
 
-            # Fecha envío
+            # Fecha envío — shared, write on sarampión row
             dd, mm, yyyy = _parse_date(sample.get('fecha_envio', ''))
             if dd:
-                _write(ws, target_row, 6, f"{dd}/{mm}/{yyyy}")  # F col
+                _write(ws, row_s, 6, f"{dd}/{mm}/{yyyy}")  # F col sarampión row
 
-            # Results
-            res_igm = sample.get('resultado_igm', sample.get('resultado_virus', ''))
-            if res_igm:
-                _write(ws, target_row, 9, _lab_val(res_igm))     # I col = IgM
-            res_igg = sample.get('resultado_igg', '')
-            if res_igg:
-                _write(ws, target_row, 10, _lab_val(res_igg))    # J col = IgG
-            res_avidez = sample.get('resultado_avidez', '')
-            if res_avidez:
-                _write(ws, target_row, 11, res_avidez)  # K col = Avidez
+            # Sarampión results (odd row = row_s)
+            s_igm = sample.get('sarampion_igm', sample.get('resultado_igm', ''))
+            if s_igm:
+                _write(ws, row_s, 9, s_igm)     # I col = IgM
+            s_igg = sample.get('sarampion_igg', sample.get('resultado_igg', ''))
+            if s_igg:
+                _write(ws, row_s, 10, s_igg)    # J col = IgG
+            s_avidez = sample.get('sarampion_avidez', sample.get('resultado_avidez', ''))
+            if s_avidez:
+                _write(ws, row_s, 11, s_avidez)  # K col = Avidez
 
-            # Fecha resultado
+            # Rubéola results (even row = row_r)
+            r_igm = sample.get('rubeola_igm', '')
+            if r_igm:
+                _write(ws, row_r, 9, r_igm)     # I col = IgM
+            r_igg = sample.get('rubeola_igg', '')
+            if r_igg:
+                _write(ws, row_r, 10, r_igg)    # J col = IgG
+            r_avidez = sample.get('rubeola_avidez', '')
+            if r_avidez:
+                _write(ws, row_r, 11, r_avidez)  # K col = Avidez
+
+            # Fecha resultado — write on sarampión row
             dd, mm, yyyy = _parse_date(sample.get('fecha_resultado', ''))
             if dd:
-                _write(ws, target_row, 13, dd)   # M col
-                _write(ws, target_row, 14, mm)   # N col
-                _write(ws, target_row, 15, yyyy) # O col
+                _write(ws, row_s, 13, dd)   # M col
+                _write(ws, row_s, 14, mm)   # N col
+                _write(ws, row_s, 15, yyyy) # O col
 
-            # Secuenciación
+            # Secuenciación from sample
             sec = sample.get('secuenciacion', '')
             if sec:
-                _write(ws, target_row, 16, sec)  # P col
+                _write(ws, row_s, 16, sec)  # P col
     else:
         # Fallback: use individual fields
         # R61: 1a Suero — Sarampión
@@ -827,15 +879,17 @@ def _fill_template(ws, d: dict):
         if pcr_hisop:
             _write(ws, 67, 9, pcr_hisop)  # I67
 
-    # Secuenciación result and fecha (R63 has dedicated cells)
+    # Secuenciación result and fecha
+    # P63:Q64 has label "Resultado", R63:T64 has label "Fecha"
+    # Overwrite these labels with actual data values
     sec_resultado = _g(d, 'secuenciacion_resultado', '')
     sec_fecha = _g(d, 'secuenciacion_fecha', '')
     if sec_resultado:
-        # R63: P63:Q64='Resultado' label area — write data
-        pass  # P63 has label 'Resultado'; actual data unclear. Skip if no dedicated cell.
+        _write(ws, 63, 16, sec_resultado)  # P63 = Secuenciación resultado
     if sec_fecha:
-        # R63: R63:T64='Fecha' label area
-        pass
+        dd, mm, yyyy = _parse_date(sec_fecha)
+        if dd:
+            _write(ws, 63, 18, f"{dd}/{mm}/{yyyy}")  # R63 = Secuenciación fecha
 
     # ===== CLASIFICACIÓN (Rows 72-82) =====
 
