@@ -160,7 +160,7 @@ export default function SuccessScreen({ onNewForm, isOffline, registroId, pacien
         {/* Download Ficha PDF */}
         {registroId && (
           <a
-            href={`${import.meta.env.VITE_API_URL || ''}/ficha-publica/${registroId}`}
+            href={`${import.meta.env.VITE_API_URL || ''}/api/ficha-publica/${registroId}`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-red-600 text-white font-semibold text-sm rounded-xl hover:bg-red-700 transition-all duration-200 shadow-sm active:scale-95"

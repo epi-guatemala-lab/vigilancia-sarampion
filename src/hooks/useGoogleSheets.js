@@ -57,10 +57,13 @@ export function useGoogleSheets() {
     } catch (error) {
       console.error('Error al enviar:', error)
 
-      // Si falla el envío online, guardar como pendiente
+      // Si falla el envío online, guardar como pendiente para reintento
       savePendingSubmission(prepared)
-      setSubmitSuccess(true)
-      return { success: true, registro_id: prepared.registro_id, offline: true }
+      setSubmitError(
+        'No se pudo enviar al servidor. Los datos se guardaron localmente y se reintentará automáticamente al reconectarse. ' +
+        'NO cierre el navegador hasta que se confirme el envío.'
+      )
+      return { success: false, registro_id: prepared.registro_id, pending: true, error: error.message }
 
     } finally {
       setIsSubmitting(false)
