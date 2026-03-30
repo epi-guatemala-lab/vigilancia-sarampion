@@ -38,20 +38,10 @@ export const pageLabels = {
 }
 
 export const diagnosticosMap = {
-  'B05 - Sarampión': 'B05',
-  'B050 - Sarampión complicado por encefalitis': 'B050',
-  'B051 - Sarampión complicado por meningitis': 'B051',
-  'B052 - Sarampión complicado por una neumonía': 'B052',
-  'B053 - Sarampión complicado por otitis media': 'B053',
-  'B054 - Sarampión con complicaciones intestinales': 'B054',
   'B055 - Sarampión confirmado por laboratorio': 'B055',
   'B056 - Sarampión confirmado por nexo epidemiológico': 'B056',
   'B057 - Sarampión confirmado clínicamente': 'B057',
-  'B058 - Sarampión con otras complicaciones': 'B058',
   'B059 - Sospechoso de Sarampión': 'B059',
-  'B06 - Rubéola': 'B06',
-  'B060 - Rubéola con complicaciones neurológicas': 'B060',
-  'B061 - Rubéola con otras complicaciones': 'B061',
   'B069 - Rubéola sin complicaciones': 'B069',
 }
 
@@ -168,7 +158,7 @@ export const formFields = [
   },
   {
     id: 'fecha_registro_diagnostico',
-    label: 'Fecha de Registro de Diagnóstico',
+    label: 'Fecha de Consulta',
     type: 'date',
     page: 1,
     required: false,
@@ -188,6 +178,28 @@ export const formFields = [
     dependsOnDate: 'fecha_notificacion',
     helpText: 'Se calcula automáticamente según la fecha de notificación (sistema MMWR/CDC)',
     readOnly: true,
+  },
+  {
+    id: 'area_salud_mspas',
+    label: 'Dirección de Área de Salud',
+    type: 'select',
+    page: 1,
+    required: true,
+    options: departamentosGuatemala,
+    searchable: true,
+    colSpan: 'half',
+    sectionTitle: 'Área de Salud MSPAS',
+  },
+  {
+    id: 'distrito_salud_mspas',
+    label: 'Distrito de Salud',
+    type: 'select',
+    page: 1,
+    required: true,
+    options: [],
+    searchable: true,
+    cascadeFrom: 'area_salud_mspas',
+    colSpan: 'half',
   },
   {
     id: 'servicio_reporta',
@@ -231,7 +243,7 @@ export const formFields = [
     label: 'Correo Electrónico',
     type: 'text',
     page: 1,
-    required: false,
+    required: true,
     placeholder: 'correo@ejemplo.com',
     colSpan: 'half',
     validation: { maxLength: 150 },
@@ -244,6 +256,7 @@ export const formFields = [
     required: false,
     options: ['SI', 'NO'],
     colSpan: 'full',
+    hidden: true,
   },
 
   // Fuente de Notificación: hardcodeado "Servicio de Salud" (IGSS siempre reporta desde sus servicios)
@@ -670,6 +683,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'esta_embarazada', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'vacuna_embarazada',
@@ -680,6 +694,7 @@ export const formFields = [
     options: ['SI', 'NO', 'N/S', 'N/A'],
     conditional: { dependsOn: 'esta_embarazada', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'fecha_vacunacion_embarazada',
@@ -690,6 +705,7 @@ export const formFields = [
     conditional: { dependsOn: 'vacuna_embarazada', showWhen: 'SI' },
     colSpan: 'half',
     validation: { noFuture: true },
+    hidden: true,
   },
 
   // ═══════════════════════════════════════════════════
@@ -713,10 +729,7 @@ export const formFields = [
     required: true,
     options: [
       'Carné de Vacunación',
-      'SIGSA 5a Cuaderno',
-      'SIGSA 5B Otros Grupos',
       'Registro Único de Vacunación',
-      'Verbal',
     ],
     conditional: { dependsOn: 'vacunado', showWhen: 'SI' },
     colSpan: 'half',
@@ -859,7 +872,7 @@ export const formFields = [
     label: '¿Tiene antecedentes médicos relevantes?',
     type: 'radio',
     page: 4,
-    required: false,
+    required: true,
     options: ['SI', 'NO', 'DESCONOCIDO'],
     colSpan: 'full',
     sectionTitle: 'Antecedentes Médicos',
@@ -880,7 +893,7 @@ export const formFields = [
     label: 'Desnutrición',
     type: 'radio',
     page: 4,
-    required: false,
+    required: true,
     options: ['SI', 'NO'],
     conditional: { dependsOn: 'tiene_antecedentes_medicos', showWhen: 'SI' },
     colSpan: 'half',
@@ -890,7 +903,7 @@ export const formFields = [
     label: 'Inmunocompromiso',
     type: 'radio',
     page: 4,
-    required: false,
+    required: true,
     options: ['SI', 'NO'],
     conditional: { dependsOn: 'tiene_antecedentes_medicos', showWhen: 'SI' },
     colSpan: 'half',
@@ -900,7 +913,7 @@ export const formFields = [
     label: 'Enfermedad Crónica',
     type: 'radio',
     page: 4,
-    required: false,
+    required: true,
     options: ['SI', 'NO'],
     conditional: { dependsOn: 'tiene_antecedentes_medicos', showWhen: 'SI' },
     colSpan: 'half',
@@ -926,9 +939,10 @@ export const formFields = [
     label: 'Fecha de Captación',
     type: 'date',
     page: 5,
-    required: true,
+    required: false,
     colSpan: 'half',
     validation: { noFuture: true },
+    hidden: true,
   },
 
   // --- Circunstancias de Exposición ---
@@ -947,7 +961,7 @@ export const formFields = [
     label: 'Sitio de Inicio de Erupción',
     type: 'select',
     page: 5,
-    required: true,
+    required: false,
     options: [
       'Retroauricular',
       'Cara',
@@ -956,6 +970,7 @@ export const formFields = [
       'Otro',
     ],
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'sitio_inicio_erupcion_otro',
@@ -966,6 +981,7 @@ export const formFields = [
     placeholder: 'Especifique',
     conditional: { dependsOn: 'sitio_inicio_erupcion', showWhen: 'Otro' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'fecha_inicio_fiebre',
@@ -1068,9 +1084,10 @@ export const formFields = [
     label: 'Asintomático',
     type: 'radio',
     page: 5,
-    required: true,
+    required: false,
     options: ['SI', 'NO', 'DESCONOCIDO'],
     colSpan: 'half',
+    hidden: true,
   },
 
   // --- Hospitalización y Defunción ---
@@ -1110,10 +1127,11 @@ export const formFields = [
     label: 'No. de Registro Médico',
     type: 'text',
     page: 5,
-    required: true,
+    required: false,
     placeholder: 'Número de registro médico',
     conditional: { dependsOn: 'hospitalizado', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'condicion_egreso',
@@ -1124,6 +1142,7 @@ export const formFields = [
     options: ['MEJORADO', 'GRAVE', 'MUERTO'],
     conditional: { dependsOn: 'hospitalizado', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'fecha_egreso',
@@ -1134,6 +1153,7 @@ export const formFields = [
     conditional: { dependsOn: 'hospitalizado', showWhen: 'SI' },
     colSpan: 'half',
     validation: { noFuture: true },
+    hidden: true,
   },
   {
     id: 'fecha_defuncion',
@@ -1164,6 +1184,7 @@ export const formFields = [
     placeholder: 'Describa el motivo de consulta u observaciones',
     colSpan: 'full',
     validation: { maxLength: 500 },
+    hidden: true,
   },
 
   // --- Complicaciones ---
@@ -1279,7 +1300,7 @@ export const formFields = [
     label: 'Tuvo contacto con otro sospechoso de 7-23 días antes del inicio de la erupción',
     type: 'radio',
     page: 6,
-    required: true,
+    required: false,
     options: ['SI', 'NO', 'DESCONOCIDO'],
     colSpan: 'full',
   },
@@ -1288,7 +1309,7 @@ export const formFields = [
     label: 'Hubo algún caso sospechoso en la comunidad o municipio antes de este caso, en los últimos 3 meses',
     type: 'radio',
     page: 6,
-    required: true,
+    required: false,
     options: ['SI', 'NO', 'DESCONOCIDO'],
     colSpan: 'full',
   },
@@ -1297,7 +1318,7 @@ export const formFields = [
     label: 'Viajó durante los 7-23 días previos al inicio de la erupción',
     type: 'radio',
     page: 6,
-    required: true,
+    required: false,
     options: ['SI', 'NO'],
     colSpan: 'full',
   },
@@ -1690,7 +1711,7 @@ export const formFields = [
     options: ['Sarampión', 'Rubéola', 'Dengue', 'Otros'],
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
-    sectionTitle: 'Resultados de Laboratorio',
+    hidden: true,
   },
   {
     id: 'antigeno_otro',
@@ -1701,6 +1722,7 @@ export const formFields = [
     placeholder: 'Especifique',
     conditional: { dependsOn: 'antigeno_prueba', showWhen: 'Otros' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'resultado_prueba',
@@ -1711,6 +1733,7 @@ export const formFields = [
     options: ['Negativo', 'Positivo', 'Muestra Inadecuada', 'Indeterminada'],
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'fecha_recepcion_laboratorio',
@@ -1721,6 +1744,7 @@ export const formFields = [
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
     validation: { noFuture: true },
+    hidden: true,
   },
   {
     id: 'fecha_resultado_laboratorio',
@@ -1731,6 +1755,7 @@ export const formFields = [
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
     validation: { noFuture: true },
+    hidden: true,
   },
   // Resultados detallados (mantener compatibilidad)
   {
@@ -1742,7 +1767,7 @@ export const formFields = [
     options: ['REACTIVO', 'NO REACTIVO', 'INDETERMINADO', 'PENDIENTE', 'N/A'],
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
-    sectionTitle: 'Resultados Detallados (IGSS)',
+    hidden: true,
   },
   {
     id: 'resultado_igg_numerico',
@@ -1753,6 +1778,7 @@ export const formFields = [
     placeholder: 'Valor numérico',
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'resultado_igm_cualitativo',
@@ -1763,6 +1789,7 @@ export const formFields = [
     options: ['REACTIVO', 'NO REACTIVO', 'INDETERMINADO', 'PENDIENTE', 'N/A'],
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'resultado_igm_numerico',
@@ -1773,6 +1800,7 @@ export const formFields = [
     placeholder: 'Valor numérico',
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'resultado_pcr_orina',
@@ -1783,6 +1811,7 @@ export const formFields = [
     options: ['POSITIVO', 'NEGATIVO', 'PENDIENTE', 'N/A'],
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
   {
     id: 'resultado_pcr_hisopado',
@@ -1793,6 +1822,7 @@ export const formFields = [
     options: ['POSITIVO', 'NEGATIVO', 'PENDIENTE', 'N/A'],
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
+    hidden: true,
   },
 
   // Formato 2026 — campos adicionales laboratorio

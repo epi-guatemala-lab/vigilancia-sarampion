@@ -50,6 +50,12 @@ function resolveFieldOptions(field, formData) {
     return (depto && muni) ? getPoblados(depto, muni) : []
   }
 
+  // Área de Salud MSPAS → Distrito (same municipio catalog)
+  if (field.cascadeFrom === 'area_salud_mspas') {
+    const area = formData.area_salud_mspas
+    return area ? getMunicipios(area) : []
+  }
+
   // Viaje: departamento → municipio (same municipio catalog as residencia)
   if (field.cascadeFrom === 'viaje_departamento') {
     const depto = formData.viaje_departamento

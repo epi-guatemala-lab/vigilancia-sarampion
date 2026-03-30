@@ -191,6 +191,11 @@ export default function FormWizard() {
       if (egresoMap[value] !== undefined) updateField('condicion_egreso', egresoMap[value])
     }
 
+    // Cascading resets: area_salud_mspas → distrito_salud_mspas
+    if (fieldId === 'area_salud_mspas') {
+      updateField('distrito_salud_mspas', '')
+    }
+
     // Cascading resets: departamento → municipio → poblado
     if (fieldId === 'departamento_residencia') {
       updateMultipleFields({ municipio_residencia: '', poblado: '' })
