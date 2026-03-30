@@ -1062,10 +1062,11 @@ def export_ficha_publica(registro_id: str):
         except (ValueError, TypeError):
             pass
 
-    from pdf_ficha import generar_ficha_pdf
-    pdf_bytes = generar_ficha_pdf(reg)
+    # Usar ficha v2 (formato MSPAS 2026/GoData) — EPIWEB deprecado
+    from pdf_ficha_v2 import generar_ficha_v2_pdf
+    pdf_bytes = generar_ficha_v2_pdf(reg)
 
-    filename = f"ficha_{registro_id.replace('/', '_')}.pdf"
+    filename = f"ficha_godata_{registro_id.replace('/', '_')}.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
