@@ -106,6 +106,14 @@ def _lab_val(val: str) -> str:
     return _LAB_ABBREV.get(val.upper().strip(), val)
 
 
+
+
+def _trunc(text: str, max_len: int) -> str:
+    """Truncate text to max_len chars, adding ... if truncated."""
+    if not text or len(str(text)) <= max_len:
+        return text
+    return str(text)[:max_len-2] + '..'
+
 # ---------------------------------------------------------------------------
 # Cell writing helpers
 # ---------------------------------------------------------------------------
@@ -113,23 +121,29 @@ def _lab_val(val: str) -> str:
 def _write(ws, row, col, value):
     """Write a value to a cell, preserving existing formatting.
     If the cell is part of a merged range (not top-left), skip silently.
+    Uses shrinkToFit so long text auto-reduces font size instead of overflowing.
     """
     from openpyxl.cell.cell import MergedCell
+    from openpyxl.styles import Font, Alignment
     cell = ws.cell(row=row, column=col)
     if isinstance(cell, MergedCell):
-        # Find the top-left cell of this merge and skip — caller should
-        # target the correct cell. Log a warning for debugging.
         logger.warning("Attempted write to merged cell R%d:C%d, skipping", row, col)
         return
     cell.value = value
-    # Make data values bold to distinguish from labels
-    from openpyxl.styles import Font
     if value and str(value).strip():
         old_font = cell.font
         cell.font = Font(
             name=old_font.name or 'Calibri',
             size=old_font.size or 9,
             bold=True,
+        )
+        # shrinkToFit: LibreOffice auto-reduces font size so text fits in the cell
+        old_align = cell.alignment
+        cell.alignment = Alignment(
+            horizontal=old_align.horizontal or 'left',
+            vertical=old_align.vertical or 'center',
+            wrap_text=old_align.wrap_text,
+            shrink_to_fit=True,
         )
 
 
