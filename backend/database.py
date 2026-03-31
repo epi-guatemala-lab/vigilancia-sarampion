@@ -215,6 +215,14 @@ COLUMNS = [
     "motivo_no_3_muestras",
     "secuenciacion_resultado",
     "secuenciacion_fecha",
+    # Muestras Rechazadas (Boleta de Rechazo - LNS)
+    "muestra_rechazada",
+    "muestra_rechazada_codigo",
+    "muestra_rechazada_fecha",
+    "muestra_rechazada_criterio",
+    "muestra_rechazada_criterio_otro",
+    "muestra_rechazada_tipo",
+    "muestra_rechazada_observaciones",
     # Sección 8: Clasificación (nuevos)
     "criterio_confirmacion",
     "nexo_numero_ficha",

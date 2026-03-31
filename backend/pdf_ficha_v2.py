@@ -125,6 +125,41 @@ def _trunc(text: str, max_len: int) -> str:
         return text
     return str(text)[:max_len-2] + '..'
 
+
+def _smart_fit(text, max_chars):
+    """Intelligently fit text to max_chars using abbreviation then truncation."""
+    if not text or len(str(text)) <= max_chars:
+        return str(text) if text else ''
+
+    text = str(text)
+
+    # IGSS-specific abbreviations
+    ABBREVS = [
+        ('INSTITUTO GUATEMALTECO DE SEGURIDAD SOCIAL', 'IGSS'),
+        ('HOSPITAL GENERAL DE ENFERMEDADES', 'HGE'),
+        ('HOSPITAL GENERAL', 'HOSP. GRAL.'),
+        ('CONSULTORIO', 'CONS.'),
+        ('DEPARTAMENTO DE', 'DEPTO.'),
+        ('EN SANARATE, EL PROGRESO', 'SANARATE'),
+        ('ANEXO DEL IGSS', 'IGSS'),
+        (', ALTA VERAPAZ', ', A.V.'),
+        (', QUETZALTENANGO', ', QUETZ.'),
+        (', ESCUINTLA', ', ESC.'),
+        (', GUATEMALA', ', GT'),
+    ]
+
+    result = text
+    for long_text, short_text in ABBREVS:
+        if len(result) <= max_chars:
+            break
+        result = result.replace(long_text, short_text)
+
+    # If still too long, truncate with ..
+    if len(result) > max_chars:
+        result = result[:max_chars - 2] + '..'
+
+    return result
+
 # ---------------------------------------------------------------------------
 # Cell writing helpers
 # ---------------------------------------------------------------------------
@@ -370,7 +405,7 @@ def _fill_template(ws, d: dict):
 
     area_salud = _g(d, 'area_salud_mspas', _g(d, 'departamento_residencia', ''))
     distrito = _g(d, 'distrito_salud_mspas', _g(d, 'municipio_residencia', ''))
-    servicio = _g(d, 'servicio_salud_mspas', _g(d, 'unidad_medica', ''))
+    servicio = _smart_fit(_g(d, 'servicio_salud_mspas', _g(d, 'unidad_medica', '')), 45)
 
     # F11:J12, K11:N12, O11:S12 are merged cells that contain labels.
     # We overwrite with "label\nDATA" and use wrap_text + top-align so
@@ -436,8 +471,8 @@ def _fill_template(ws, d: dict):
 
     # K13:N13='Nombre de quien investiga' (label), O13:S13=empty data (~33 chars wide)
     # O14:S14='Cargo' — single row, no room for wrap. Use shrink for long values.
-    for row_n, key in [(13, 'nom_responsable'), (14, 'cargo_responsable')]:
-        val = _g(d, key)
+    for row_n, key, max_c in [(13, 'nom_responsable', 30), (14, 'cargo_responsable', 30)]:
+        val = _smart_fit(_g(d, key), max_c)
         if val:
             cell = ws.cell(row=row_n, column=15)
             if not isinstance(cell, MergedCell):
@@ -451,7 +486,7 @@ def _fill_template(ws, d: dict):
 
     # R15: K15:M15='Telefono y Correo', N15:S15=data
     tel_correo = _g(d, 'telefono_responsable', '')
-    correo = _g(d, 'correo_responsable', '')
+    correo = _smart_fit(_g(d, 'correo_responsable', ''), 35)
     tel_text = ''
     if correo and tel_correo:
         tel_text = f"{tel_correo} / {correo}"
@@ -472,7 +507,7 @@ def _fill_template(ws, d: dict):
     #      E16(not merged)='Especifique', J16:M17='Establecimiento Privado' (merged)
     #      N16:N17='checkbox', Q16:S16=data (Especifique)
     # IGSS checkbox + specify
-    igss_name = _g(d, 'unidad_medica', '') if _chk(_g(d, 'es_seguro_social', 'SI')) else ''
+    igss_name = _smart_fit(_g(d, 'unidad_medica', ''), 45) if _chk(_g(d, 'es_seguro_social', 'SI')) else ''
     _check(ws, 16, 4, bool(igss_name))  # D16 = IGSS checkbox
     if igss_name:
         # E17:I17 merged = IGSS establishment name data
@@ -587,8 +622,8 @@ def _fill_template(ws, d: dict):
     #      G27:H29='Parentesco' (merged label), I27:K29=data(parentesco)
     #      L27:N28='Codigo Unico de Identificacion' (label), O27:S29=data(CUI tutor)
     # D27:F29 tutor name, I27:K29 parentesco — both can be long
-    for col, key in [(4, 'nombre_encargado'), (9, 'parentesco_tutor')]:
-        val = _g(d, key)
+    for col, key, max_c in [(4, 'nombre_encargado', 35), (9, 'parentesco_tutor', 20)]:
+        val = _smart_fit(_g(d, key), max_c)
         if val:
             cell = ws.cell(row=27, column=col)
             if not isinstance(cell, MergedCell):
@@ -657,8 +692,8 @@ def _fill_template(ws, d: dict):
     # Merges at R31: A31:C31(label Trimestre), G31:I31(empty=data Ocupacion?),
     #   L31:N31(empty=data Escolaridad?), O31:P31(label Telefono), Q31:S31(data Telefono)
     # G31:I31 Ocupacion, L31:N31 Escolaridad — use wrap for long values
-    for col, key in [(7, 'ocupacion'), (12, 'escolaridad')]:
-        val = _g(d, key)
+    for col, key, max_c in [(7, 'ocupacion', 20), (12, 'escolaridad', 20)]:
+        val = _smart_fit(_g(d, key), max_c)
         if val:
             cell = ws.cell(row=31, column=col)
             if not isinstance(cell, MergedCell):
@@ -692,7 +727,7 @@ def _fill_template(ws, d: dict):
     # R33: A33:C34='Direccion de Residencia' (merged), D33:L34=data(direccion) (merged)
     #      M33:O34='Lugar Poblado' (merged label), P33:S34=data(poblado) (merged)
     # D33:L34 for address — wide but can have long text. Use wrap.
-    addr = _g(d, 'direccion_exacta')
+    addr = _smart_fit(_g(d, 'direccion_exacta'), 55)
     if addr:
         cell = ws.cell(row=33, column=4)
         if not isinstance(cell, MergedCell):
@@ -700,7 +735,7 @@ def _fill_template(ws, d: dict):
             cell.font = Font(name='Calibri', size=8, bold=True)
             cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
     # P33:S34 for poblado
-    poblado = _g(d, 'poblado')
+    poblado = _smart_fit(_g(d, 'poblado'), 30)
     if poblado:
         cell = ws.cell(row=33, column=16)
         if not isinstance(cell, MergedCell):
@@ -916,7 +951,7 @@ def _fill_template(ws, d: dict):
     # That's col10=J53. And J53:K54 is merged. So where does data go?
     # L53:M54 is merged and empty — this is the data area for hospital name.
     # L53:M54 is very narrow (~10 char widths). Use small font + wrap for hospital name.
-    hosp_nombre = _g(d, 'hosp_nombre')
+    hosp_nombre = _smart_fit(_g(d, 'hosp_nombre'), 35)
     if hosp_nombre:
         cell = ws.cell(row=53, column=12)
         if not isinstance(cell, MergedCell):
@@ -983,12 +1018,20 @@ def _fill_template(ws, d: dict):
     #   R57:C15='Ceguera'=O57 (solo cell)
     _check(ws, 57, 15, _chk(_g(d, 'comp_ceguera')))   # O57 = Ceguera (R57:C15)
 
-    # Fix narrow complication checkbox cells (O55, O56, O57, Q56) — width ~4.7 chars
-    # These solo cells can't fit "☒ Diarrea" etc. at normal font size.
-    # Reduce font to 6pt and use shrink_to_fit for these specific cells.
-    for r, c in [(55, 15), (56, 15), (57, 15), (56, 17)]:
+    # Fix narrow complication checkbox cells — abbreviate long labels
+    # and reduce font to 6pt with shrink_to_fit for these specific cells.
+    _COMP_ABBREVS = {
+        'Trombocitopenia': 'Trombocit.',
+        'Otras(Especifique)': 'Otra',
+        'Otitis Media Aguda': 'Otitis M.A.',
+    }
+    for r, c in [(55, 15), (55, 17), (56, 12), (56, 15), (57, 15), (56, 17)]:
         cell = ws.cell(row=r, column=c)
         if not isinstance(cell, MergedCell) and cell.value:
+            val = str(cell.value)
+            for long_lbl, short_lbl in _COMP_ABBREVS.items():
+                val = val.replace(long_lbl, short_lbl)
+            cell.value = val
             cell.font = Font(name='Calibri', size=6, bold=True)
             cell.alignment = Alignment(horizontal='center', vertical='center', shrink_to_fit=True)
 
