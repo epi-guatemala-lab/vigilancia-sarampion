@@ -104,6 +104,7 @@ COLUMNS = [
     # Tab 6: Laboratorio
     "recolecto_muestra",
     "motivo_no_recoleccion",
+    "motivo_no_recoleccion_otro",
     "muestra_suero",
     "muestra_suero_fecha",
     "muestra_hisopado",
@@ -216,6 +217,8 @@ COLUMNS = [
     "secuenciacion_fecha",
     # Sección 8: Clasificación (nuevos)
     "criterio_confirmacion",
+    "nexo_numero_ficha",
+    "nexo_nombre_caso_confirmatorio",
     "contacto_otro_caso",
     "contacto_otro_caso_detalle",
     "criterio_descarte",

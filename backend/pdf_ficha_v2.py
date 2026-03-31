@@ -81,6 +81,15 @@ def _is_desc(value) -> bool:
     return str(value).strip().upper() in ("DESCONOCIDO", "DESC", "D", "UNKNOWN")
 
 
+def _strip_accents(s: str) -> str:
+    """Remove diacritics/accents from a string for robust matching."""
+    import unicodedata
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', s)
+        if unicodedata.category(c) != 'Mn'
+    )
+
+
 def _safe_json(val):
     if not val:
         return []
@@ -253,7 +262,7 @@ def _fill_template(ws, d: dict):
     # R9: E9(not merged)='Otra febril exantematica',
     #     I9:J9='Especifique', K9:M9=data,
     #     N9:S9='Caso altamente sospechoso de Sarampion'
-    diag = _g(d, 'diagnostico_sospecha', _g(d, 'diagnostico_registrado', '')).upper()
+    diag = _strip_accents(_g(d, 'diagnostico_sospecha', _g(d, 'diagnostico_registrado', '')).upper())
     is_sar = 'SARAMP' in diag or 'B05' in diag
     is_rub = 'RUBEO' in diag or 'RUBE' in diag or 'B06' in diag
     is_dengue = 'DENGUE' in diag or 'A90' in diag or 'A91' in diag
@@ -446,8 +455,9 @@ def _fill_template(ws, d: dict):
 
     pais = _g(d, 'pais_residencia', '').upper()
     es_extranjero = 'EXTRANJERO' in pueblo or (pais and pais not in ('GUATEMALA', 'GT', ''))
-    _check(ws, 30, 11, es_extranjero)        # K30 = Si (Extranjero)
-    _check(ws, 30, 12, not es_extranjero)     # L30 = No (Extranjero)
+    has_pueblo_or_pais = bool(pueblo) or bool(pais)
+    _check(ws, 30, 11, es_extranjero)                          # K30 = Si (Extranjero)
+    _check(ws, 30, 12, not es_extranjero and has_pueblo_or_pais) # L30 = No (Extranjero)
 
     migrante = _g(d, 'es_migrante', '')
     _check(ws, 30, 15, _chk(migrante))      # O30 = Si (Migrante)
@@ -825,11 +835,11 @@ def _fill_template(ws, d: dict):
     #      J68:K68='Institucion Educativa', M68:N68='Espacio Publico', P68:R68='Comunidad'
     # R69: D69:E70='Evento Masivo', G69:H70='Transporte Internacional',
     #      J69:K70='Desconocido', M69:N70='Otro', P69:S69='Otro(Especifique)' data
-    fuente_c = _g(d, 'fuente_posible_contagio', '').upper()
+    fuente_c = _strip_accents(_g(d, 'fuente_posible_contagio', '').upper())
     _check(ws, 68, 4, 'HOGAR' in fuente_c or 'CASA' in fuente_c)        # D68
     _check(ws, 68, 7, 'SALUD' in fuente_c or 'HOSPITAL' in fuente_c)    # G68
     _check(ws, 68, 10, 'EDUCATIVA' in fuente_c or 'ESCUELA' in fuente_c) # J68
-    _check(ws, 68, 13, 'PUBLICO' in fuente_c or u'P\u00daBLICO' in fuente_c) # M68
+    _check(ws, 68, 13, 'PUBLICO' in fuente_c)                            # M68
     _check(ws, 68, 16, 'COMUNIDAD' in fuente_c and 'EDUCATIVA' not in fuente_c) # P68
 
     _check(ws, 69, 4, 'MASIVO' in fuente_c or 'EVENTO' in fuente_c)     # D69
@@ -1081,7 +1091,7 @@ def _fill_template(ws, d: dict):
     # R94: A94:C94='Clasificacion Final' (merged), D94:E94='Sarampion'(merged),
     #      G94:H94='Rubeola'(merged), J94:K94='Descartado'(merged),
     #      M94:N94='Pendiente'(merged), P94:R94='No cumple def. caso'(merged)
-    clasif = _g(d, 'clasificacion_caso', '').upper()
+    clasif = _strip_accents(_g(d, 'clasificacion_caso', '').upper())
     is_confirmed = 'CONFIRM' in clasif
     is_descartado = 'DESCART' in clasif
     is_pendiente = 'PENDIENTE' in clasif or 'SOSPECH' in clasif
@@ -1102,10 +1112,10 @@ def _fill_template(ws, d: dict):
     #      M95:O95='Contacto de Otro Caso', P95='Si'(solo?), R95(not in dump)
     # Values: C4='Laboratorio'=D95, C7='Nexo epidemiologico'=G95, C10='Clinico'=J95,
     #   C13='Contacto de Otro Caso'=M95, C16='Si'=P95, C18='NO'=R95
-    crit_conf = _g(d, 'criterio_confirmacion', '').upper()
+    crit_conf = _strip_accents(_g(d, 'criterio_confirmacion', '').upper())
     _check(ws, 95, 4, 'LABORATORIO' in crit_conf or 'LAB' in crit_conf)        # D95
     _check(ws, 95, 7, 'NEXO' in crit_conf or 'EPIDEMIOL' in crit_conf)         # G95
-    _check(ws, 95, 10, u'CL\u00cdNICO' in crit_conf or 'CLINICO' in crit_conf) # J95
+    _check(ws, 95, 10, 'CLINICO' in crit_conf)                                  # J95
 
     contacto_caso = _g(d, 'contacto_otro_caso', '')
     _check(ws, 95, 16, _chk(contacto_caso))     # P95 = Si
@@ -1116,10 +1126,10 @@ def _fill_template(ws, d: dict):
     # J96:K97='Clinico', M96:O96='Otro Especificar:', P96:S96=data
     # Values: C4='Laboratorio'=D96, C7='Relacionado con la Vacuna'=G96,
     #   C10='Clinico'=J96, C13='Otro Especificar:'=M96
-    crit_desc = _g(d, 'criterio_descarte', '').upper()
+    crit_desc = _strip_accents(_g(d, 'criterio_descarte', '').upper())
     _check(ws, 96, 4, 'LABORAT' in crit_desc)                                  # D96
     _check(ws, 96, 7, 'VACUNA' in crit_desc)                                   # G96
-    _check(ws, 96, 10, u'CL\u00cdNICO' in crit_desc or 'CLINICO' in crit_desc) # J96
+    _check(ws, 96, 10, 'CLINICO' in crit_desc)                                  # J96
     crit_desc_otro = _g(d, 'criterio_descarte_otro', '')
     if crit_desc_otro:
         _write(ws, 96, 16, crit_desc_otro)  # P96:S96 = data
@@ -1139,10 +1149,10 @@ def _fill_template(ws, d: dict):
     # Pais de importacion data: J98:L98 is the label merge.
     # M98:M99 is merged and empty — but wait, R99:C10:R99C12 (J99:L99) is merged too.
     # The data for pais de importacion should go in M98 (M98:M99 merged).
-    fuente_inf = _g(d, 'fuente_infeccion', '').upper()
+    fuente_inf = _strip_accents(_g(d, 'fuente_infeccion', '').upper())
     _check(ws, 98, 4, 'IMPORTADO' in fuente_inf and 'RELACIONADO' not in fuente_inf) # D98
     _check(ws, 98, 7, 'RELACIONADO' in fuente_inf)                                    # G98
-    _check(ws, 98, 14, u'END\u00c9MI' in fuente_inf or 'ENDEMI' in fuente_inf)        # N98
+    _check(ws, 98, 14, 'ENDEMI' in fuente_inf)                                        # N98
     _check(ws, 98, 17, 'DESCONOCID' in fuente_inf)                                    # Q98
 
     pais_import = _g(d, 'pais_importacion', '')
@@ -1153,10 +1163,10 @@ def _fill_template(ws, d: dict):
     #       J100:K100='Comision Nacional**', M100='Otros'(solo?), O100:R100='Especifique'(merged data)
     # Values: C4='CONAPI'=D100, C7='DEGR*'=G100, C10='Comision Nacional**'=J100,
     #   C13='Otros'=M100, C15='Especifique'=O100
-    analizado = _g(d, 'caso_analizado_por', '').upper()
+    analizado = _strip_accents(_g(d, 'caso_analizado_por', '').upper())
     _check(ws, 100, 4, 'CONAPI' in analizado)    # D100
     _check(ws, 100, 7, 'DEGR' in analizado)      # G100
-    _check(ws, 100, 10, u'COMISI\u00d3N' in analizado or 'COMISION' in analizado or 'NACIONAL' in analizado) # J100
+    _check(ws, 100, 10, 'COMISION' in analizado or 'NACIONAL' in analizado) # J100
     _check(ws, 100, 13, 'OTRO' in analizado)     # M100
     otro_analiz = _g(d, 'caso_analizado_por_otro', '')
     if otro_analiz:
@@ -1176,7 +1186,7 @@ def _fill_template(ws, d: dict):
         _write(ws, 101, 5, mm)   # E101
         _write(ws, 101, 6, yyyy) # F101
 
-    cond = _g(d, 'condicion_final_paciente', _g(d, 'condicion_egreso', '')).upper()
+    cond = _strip_accents(_g(d, 'condicion_final_paciente', _g(d, 'condicion_egreso', '')).upper())
     _check(ws, 101, 9, 'RECUPER' in cond or 'VIVO' in cond or 'MEJORAD' in cond or 'CURAD' in cond) # I101
     _check(ws, 101, 11, 'SECUELA' in cond)                                                           # K101
     _check(ws, 101, 14, 'FALLEC' in cond or 'MUERTE' in cond)                                        # N101
