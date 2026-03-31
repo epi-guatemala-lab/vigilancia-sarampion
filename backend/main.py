@@ -2126,12 +2126,16 @@ async def reporte_fichas_por_ddriss(request: Request, x_api_key: str = Header(No
                 if fecha_fin and fecha_iso > fecha_fin:
                     continue
 
-            record_ddriss = get_ddriss(
-                r.get('departamento_residencia', ''),
-                r.get('municipio_residencia', '')
-            )
-            if record_ddriss == ddriss:
+            # "TODAS" means no DDRISS filter
+            if ddriss.upper() == 'TODAS':
                 records.append(r)
+            else:
+                record_ddriss = get_ddriss(
+                    r.get('departamento_residencia', ''),
+                    r.get('municipio_residencia', '')
+                )
+                if record_ddriss == ddriss:
+                    records.append(r)
 
         if not records:
             raise HTTPException(404, f"No se encontraron registros para {ddriss} en el rango de fechas indicado")

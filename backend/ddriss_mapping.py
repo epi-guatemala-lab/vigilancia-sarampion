@@ -97,6 +97,7 @@ DDRISS_LIST = sorted([
     'IXIL',
     'QUETZALTENANGO',
     'ESCUINTLA',
+    'SIN ASIGNAR',
     'HUEHUETENANGO',
     'IZABAL',
     'CHIQUIMULA',
@@ -158,6 +159,10 @@ def get_ddriss(departamento: str, municipio: str = '') -> str:
     """
     depto = _strip_accents((departamento or '').upper().strip())
     muni = _strip_accents((municipio or '').upper().strip())
+
+    # Empty department → SIN ASIGNAR
+    if not depto:
+        return 'SIN ASIGNAR'
 
     # Guatemala subdivisions
     if depto == 'GUATEMALA':
