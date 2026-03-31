@@ -2000,6 +2000,162 @@ def godata_get_case(registro_id: str, x_api_key: str = Header(None)):
         raise HTTPException(500, f"Error consultando GoData: {e}")
 
 
+# ─── Reportes / Pendientes ─────────────────────────────────
+
+@app.get("/api/reportes/pendientes-resultado")
+def reporte_pendientes_resultado(x_api_key: str = Header(None)):
+    """Pacientes con muestra recolectada pero sin resultado de laboratorio."""
+    verify_api_key(x_api_key)
+    from database import get_connection
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            SELECT registro_id, nombres, apellidos, afiliacion,
+                   fecha_notificacion, unidad_medica,
+                   muestra_suero, muestra_suero_fecha,
+                   muestra_hisopado, muestra_hisopado_fecha,
+                   muestra_orina, muestra_orina_fecha,
+                   clasificacion_caso, recolecto_muestra,
+                   godata_sync_status, godata_case_id,
+                   resultado_prueba, resultado_igm_cualitativo,
+                   resultado_igg_cualitativo, resultado_pcr_orina,
+                   resultado_pcr_hisopado, lab_muestras_json
+            FROM registros
+            WHERE recolecto_muestra = 'SI'
+              AND (clasificacion_caso IN ('SOSPECHOSO', 'PENDIENTE', '')
+                   OR clasificacion_caso IS NULL)
+            ORDER BY fecha_notificacion DESC
+        """).fetchall()
+        return {"data": [dict(r) for r in rows], "total": len(rows)}
+    finally:
+        conn.close()
+
+
+
+# ─── DDRISS Reporting ───────────────────────────────────────
+
+@app.get("/api/reportes/ddriss-list")
+def reporte_ddriss_list(x_api_key: str = Header(None)):
+    """Get the list of all DDRISS names."""
+    verify_api_key(x_api_key)
+    from ddriss_mapping import DDRISS_LIST
+    return {"ddriss": DDRISS_LIST}
+
+
+@app.get("/api/reportes/ddriss-counts")
+def reporte_ddriss_counts(
+    fecha_inicio: str = None,
+    fecha_fin: str = None,
+    x_api_key: str = Header(None),
+):
+    """Get count of records per DDRISS, optionally filtered by date range."""
+    verify_api_key(x_api_key)
+    from ddriss_mapping import get_ddriss, DDRISS_LIST, _parse_date_to_iso
+    from database import get_connection
+
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT departamento_residencia, municipio_residencia, fecha_notificacion FROM registros"
+        ).fetchall()
+
+        # Parse date filters
+        iso_inicio = fecha_inicio or ""
+        iso_fin = fecha_fin or ""
+
+        counts = {d: 0 for d in DDRISS_LIST}
+        total = 0
+        for row in rows:
+            # Date filter (handles DD/MM/YYYY and YYYY-MM-DD)
+            if iso_inicio or iso_fin:
+                fecha_iso = _parse_date_to_iso(row['fecha_notificacion'] or '')
+                if not fecha_iso:
+                    continue
+                if iso_inicio and fecha_iso < iso_inicio:
+                    continue
+                if iso_fin and fecha_iso > iso_fin:
+                    continue
+
+            total += 1
+            ddriss = get_ddriss(row['departamento_residencia'] or '', row['municipio_residencia'] or '')
+            if ddriss in counts:
+                counts[ddriss] += 1
+            else:
+                counts[ddriss] = counts.get(ddriss, 0) + 1
+
+        # Sort by count descending, then name
+        sorted_counts = dict(sorted(counts.items(), key=lambda x: (-x[1], x[0])))
+        return {"counts": sorted_counts, "total": total}
+    finally:
+        conn.close()
+
+
+@app.post("/api/reportes/fichas-por-ddriss")
+async def reporte_fichas_por_ddriss(request: Request, x_api_key: str = Header(None)):
+    """Generate bulk fichas filtered by DDRISS and date range.
+    Body: {"ddriss": "GUATEMALA SUR", "fecha_inicio": "2026-01-01", "fecha_fin": "2026-03-31", "format": "merged"|"zip"}
+    """
+    verify_api_key(x_api_key)
+    body = await request.json()
+    ddriss = body.get("ddriss", "").strip()
+    fecha_inicio = body.get("fecha_inicio", "")
+    fecha_fin = body.get("fecha_fin", "")
+    fmt = body.get("format", "merged")
+
+    if not ddriss:
+        raise HTTPException(400, "Debe seleccionar un DDRISS")
+
+    from ddriss_mapping import get_ddriss, _parse_date_to_iso
+    from database import get_connection
+
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM registros").fetchall()
+
+        # Filter by date and DDRISS
+        records = []
+        for row in rows:
+            r = dict(row)
+            # Date filter
+            if fecha_inicio or fecha_fin:
+                fecha_iso = _parse_date_to_iso(r.get('fecha_notificacion', '') or '')
+                if not fecha_iso:
+                    continue
+                if fecha_inicio and fecha_iso < fecha_inicio:
+                    continue
+                if fecha_fin and fecha_iso > fecha_fin:
+                    continue
+
+            record_ddriss = get_ddriss(
+                r.get('departamento_residencia', ''),
+                r.get('municipio_residencia', '')
+            )
+            if record_ddriss == ddriss:
+                records.append(r)
+
+        if not records:
+            raise HTTPException(404, f"No se encontraron registros para {ddriss} en el rango de fechas indicado")
+
+        from pdf_ficha_v2 import generar_fichas_v2_bulk
+        merge = (fmt == "merged")
+        result_bytes = generar_fichas_v2_bulk(records, merge=merge)
+
+        ext = "pdf" if merge else "zip"
+        mime = "application/pdf" if merge else "application/zip"
+        safe_name = ddriss.replace(' ', '_')
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"fichas_{safe_name}_{ts}.{ext}"
+
+        return StreamingResponse(
+            io.BytesIO(result_bytes),
+            media_type=mime,
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    finally:
+        conn.close()
+
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=True)
