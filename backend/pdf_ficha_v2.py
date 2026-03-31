@@ -129,10 +129,29 @@ def _trunc(text: str, max_len: int) -> str:
 # Cell writing helpers
 # ---------------------------------------------------------------------------
 
+def _merged_width(ws, row, col):
+    """Calculate approximate character width of a cell, accounting for merges."""
+    for mc in ws.merged_cells.ranges:
+        if ws.cell(row=row, column=col).coordinate == str(mc).split(':')[0]:
+            total = 0
+            for c in range(mc.min_col, mc.max_col + 1):
+                from openpyxl.utils import get_column_letter
+                letter = get_column_letter(c)
+                total += ws.column_dimensions[letter].width or 8
+            return total
+    from openpyxl.utils import get_column_letter
+    letter = get_column_letter(col)
+    return ws.column_dimensions[letter].width or 8
+
+
 def _write(ws, row, col, value):
     """Write a value to a cell, preserving existing formatting.
     If the cell is part of a merged range (not top-left), skip silently.
-    Uses shrinkToFit so long text auto-reduces font size instead of overflowing.
+
+    Text handling strategy (hybrid):
+      - Short text (fits cell width): normal display
+      - Medium text: wrap_text=True (readable, may increase row height)
+      - Very long text (>2x cell width): shrink_to_fit as fallback
     """
     from openpyxl.cell.cell import MergedCell
     from openpyxl.styles import Font, Alignment
@@ -142,29 +161,50 @@ def _write(ws, row, col, value):
         return
     cell.value = value
     if value and str(value).strip():
+        text_len = len(str(value))
+        cell_width = _merged_width(ws, row, col)
+
         old_font = cell.font
+        # Use slightly smaller font for data to distinguish from labels
         cell.font = Font(
             name=old_font.name or 'Calibri',
             size=old_font.size or 9,
             bold=True,
         )
-        # shrinkToFit: LibreOffice auto-reduces font size so text fits in the cell
         old_align = cell.alignment
-        cell.alignment = Alignment(
-            horizontal=old_align.horizontal or 'left',
-            vertical=old_align.vertical or 'center',
-            wrap_text=old_align.wrap_text,
-            shrink_to_fit=True,
-        )
+
+        # Approximate: 1 character ~ 1 width unit for Calibri 9pt
+        fits = text_len <= cell_width * 0.9
+        very_long = text_len > cell_width * 2.0
+
+        if fits:
+            # Short text — fits naturally
+            cell.alignment = Alignment(
+                horizontal=old_align.horizontal or 'left',
+                vertical=old_align.vertical or 'center',
+            )
+        elif very_long:
+            # Very long text — shrink to fit as last resort
+            cell.alignment = Alignment(
+                horizontal=old_align.horizontal or 'left',
+                vertical=old_align.vertical or 'center',
+                shrink_to_fit=True,
+            )
+        else:
+            # Medium text — wrap to stay readable
+            cell.alignment = Alignment(
+                horizontal=old_align.horizontal or 'left',
+                vertical=old_align.vertical or 'center',
+                wrap_text=True,
+            )
 
 
 def _check(ws, row, col, condition):
     """Mark checkbox: prepend checkmark to existing label text, or write checkmark if cell is empty.
-    Makes the checkbox BOLD for visibility."""
+    Makes the checkbox BOLD for visibility. Uses wrap_text for long labels."""
     if condition:
         from openpyxl.cell.cell import MergedCell
-        from openpyxl.styles import Font
-        from copy import copy
+        from openpyxl.styles import Font, Alignment
         cell = ws.cell(row=row, column=col)
         if isinstance(cell, MergedCell):
             logger.warning("Attempted check on merged cell R%d:C%d, skipping", row, col)
@@ -184,15 +224,32 @@ def _check(ws, row, col, condition):
             bold=True,
             color='000000',
         )
+        # Ensure long checkbox labels wrap instead of overflowing
+        final_text = str(cell.value)
+        cell_w = _merged_width(ws, row, col)
+        if len(final_text) > cell_w * 0.9:
+            old_align = cell.alignment
+            cell.alignment = Alignment(
+                horizontal=old_align.horizontal or 'center',
+                vertical=old_align.vertical or 'center',
+                wrap_text=True,
+            )
 
 
 def _write_date(ws, row, col_d, col_m, col_y, date_str):
-    """Write DD, MM, YYYY into three separate cells for a date field."""
+    """Write DD, MM, YYYY into three separate cells for a date field.
+    Centers the values since date cells are narrow."""
+    from openpyxl.cell.cell import MergedCell
+    from openpyxl.styles import Font, Alignment
     dd, mm, yyyy = _parse_date(date_str)
     if dd:
-        _write(ws, row, col_d, dd)
-        _write(ws, row, col_m, mm)
-        _write(ws, row, col_y, yyyy)
+        for col, val in [(col_d, dd), (col_m, mm), (col_y, yyyy)]:
+            cell = ws.cell(row=row, column=col)
+            if isinstance(cell, MergedCell):
+                continue
+            cell.value = val
+            cell.font = Font(name='Calibri', size=9, bold=True)
+            cell.alignment = Alignment(horizontal='center', vertical='center')
 
 
 def _check_si_no_desc(ws, row, col_si, col_no, col_desc, value):
@@ -255,6 +312,9 @@ def _fill_template(ws, d: dict):
       R94-108: Clasificacion Final
     """
 
+    from openpyxl.cell.cell import MergedCell
+    from openpyxl.styles import Font, Alignment
+
     # ===== ROWS 8-9: DIAGNOSTICO DE SOSPECHA =====
     # R8: A8:D9='Diagnostico de Sospecha' (merged label)
     #     E8:F8='Sarampion', G8:H8='Rubeola', I8:J8='Dengue',
@@ -312,18 +372,46 @@ def _fill_template(ws, d: dict):
     distrito = _g(d, 'distrito_salud_mspas', _g(d, 'municipio_residencia', ''))
     servicio = _g(d, 'servicio_salud_mspas', _g(d, 'unidad_medica', ''))
 
-    # These merged cells contain labels; we write data below the label line.
-    # F11:J12 merged — label "Direccion de Area de Salud" is in F11.
-    # We can't write a separate data cell inside a merge. Instead we append data to the label.
-    # Better approach: write data into R12 row cells that are part of the merge?
-    # No — merged cells only accept writes at the top-left corner.
-    # Solution: overwrite the label cell with "Label\nDATA" using newline.
-    if area_salud:
-        _write(ws, 11, 6, f"Dir. Area de Salud\n{area_salud}")
-    if distrito:
-        _write(ws, 11, 11, f"Distrito de Salud\n{distrito}")
-    if servicio:
-        _write(ws, 11, 15, f"Servicio de Salud\n{servicio}")
+    # F11:J12, K11:N12, O11:S12 are merged cells that contain labels.
+    # We overwrite with "label\nDATA" and use wrap_text + top-align so
+    # the label stays on line 1 and the data appears on line 2.
+    from openpyxl.styles import Font, Alignment
+
+    def _write_label_data(ws, row, col, label, data, font_size=8):
+        """Write label + data into a merged label cell with proper formatting.
+        Uses wrap_text for moderate data, shrink_to_fit for very long data."""
+        from openpyxl.cell.cell import MergedCell
+        cell = ws.cell(row=row, column=col)
+        if isinstance(cell, MergedCell):
+            return
+        if data:
+            cell.value = f"{label}\n{data}"
+        else:
+            cell.value = label  # keep original label
+        # Calculate if data fits: cell width * 2 lines available for data
+        cell_w = _merged_width(ws, row, col)
+        data_len = len(data) if data else 0
+        # At font 7, ~1 char per width unit. 2 rows available for data.
+        fits_wrap = data_len <= cell_w * 1.8
+        if fits_wrap:
+            cell.font = Font(name='Calibri', size=font_size, bold=True)
+            cell.alignment = Alignment(
+                horizontal='center', vertical='top', wrap_text=True,
+            )
+        else:
+            # Very long data — use smaller font + shrink
+            cell.font = Font(name='Calibri', size=6, bold=True)
+            cell.alignment = Alignment(
+                horizontal='center', vertical='top', wrap_text=True, shrink_to_fit=True,
+            )
+
+    _write_label_data(ws, 11, 6, "Dirección de Área de Salud", area_salud, font_size=7)
+    _write_label_data(ws, 11, 11, "Distrito de Salud", distrito, font_size=7)
+    _write_label_data(ws, 11, 15, "Servicio de Salud", servicio, font_size=7)
+
+    # Increase row heights for R11-R12 to accommodate 2-line content
+    ws.row_dimensions[11].height = 14
+    ws.row_dimensions[12].height = 14
 
     # R13: A13:B15='Fecha de consulta' (merged), C13='Dia', D13='Mes', E13='Ano'
     #      F13:G15='Fecha de Investigacion Domiciliaria' (merged), H13='Dia'(non-label row 14+)
@@ -336,19 +424,49 @@ def _fill_template(ws, d: dict):
     # Fecha de Investigacion Domiciliaria: data in H14, I14, J14
     _write_date(ws, 14, 8, 9, 10, _g(d, 'fecha_visita_domiciliaria', _g(d, 'fecha_inicio_investigacion', '')))
 
-    # K13:N13='Nombre de quien investiga' (label), O13:S13=empty data
-    _write(ws, 13, 15, _g(d, 'nom_responsable'))  # O13:S13
+    # Fix the label cell F13 — "Fecha de Investigación Domiciliaria" breaks badly
+    # because "Investigación" (14 chars) exceeds the ~10-char cell width.
+    # Reduce font to 7pt so words fit within cell width.
+    label_cell = ws.cell(row=13, column=6)
+    if not isinstance(label_cell, MergedCell):
+        label_cell.font = Font(name='Calibri', size=7, bold=True)
+        label_cell.alignment = Alignment(
+            horizontal='center', vertical='center', wrap_text=True,
+        )
 
-    # R14: K14(not merged)=... O14:S14='Cargo de quien Investiga' data area
-    _write(ws, 14, 15, _g(d, 'cargo_responsable'))  # O14:S14
+    # K13:N13='Nombre de quien investiga' (label), O13:S13=empty data (~33 chars wide)
+    # O14:S14='Cargo' — single row, no room for wrap. Use shrink for long values.
+    for row_n, key in [(13, 'nom_responsable'), (14, 'cargo_responsable')]:
+        val = _g(d, key)
+        if val:
+            cell = ws.cell(row=row_n, column=15)
+            if not isinstance(cell, MergedCell):
+                cell.value = val
+                if len(val) <= 30:
+                    cell.font = Font(name='Calibri', size=8, bold=True)
+                    cell.alignment = Alignment(horizontal='left', vertical='center')
+                else:
+                    cell.font = Font(name='Calibri', size=7, bold=True)
+                    cell.alignment = Alignment(horizontal='left', vertical='center', shrink_to_fit=True)
 
     # R15: K15:M15='Telefono y Correo', N15:S15=data
     tel_correo = _g(d, 'telefono_responsable', '')
     correo = _g(d, 'correo_responsable', '')
+    tel_text = ''
     if correo and tel_correo:
-        _write(ws, 15, 14, f"{tel_correo} / {correo}")  # N15:S15
+        tel_text = f"{tel_correo} / {correo}"
     else:
-        _write(ws, 15, 14, tel_correo or correo)
+        tel_text = tel_correo or correo
+    if tel_text:
+        cell = ws.cell(row=15, column=14)
+        if not isinstance(cell, MergedCell):
+            cell.value = tel_text
+            if len(tel_text) <= 35:
+                cell.font = Font(name='Calibri', size=7, bold=True)
+                cell.alignment = Alignment(horizontal='left', vertical='center')
+            else:
+                cell.font = Font(name='Calibri', size=6, bold=True)
+                cell.alignment = Alignment(horizontal='left', vertical='center', shrink_to_fit=True)
 
     # R16: A16:C17='Seguro Social (IGSS)' (merged), D16:D17='checkbox/data'
     #      E16(not merged)='Especifique', J16:M17='Establecimiento Privado' (merged)
@@ -358,7 +476,16 @@ def _fill_template(ws, d: dict):
     _check(ws, 16, 4, bool(igss_name))  # D16 = IGSS checkbox
     if igss_name:
         # E17:I17 merged = IGSS establishment name data
-        _write(ws, 17, 5, igss_name)  # E17:I17
+        # Use smaller font for long IGSS unit names to prevent overflow
+        cell = ws.cell(row=17, column=5)
+        if not isinstance(cell, MergedCell):
+            cell.value = igss_name
+            name_len = len(igss_name)
+            font_sz = 7 if name_len > 35 else 8
+            cell.font = Font(name='Calibri', size=font_sz, bold=True)
+            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        # Ensure row 17 is tall enough for wrapped IGSS name
+        ws.row_dimensions[17].height = 20
 
     # Establecimiento Privado
     priv_name = _g(d, 'establecimiento_privado_nombre', '')
@@ -385,6 +512,13 @@ def _fill_template(ws, d: dict):
     _check(ws, 19, 7, 'REPORTADO' in fuente or 'COMUNIDAD' in fuente)      # G19 (Caso Reportado)
     _check(ws, 19, 10, 'AUTO' in fuente or 'GRATUITO' in fuente)           # J19 (Auto Notificacion)
     _check(ws, 19, 14, 'OTRO' in fuente and 'CASO' not in fuente)          # N19 (Otros)
+
+    # Reduce font on checked fuente notification labels (they are long)
+    for r, c in [(18, 4), (18, 7), (18, 9), (18, 13), (18, 16),
+                 (19, 4), (19, 7), (19, 10), (19, 14)]:
+        cell = ws.cell(row=r, column=c)
+        if not isinstance(cell, MergedCell) and cell.value and str(cell.value).startswith('\u2612'):
+            cell.font = Font(name='Calibri', size=7, bold=True)
     fuente_otra = _g(d, 'fuente_notificacion_otra', '')
     if fuente_otra:
         _write(ws, 19, 18, fuente_otra)  # R19:S19 = Especifique data
@@ -396,8 +530,20 @@ def _fill_template(ws, d: dict):
 
     # R22: A22:B22='Nombres', C22:G22=data(nombres), H22:I22='Apellidos', J22:M22=data(apellidos)
     #      N22:N23='Sexo' (merged), O22:P23='Femenino', Q22:R23='Masculino'
-    _write(ws, 22, 3, _g(d, 'nombres'))      # C22:G22 = data
-    _write(ws, 22, 10, _g(d, 'apellidos'))    # J22:M22 = data (H22:I22 = label 'Apellidos')
+    # C22:G22 (~24 chars wide) and J22:M22 (~22 chars wide) for names
+    for col, key in [(3, 'nombres'), (10, 'apellidos')]:
+        val = _g(d, key)
+        if val:
+            cell = ws.cell(row=22, column=col)
+            if not isinstance(cell, MergedCell):
+                cell.value = val
+                font_sz = 8 if len(val) <= 22 else 7
+                cell.font = Font(name='Calibri', size=font_sz, bold=True)
+                cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+    # Ensure rows 22-23 have enough height for wrapped long names
+    ws.row_dimensions[22].height = 15
+    ws.row_dimensions[23].height = 12
 
     sexo = _g(d, 'sexo', '').upper()
     _check(ws, 22, 15, sexo in ('F', 'FEMENINO'))   # O22 = Femenino
@@ -423,18 +569,33 @@ def _fill_template(ws, d: dict):
     # CUI: O24:S26 merged = data
     cui = _g(d, 'numero_identificacion', _g(d, 'afiliacion', ''))
     tipo_id = _g(d, 'tipo_identificacion', '')
+    cui_text = ''
     if tipo_id and cui:
-        _write(ws, 24, 15, f"{tipo_id}: {cui}")   # O24:S26
+        cui_text = f"{tipo_id}: {cui}"
     elif cui:
-        _write(ws, 24, 15, cui)
+        cui_text = cui
     elif tipo_id:
-        _write(ws, 24, 15, f"{tipo_id}: (sin dato)")
+        cui_text = f"{tipo_id}: (sin dato)"
+    if cui_text:
+        cell = ws.cell(row=24, column=15)
+        if not isinstance(cell, MergedCell):
+            cell.value = cui_text
+            cell.font = Font(name='Calibri', size=8, bold=True)
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
     # R27: A27:C29='Nombre del Tutor' (merged label), D27:F29=data(tutor name)
     #      G27:H29='Parentesco' (merged label), I27:K29=data(parentesco)
     #      L27:N28='Codigo Unico de Identificacion' (label), O27:S29=data(CUI tutor)
-    _write(ws, 27, 4, _g(d, 'nombre_encargado'))     # D27:F29 = tutor name
-    _write(ws, 27, 9, _g(d, 'parentesco_tutor'))      # I27:K29 = parentesco
+    # D27:F29 tutor name, I27:K29 parentesco — both can be long
+    for col, key in [(4, 'nombre_encargado'), (9, 'parentesco_tutor')]:
+        val = _g(d, key)
+        if val:
+            cell = ws.cell(row=27, column=col)
+            if not isinstance(cell, MergedCell):
+                cell.value = val
+                font_sz = 7 if len(val) > 20 else 8
+                cell.font = Font(name='Calibri', size=font_sz, bold=True)
+                cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
     cui_tutor = _g(d, 'numero_id_tutor', '')
     if cui_tutor:
@@ -495,8 +656,16 @@ def _fill_template(ws, d: dict):
     # R31:C15='Telefono' → col15=O31
     # Merges at R31: A31:C31(label Trimestre), G31:I31(empty=data Ocupacion?),
     #   L31:N31(empty=data Escolaridad?), O31:P31(label Telefono), Q31:S31(data Telefono)
-    _write(ws, 31, 7, _g(d, 'ocupacion'))            # G31:I31 = Ocupacion data
-    _write(ws, 31, 12, _g(d, 'escolaridad'))          # L31:N31 = Escolaridad data
+    # G31:I31 Ocupacion, L31:N31 Escolaridad — use wrap for long values
+    for col, key in [(7, 'ocupacion'), (12, 'escolaridad')]:
+        val = _g(d, key)
+        if val:
+            cell = ws.cell(row=31, column=col)
+            if not isinstance(cell, MergedCell):
+                cell.value = val
+                font_sz = 7 if len(val) > 15 else 8
+                cell.font = Font(name='Calibri', size=font_sz, bold=True)
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     _write(ws, 31, 17, _g(d, 'telefono_paciente', _g(d, 'telefono_encargado', '')))  # Q31:S31 = Telefono data
 
     # R32: D32:F32='Pais de Residencia' data?
@@ -510,14 +679,34 @@ def _fill_template(ws, d: dict):
     # So G32:I32 = label. Then J32:L32 = data for departamento.
     # M32:O32 merged with value at col13='Municipio de Residencia' — but col13=M32, yes.
     # P32:S32 = data for municipio.
-    _write(ws, 32, 4, _g(d, 'pais_residencia', 'GUATEMALA'))  # D32:F32
-    _write(ws, 32, 10, _g(d, 'departamento_residencia'))       # J32:L32
-    _write(ws, 32, 16, _g(d, 'municipio_residencia'))          # P32:S32
+    # D32:F32 Pais, J32:L32 Departamento, P32:S32 Municipio
+    for col, key, default in [(4, 'pais_residencia', 'GUATEMALA'), (10, 'departamento_residencia', ''), (16, 'municipio_residencia', '')]:
+        val = _g(d, key, default)
+        if val:
+            cell = ws.cell(row=32, column=col)
+            if not isinstance(cell, MergedCell):
+                cell.value = val
+                cell.font = Font(name='Calibri', size=8, bold=True)
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
     # R33: A33:C34='Direccion de Residencia' (merged), D33:L34=data(direccion) (merged)
     #      M33:O34='Lugar Poblado' (merged label), P33:S34=data(poblado) (merged)
-    _write(ws, 33, 4, _g(d, 'direccion_exacta'))    # D33:L34 = data
-    _write(ws, 33, 16, _g(d, 'poblado'))             # P33:S34 = data
+    # D33:L34 for address — wide but can have long text. Use wrap.
+    addr = _g(d, 'direccion_exacta')
+    if addr:
+        cell = ws.cell(row=33, column=4)
+        if not isinstance(cell, MergedCell):
+            cell.value = addr
+            cell.font = Font(name='Calibri', size=8, bold=True)
+            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    # P33:S34 for poblado
+    poblado = _g(d, 'poblado')
+    if poblado:
+        cell = ws.cell(row=33, column=16)
+        if not isinstance(cell, MergedCell):
+            cell.value = poblado
+            cell.font = Font(name='Calibri', size=8, bold=True)
+            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
     # ===== SECCION 3: ANTECEDENTES MEDICOS Y DE VACUNACION (Rows 35-44) =====
 
@@ -541,11 +730,27 @@ def _fill_template(ws, d: dict):
     #      N37:N38(merged)=not clear, Q37:S37='Especifique' data area
     # Values: R37:C4='Desnutricion', C7='Inmunocompromiso', C11='Enfermedad Cronica', C15='Especifique'
     _check(ws, 37, 4, _chk(_g(d, 'antecedente_desnutricion')))       # D37
-    _check(ws, 37, 7, _chk(_g(d, 'antecedente_inmunocompromiso')))   # G37 (actually J37)
+    _check(ws, 37, 7, _chk(_g(d, 'antecedente_inmunocompromiso')))   # G37
     _check(ws, 37, 11, _chk(_g(d, 'antecedente_enfermedad_cronica'))) # K37
+
+    # Antecedentes checkbox labels are long — shrink to fit in narrow merges
+    for r, c in [(37, 4), (37, 7), (37, 11)]:
+        cell = ws.cell(row=r, column=c)
+        if not isinstance(cell, MergedCell) and cell.value and str(cell.value).startswith('\u2612'):
+            cell.font = Font(name='Calibri', size=7, bold=True)
+            cell.alignment = Alignment(horizontal='center', vertical='center', shrink_to_fit=True)
     antec_detalle = _g(d, 'antecedentes_medicos_detalle', '')
     if antec_detalle:
-        _write(ws, 37, 17, antec_detalle)  # Q37:S37 = Especifique data
+        cell = ws.cell(row=37, column=17)
+        if not isinstance(cell, MergedCell):
+            cell.value = antec_detalle
+            if len(antec_detalle) <= 22:
+                cell.font = Font(name='Calibri', size=7, bold=True)
+                cell.alignment = Alignment(horizontal='left', vertical='center')
+            else:
+                # Long text in constrained height — shrink to fit
+                cell.font = Font(name='Calibri', size=7, bold=True)
+                cell.alignment = Alignment(horizontal='left', vertical='center', shrink_to_fit=True)
     # O38:S38 merged = additional data area
     antec_extra = _g(d, 'antecedentes_medicos_extra', '')
     if antec_extra:
@@ -710,7 +915,14 @@ def _fill_template(ws, d: dict):
     # J53:K54='Nombre del Hospital' (merged label)... but R53:C10='Nombre del Hospital'
     # That's col10=J53. And J53:K54 is merged. So where does data go?
     # L53:M54 is merged and empty — this is the data area for hospital name.
-    _write(ws, 53, 12, _g(d, 'hosp_nombre'))  # L53:M54 = hospital name data
+    # L53:M54 is very narrow (~10 char widths). Use small font + wrap for hospital name.
+    hosp_nombre = _g(d, 'hosp_nombre')
+    if hosp_nombre:
+        cell = ws.cell(row=53, column=12)
+        if not isinstance(cell, MergedCell):
+            cell.value = hosp_nombre
+            cell.font = Font(name='Calibri', size=6, bold=True)
+            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
     # Fecha de Hospitalizacion: N53:P54 merged label, Q53=Dia, R53=Mes, S53=Ano
     # But Q53 is not in a special merge (Q53 is solo in row 53).
@@ -771,6 +983,15 @@ def _fill_template(ws, d: dict):
     #   R57:C15='Ceguera'=O57 (solo cell)
     _check(ws, 57, 15, _chk(_g(d, 'comp_ceguera')))   # O57 = Ceguera (R57:C15)
 
+    # Fix narrow complication checkbox cells (O55, O56, O57, Q56) — width ~4.7 chars
+    # These solo cells can't fit "☒ Diarrea" etc. at normal font size.
+    # Reduce font to 6pt and use shrink_to_fit for these specific cells.
+    for r, c in [(55, 15), (56, 15), (57, 15), (56, 17)]:
+        cell = ws.cell(row=r, column=c)
+        if not isinstance(cell, MergedCell) and cell.value:
+            cell.font = Font(name='Calibri', size=6, bold=True)
+            cell.alignment = Alignment(horizontal='center', vertical='center', shrink_to_fit=True)
+
     # ===== SECCION 5: FACTORES DE RIESGO (Rows 61-69) =====
 
     # R62: A62:L62='Existe algun caso confirmado en la comunidad...' (merged)
@@ -801,7 +1022,13 @@ def _fill_template(ws, d: dict):
     viaje_mun = _g(d, 'viaje_municipio', '')
     dest_parts = [p for p in [viaje_dest, viaje_dep, viaje_mun] if p]
     if dest_parts:
-        _write(ws, 64, 13, ', '.join(dest_parts))  # M64:Q64 = data
+        dest_text = ', '.join(dest_parts)
+        cell = ws.cell(row=64, column=13)
+        if not isinstance(cell, MergedCell):
+            cell.value = dest_text
+            font_sz = 7 if len(dest_text) > 25 else 8
+            cell.font = Font(name='Calibri', size=font_sz, bold=True)
+            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
     # R65: A65:A66='Fecha de salida'(merged), B65='Dia', C65='Mes', D65='Ano'
     #      E65:E66='Fecha de Entrada'(merged), F65='Dia', G65='Mes', H65='Ano'
@@ -996,25 +1223,37 @@ def _fill_template(ws, d: dict):
 
             # Sarampion results (row_s)
             s_igm = sample.get('sarampion_igm', sample.get('resultado_igm', ''))
-            if s_igm:
-                _write(ws, row_s, 12, _lab_val(s_igm))     # L col = IgM
             s_igg = sample.get('sarampion_igg', sample.get('resultado_igg', ''))
-            if s_igg:
-                _write(ws, row_s, 13, _lab_val(s_igg))     # M col = IgG
             s_avidez = sample.get('sarampion_avidez', sample.get('resultado_avidez', ''))
-            if s_avidez:
-                _write(ws, row_s, 14, _lab_val(s_avidez))   # N col = Avidez
 
             # Rubeola results (row_r)
             r_igm = sample.get('rubeola_igm', '')
-            if r_igm:
-                _write(ws, row_r, 12, _lab_val(r_igm))     # L col = IgM
             r_igg = sample.get('rubeola_igg', '')
-            if r_igg:
-                _write(ws, row_r, 13, _lab_val(r_igg))     # M col = IgG
             r_avidez = sample.get('rubeola_avidez', '')
-            if r_avidez:
-                _write(ws, row_r, 14, _lab_val(r_avidez))   # N col = Avidez
+
+            if row_s <= 85:
+                # Suero rows: L/M/N are separate columns (IgM/IgG/Avidez)
+                if s_igm:
+                    _write(ws, row_s, 12, _lab_val(s_igm))
+                if s_igg:
+                    _write(ws, row_s, 13, _lab_val(s_igg))
+                if s_avidez:
+                    _write(ws, row_s, 14, _lab_val(s_avidez))
+                if r_igm:
+                    _write(ws, row_r, 12, _lab_val(r_igm))
+                if r_igg:
+                    _write(ws, row_r, 13, _lab_val(r_igg))
+                if r_avidez:
+                    _write(ws, row_r, 14, _lab_val(r_avidez))
+            else:
+                # Orina/Hisopado/Otro rows: L:N merged into one cell per row
+                # Concatenate all results into L col (top-left of merge)
+                s_parts = [_lab_val(v) for v in [s_igm, s_igg, s_avidez] if v]
+                if s_parts:
+                    _write(ws, row_s, 12, '/'.join(s_parts))
+                r_parts = [_lab_val(v) for v in [r_igm, r_igg, r_avidez] if v]
+                if r_parts:
+                    _write(ws, row_r, 12, '/'.join(r_parts))
 
             # Fecha resultado — O,P,Q cols on sarampion row
             dd, mm, yyyy = _parse_date(sample.get('fecha_resultado', ''))
@@ -1107,6 +1346,13 @@ def _fill_template(ws, d: dict):
     _check(ws, 94, 13, is_pendiente and not is_confirmed)  # M94 = Pendiente
     _check(ws, 94, 16, is_no_cumple)                       # P94 = No cumple
 
+    # Clasificacion cells are narrow merges — shrink checked labels
+    for r, c in [(94, 4), (94, 7), (94, 10), (94, 13), (94, 16)]:
+        cell = ws.cell(row=r, column=c)
+        if not isinstance(cell, MergedCell) and cell.value and str(cell.value).startswith('\u2612'):
+            cell.font = Font(name='Calibri', size=7, bold=True)
+            cell.alignment = Alignment(horizontal='center', vertical='center', shrink_to_fit=True)
+
     # R95: A95:C95='Criterio de Confirmacion', D95:E95='Laboratorio',
     #      G95:H95='Nexo epidemiologico', J95:K95='Clinico',
     #      M95:O95='Contacto de Otro Caso', P95='Si'(solo?), R95(not in dump)
@@ -1116,6 +1362,13 @@ def _fill_template(ws, d: dict):
     _check(ws, 95, 4, 'LABORATORIO' in crit_conf or 'LAB' in crit_conf)        # D95
     _check(ws, 95, 7, 'NEXO' in crit_conf or 'EPIDEMIOL' in crit_conf)         # G95
     _check(ws, 95, 10, 'CLINICO' in crit_conf)                                  # J95
+
+    # Shrink checked criterio labels to fit narrow cells
+    for r, c in [(95, 4), (95, 7), (95, 10)]:
+        cell = ws.cell(row=r, column=c)
+        if not isinstance(cell, MergedCell) and cell.value and str(cell.value).startswith('\u2612'):
+            cell.font = Font(name='Calibri', size=7, bold=True)
+            cell.alignment = Alignment(horizontal='center', vertical='center', shrink_to_fit=True)
 
     contacto_caso = _g(d, 'contacto_otro_caso', '')
     _check(ws, 95, 16, _chk(contacto_caso))     # P95 = Si
@@ -1192,6 +1445,13 @@ def _fill_template(ws, d: dict):
     _check(ws, 101, 14, 'FALLEC' in cond or 'MUERTE' in cond)                                        # N101
     _check(ws, 101, 17, 'DESCONOCID' in cond)                                                        # Q101
 
+    # Condicion final cells are narrow merged areas — shrink checked labels to fit
+    for r, c in [(101, 9), (101, 11), (101, 14), (101, 17)]:
+        cell = ws.cell(row=r, column=c)
+        if not isinstance(cell, MergedCell) and cell.value and str(cell.value).startswith('\u2612'):
+            cell.font = Font(name='Calibri', size=7, bold=True)
+            cell.alignment = Alignment(horizontal='center', vertical='center', shrink_to_fit=True)
+
     # R103-104: Fecha de Defuncion + Causa de Muerte
     # A103:C104='Fecha de Defuncion*' (merged), D103='Dia', E103='Mes', F103='Ano'
     # G103:I104='Causa de Muerte Segun Certificado de Defuncion' (merged label)
@@ -1207,11 +1467,12 @@ def _fill_template(ws, d: dict):
     # A105:C106='Observaciones' (merged label), D105:S105=data line 1, D106:S106=data line 2
     obs = _g(d, 'observaciones', '')
     if obs:
-        if len(obs) <= 80:
-            _write(ws, 105, 4, obs)  # D105:S105
-        else:
-            _write(ws, 105, 4, obs[:80])   # First line
-            _write(ws, 106, 4, obs[80:])   # Second line
+        # D105:S105 is wide enough for most observations with wrap_text
+        cell = ws.cell(row=105, column=4)
+        if not isinstance(cell, MergedCell):
+            cell.value = obs
+            cell.font = Font(name='Calibri', size=8, bold=True)
+            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
 
 # ---------------------------------------------------------------------------
