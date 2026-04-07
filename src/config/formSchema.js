@@ -613,7 +613,7 @@ export const formFields = [
     label: 'Teléfono del Paciente',
     type: 'phone',
     page: 2,
-    required: false,
+    required: true,
     placeholder: 'Teléfono del paciente',
     colSpan: 'half',
   },
