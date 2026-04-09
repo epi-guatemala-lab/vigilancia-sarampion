@@ -11,7 +11,24 @@ export function useFormState(initialData = {}) {
   const [formData, setFormData] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
-      return saved ? { ...initialData, ...JSON.parse(saved) } : initialData
+      if (!saved) return initialData
+      const parsed = JSON.parse(saved)
+      // Si el objeto guardado está vacío o tiene datos de un envío reciente
+      // (afiliación que ya se marcó como submitted), empezar limpio
+      if (!parsed || Object.keys(parsed).length === 0) return initialData
+      // Verificar si estos datos ya fueron enviados (safety net)
+      const submitted = JSON.parse(localStorage.getItem(SUBMITTED_KEY) || '[]')
+      const afil = parsed.afiliacion
+      const fecha = parsed.fecha_notificacion
+      if (afil && fecha) {
+        const key = `${afil}_${fecha}`
+        const wasSubmitted = submitted.some(r => r.key === key && Date.now() - r.timestamp < 86400000)
+        if (wasSubmitted) {
+          localStorage.removeItem(STORAGE_KEY)
+          return initialData
+        }
+      }
+      return { ...initialData, ...parsed }
     } catch {
       return initialData
     }

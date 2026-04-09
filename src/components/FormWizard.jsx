@@ -15,6 +15,7 @@ export default function FormWizard() {
   const [currentStep, setCurrentStep] = useState(1)
   const [errors, setErrors] = useState({})
   const [showSuccess, setShowSuccess] = useState(false)
+  const [successInfo, setSuccessInfo] = useState(null)
   const [registroId, setRegistroId] = useState(null)
   const [dateWarnings, setDateWarnings] = useState([])
 
@@ -316,9 +317,17 @@ export default function FormWizard() {
     if (result?.success) {
       setRegistroId(result.registro_id)
       markAsSubmitted(afiliacion, fecha)
+      // Guardar datos de display ANTES de limpiar el formulario
+      setSuccessInfo({
+        nombre: formData.nombre_apellido || `${formData.nombres || ''} ${formData.apellidos || ''}`.trim(),
+        diagnostico: formData.diagnostico_registrado,
+      })
+      // Limpiar localStorage inmediatamente para evitar datos residuales
+      // si el usuario cierra/refresca en vez de click "Nuevo Registro"
+      resetForm()
       setShowSuccess(true)
     }
-  }, [currentFields, formData, submit, isDuplicate, markAsSubmitted, setSubmitError])
+  }, [currentFields, formData, submit, isDuplicate, markAsSubmitted, resetForm, setSubmitError])
 
   const handleNewForm = useCallback(() => {
     resetForm()
@@ -337,8 +346,8 @@ export default function FormWizard() {
         onNewForm={handleNewForm}
         isOffline={!isOnline}
         registroId={registroId}
-        pacienteNombre={formData.nombre_apellido || `${formData.nombres || ''} ${formData.apellidos || ''}`.trim()}
-        diagnostico={formData.diagnostico_registrado}
+        pacienteNombre={successInfo?.nombre || ''}
+        diagnostico={successInfo?.diagnostico || ''}
       />
     )
   }
