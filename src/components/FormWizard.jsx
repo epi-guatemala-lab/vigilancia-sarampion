@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import FormPage from './FormPage.jsx'
 import ProgressBar from './ui/ProgressBar.jsx'
 import SuccessScreen from './ui/SuccessScreen.jsx'
@@ -18,6 +18,8 @@ export default function FormWizard() {
   const [successInfo, setSuccessInfo] = useState(null)
   const [registroId, setRegistroId] = useState(null)
   const [dateWarnings, setDateWarnings] = useState([])
+  const [deathConfirm, setDeathConfirm] = useState(null) // {fieldId, value, label}
+  const pendingDeathChange = useRef(null)
 
   const {
     formData,
@@ -52,6 +54,20 @@ export default function FormWizard() {
     // Normalize comma to dot for temperature
     if (fieldId === 'temperatura_celsius' && value) {
       value = value.replace(',', '.')
+    }
+
+    // Confirmación de fallecido — interceptar ANTES de guardar
+    const isDeathSelection =
+      (fieldId === 'condicion_final_paciente' && value === 'Fallecido') ||
+      (fieldId === 'condicion_egreso' && value === 'MUERTO')
+    if (isDeathSelection) {
+      pendingDeathChange.current = { fieldId, value }
+      setDeathConfirm({
+        fieldId,
+        value,
+        label: fieldId === 'condicion_final_paciente' ? 'Condición Final: Fallecido' : 'Egreso: Muerto',
+      })
+      return // No guardar aún — esperar confirmación
     }
 
     updateField(fieldId, value)
@@ -479,6 +495,61 @@ export default function FormWizard() {
         <p className="text-center text-[11px] text-igss-gold-dark mt-3 font-medium">
           {pendingCount} registro(s) pendiente(s) de envío
         </p>
+      )}
+
+      {/* Modal de confirmación de fallecido */}
+      {deathConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in">
+            <div className="bg-red-600 px-6 py-4 flex items-center gap-3">
+              <svg className="w-8 h-8 text-white flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <div>
+                <h3 className="text-white font-bold text-lg">Confirmar Fallecimiento</h3>
+                <p className="text-red-100 text-xs">{deathConfirm.label}</p>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-gray-700 text-sm leading-relaxed">
+                Está a punto de registrar a este paciente como <span className="font-bold text-red-700">fallecido</span>.
+                Esta acción generará una alerta epidemiológica.
+              </p>
+              <p className="text-gray-500 text-xs mt-3">
+                Si fue un error, presione Cancelar para corregir.
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => {
+                  setDeathConfirm(null)
+                  pendingDeathChange.current = null
+                }}
+                className="flex-1 px-4 py-2.5 border-2 border-gray-300 text-gray-600 font-semibold text-sm rounded-xl hover:bg-gray-50 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (pendingDeathChange.current) {
+                    const { fieldId: fid, value: val } = pendingDeathChange.current
+                    updateField(fid, val)
+                    // Trigger downstream auto-mappings
+                    if (fid === 'condicion_final_paciente') {
+                      const egresoMap = { 'Fallecido': 'MUERTO' }
+                      if (egresoMap[val]) updateField('condicion_egreso', egresoMap[val])
+                    }
+                  }
+                  setDeathConfirm(null)
+                  pendingDeathChange.current = null
+                }}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white font-bold text-sm rounded-xl hover:bg-red-700 transition-all shadow-sm"
+              >
+                Confirmar Fallecimiento
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
