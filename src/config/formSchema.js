@@ -1297,7 +1297,7 @@ export const formFields = [
   // ═══════════════════════════════════════════════════
   {
     id: 'contacto_sospechoso_7_23',
-    label: 'Tuvo contacto con otro sospechoso de 7-23 días antes del inicio de la erupción',
+    label: 'Tuvo contacto con un caso sospechoso o confirmado entre 7-23 días antes del inicio del exantema/rash',
     type: 'radio',
     page: 6,
     required: false,

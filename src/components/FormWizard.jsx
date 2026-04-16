@@ -183,6 +183,24 @@ export default function FormWizard() {
       else if (value === 'SI') updateField('asintomatico', 'NO')
     }
 
+    // Cross-sync: symptom flags ↔ symptom dates
+    // If signo_exantema = NO → clear fecha_inicio_erupcion
+    // If signo_fiebre = NO → clear fecha_inicio_fiebre
+    if (fieldId === 'signo_exantema' && value === 'NO') {
+      updateField('fecha_inicio_erupcion', '')
+    }
+    if (fieldId === 'signo_fiebre' && value === 'NO') {
+      updateField('fecha_inicio_fiebre', '')
+    }
+    // If fecha_inicio_erupcion is filled → auto-set signo_exantema = SI
+    if (fieldId === 'fecha_inicio_erupcion' && value) {
+      updateField('signo_exantema', 'SI')
+    }
+    // If fecha_inicio_fiebre is filled → auto-set signo_fiebre = SI
+    if (fieldId === 'fecha_inicio_fiebre' && value) {
+      updateField('signo_fiebre', 'SI')
+    }
+
     // Auto-infer condicion_egreso from condicion_final_paciente (EPIWEB compat)
     if (fieldId === 'condicion_final_paciente') {
       const egresoMap = {
