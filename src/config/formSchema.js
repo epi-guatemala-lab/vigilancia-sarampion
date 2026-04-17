@@ -241,7 +241,7 @@ export const formFields = [
   {
     id: 'correo_responsable',
     label: 'Correo Electrónico',
-    type: 'text',
+    type: 'email',
     page: 1,
     required: true,
     placeholder: 'correo@ejemplo.com',

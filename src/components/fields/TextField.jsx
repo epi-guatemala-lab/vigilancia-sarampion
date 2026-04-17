@@ -4,8 +4,11 @@ export default function TextField({ field, value, onChange, error }) {
   // inconsistencias en los datos (nombres, direcciones, etc.). Los correos
   // electrónicos y los campos que expresamente opten a preservar mayúsculas
   // y minúsculas (`field.preserveCase === true`) quedan excluidos.
-  const shouldUppercase =
-    field.type !== 'email' && field.preserveCase !== true
+  // Defensa en profundidad: aunque el schema declare `type: 'text'`, si el id
+  // contiene "correo" o "email" lo tratamos como email y preservamos el case.
+  const isEmailLike =
+    field.type === 'email' || /correo|email/i.test(field.id || '')
+  const shouldUppercase = !isEmailLike && field.preserveCase !== true
 
   const handleChange = (e) => {
     if (isReadOnly) return
