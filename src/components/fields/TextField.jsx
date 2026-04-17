@@ -1,5 +1,17 @@
 export default function TextField({ field, value, onChange, error }) {
   const isReadOnly = field.readOnly
+  // Todos los campos de texto libre se normalizan a MAYÚSCULAS para evitar
+  // inconsistencias en los datos (nombres, direcciones, etc.). Los correos
+  // electrónicos y los campos que expresamente opten a preservar mayúsculas
+  // y minúsculas (`field.preserveCase === true`) quedan excluidos.
+  const shouldUppercase =
+    field.type !== 'email' && field.preserveCase !== true
+
+  const handleChange = (e) => {
+    if (isReadOnly) return
+    const raw = e.target.value
+    onChange(field.id, shouldUppercase ? raw.toUpperCase() : raw)
+  }
 
   return (
     <input
@@ -7,11 +19,12 @@ export default function TextField({ field, value, onChange, error }) {
       id={field.id}
       name={field.id}
       value={value || ''}
-      onChange={(e) => !isReadOnly && onChange(field.id, e.target.value)}
+      onChange={handleChange}
       placeholder={field.placeholder || ''}
       maxLength={field.validation?.maxLength}
       readOnly={isReadOnly}
       tabIndex={isReadOnly ? -1 : undefined}
+      style={shouldUppercase ? { textTransform: 'uppercase' } : undefined}
       className={`w-full px-4 py-3 rounded-xl border-2 transition-all duration-200 ${
         isReadOnly
           ? 'border-igss-gold/40 bg-igss-gold-50 text-igss-800 font-bold cursor-default'

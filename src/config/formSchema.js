@@ -2020,6 +2020,7 @@ export const formFields = [
     required: true,
     options: [
       'SOSPECHOSO',
+      'CONFIRMADO SARAMPIÓN',
       'DESCARTADO',
       'PENDIENTE',
       'NO CUMPLE DEFINICIÓN DE CASO',
