@@ -157,34 +157,29 @@ export default function SuccessScreen({ onNewForm, isOffline, registroId, pacien
           Imprimir
         </button>
 
-        {/* Download Ficha PDF — descarga como blob para no exponer URL del servidor */}
+        {/* Download Ficha PDF — enlace directo (Content-Disposition=attachment en backend
+            hace que el navegador descargue sin necesidad de blob/createObjectURL, que
+            bloquean algunos navegadores corporativos en Windows). */}
         {registroId && (
-          <button
-            onClick={async () => {
-              try {
-                const btn = document.getElementById('pdf-download-btn')
-                if (btn) btn.textContent = 'Descargando...'
-                const url = `${import.meta.env.VITE_API_URL || ''}/api/ficha-publica/${registroId}`
-                const resp = await fetch(url)
-                if (!resp.ok) throw new Error(`Error ${resp.status}`)
-                const blob = await resp.blob()
-                const link = document.createElement('a')
-                link.href = URL.createObjectURL(blob)
-                link.download = `Ficha_${registroId}.pdf`
-                link.click()
-                URL.revokeObjectURL(link.href)
-                if (btn) btn.textContent = 'Descargar Ficha PDF'
-              } catch (e) {
-                alert('Error descargando la ficha: ' + e.message)
+          <a
+            href={`${import.meta.env.VITE_API_URL || ''}/api/ficha-publica/${registroId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            download={`Ficha_${registroId}.pdf`}
+            onClick={() => {
+              const btn = document.getElementById('pdf-download-btn')
+              if (btn) {
+                btn.textContent = 'Descargando...'
+                setTimeout(() => { btn.textContent = 'Descargar Ficha PDF' }, 3000)
               }
             }}
-            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-red-600 text-white font-semibold text-sm rounded-xl hover:bg-red-700 transition-all duration-200 shadow-sm active:scale-95"
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-red-600 text-white font-semibold text-sm rounded-xl hover:bg-red-700 transition-all duration-200 shadow-sm active:scale-95 no-underline"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             <span id="pdf-download-btn">Descargar Ficha PDF</span>
-          </button>
+          </a>
         )}
 
         <button
