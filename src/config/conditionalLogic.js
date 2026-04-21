@@ -9,7 +9,7 @@
 export function isFieldVisible(field, formData) {
   if (!field.conditional) return true
 
-  const { dependsOn, showWhen } = field.conditional
+  const { dependsOn, showWhen, showWhenNot, additionalCheck } = field.conditional
   const dependValue = formData[dependsOn]
 
   if (dependValue === undefined || dependValue === null || dependValue === '') {
@@ -20,12 +20,34 @@ export function isFieldVisible(field, formData) {
   const depValues = Array.isArray(dependValue) ? dependValue : [String(dependValue).trim()]
   if (depValues.length === 0) return false
 
-  // showWhen puede ser un valor único o un array de valores
-  if (Array.isArray(showWhen)) {
-    return depValues.some(v => showWhen.includes(v))
+  let matchesShowWhen = true
+  if (showWhen !== undefined) {
+    if (Array.isArray(showWhen)) {
+      matchesShowWhen = depValues.some(v => showWhen.includes(v))
+    } else {
+      matchesShowWhen = depValues.includes(String(showWhen).trim())
+    }
   }
 
-  return depValues.includes(String(showWhen).trim())
+  // showWhenNot: muestra el campo cuando el valor NO coincide con estos.
+  // Útil para "cualquier cosa excepto X" (ej. cualquier país != GUATEMALA).
+  let matchesShowWhenNot = true
+  if (showWhenNot !== undefined) {
+    const excl = Array.isArray(showWhenNot) ? showWhenNot : [String(showWhenNot).trim()]
+    matchesShowWhenNot = !depValues.some(v => excl.includes(v))
+  }
+
+  if (!matchesShowWhen || !matchesShowWhenNot) return false
+
+  if (typeof additionalCheck === 'function') {
+    try {
+      return !!additionalCheck(formData)
+    } catch {
+      return true
+    }
+  }
+
+  return true
 }
 
 /**

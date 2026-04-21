@@ -404,6 +404,72 @@ def check_duplicate(afiliacion: str, fecha_notificacion: str) -> bool:
         conn.close()
 
 
+def find_duplicate_21_dias(
+    numero_afiliado: str,
+    fecha_inicio_sintomas: str = "",
+    fecha_notificacion: str = "",
+    exclude_registro_id: str = "",
+) -> dict | None:
+    """
+    Período sarampión: retorna el registro activo más reciente del mismo afiliado
+    cuya fecha_inicio_sintomas (o fecha_notificacion si la primera no existe)
+    esté dentro de ±21 días de la fecha entregada. None si no hay duplicado.
+
+    exclude_registro_id permite excluir el registro actual en edición (PUT).
+    """
+    if not numero_afiliado:
+        return None
+    # Escoger fecha pivote: preferir síntomas, fallback a notificación
+    pivote = (fecha_inicio_sintomas or fecha_notificacion or "").strip()
+    if not pivote:
+        return None
+    try:
+        from datetime import datetime, timedelta
+        d0 = datetime.strptime(pivote[:10], "%Y-%m-%d")
+    except Exception:
+        return None
+    min_d = (d0 - timedelta(days=21)).strftime("%Y-%m-%d")
+    max_d = (d0 + timedelta(days=21)).strftime("%Y-%m-%d")
+
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    try:
+        # Detectar si la columna _soft_deleted existe para incluir el filtro
+        has_soft = False
+        try:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(registros)").fetchall()}
+            has_soft = "_soft_deleted" in cols
+        except Exception:
+            has_soft = False
+        soft_clause = "COALESCE(_soft_deleted,0)=0 AND " if has_soft else ""
+
+        sql = (
+            f"SELECT registro_id, fecha_inicio_sintomas, fecha_notificacion, nombres, apellidos "
+            f"FROM registros "
+            f"WHERE {soft_clause}"
+            f"  afiliacion = ? "
+            f"  AND ( "
+            f"    (COALESCE(fecha_inicio_sintomas,'') != '' AND substr(fecha_inicio_sintomas,1,10) BETWEEN ? AND ?) "
+            f"    OR (COALESCE(fecha_inicio_sintomas,'') = '' AND substr(fecha_notificacion,1,10) BETWEEN ? AND ?) "
+            f"  ) "
+            f"  AND (? = '' OR registro_id != ?) "
+            f"ORDER BY substr(COALESCE(fecha_inicio_sintomas, fecha_notificacion),1,10) DESC "
+            f"LIMIT 1"
+        )
+        row = conn.execute(
+            sql,
+            (
+                numero_afiliado,
+                min_d, max_d,
+                min_d, max_d,
+                exclude_registro_id or "", exclude_registro_id or "",
+            ),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 # ─── Nuevas funciones para visor/edición ─────────────────
 
 # Campos que NO se pueden editar desde la API

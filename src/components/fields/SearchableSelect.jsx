@@ -8,11 +8,28 @@ export default function SearchableSelect({ field, value, onChange, error }) {
 
   const options = field.options || []
 
-  const filtered = search
-    ? options.filter(opt =>
-        opt.toLowerCase().includes(search.toLowerCase())
-      )
-    : options
+  // Normaliza tildes para que "PETEN" matchee "PETÉN", "pinula" matchee "Pinula"
+  const normalize = (s) =>
+    String(s || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+
+  const filtered = (() => {
+    if (!search) return options
+    const q = normalize(search)
+    const scored = []
+    for (const opt of options) {
+      const n = normalize(opt)
+      if (n === q) scored.push({ opt, rank: 0 })
+      else if (n.startsWith(q)) scored.push({ opt, rank: 1 })
+      else if (n.includes(q)) scored.push({ opt, rank: 2 })
+    }
+    return scored
+      .sort((a, b) => a.rank - b.rank)
+      .map((x) => x.opt)
+  })()
 
   // Close on click outside
   useEffect(() => {

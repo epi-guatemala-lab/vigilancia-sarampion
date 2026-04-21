@@ -5,8 +5,7 @@ import { useMemo } from 'react'
 // ---------------------------------------------------------------------------
 
 const SLOT_LABELS = {
-  suero_1:    '1er Suero (Anticuerpo)',
-  suero_2:    '2do Suero (Anticuerpo)',
+  suero_1:    'Suero (Anticuerpo)',
   orina_1:    'Orina (ARN viral)',
   hisopado_1: 'Hisopado Nasofaríngeo (ARN viral)',
   otro:       'Otro',
@@ -28,7 +27,6 @@ const EMPTY_SAMPLE = (slot) => ({
 
 const DEFAULT_SAMPLES = [
   EMPTY_SAMPLE('suero_1'),
-  EMPTY_SAMPLE('suero_2'),
   EMPTY_SAMPLE('orina_1'),
   EMPTY_SAMPLE('hisopado_1'),
   EMPTY_SAMPLE('otro'),
@@ -51,7 +49,7 @@ const AVIDEZ_OPTIONS = [
 // Column definitions for each sample row
 // type: 'text' | 'date' | 'igm_igg' | 'avidez'
 const COLUMNS = [
-  { key: 'numero_muestra',   label: 'N° Muestra',     type: 'text',    group: null },
+  { key: 'numero_muestra',   label: 'Orden de laboratorio', type: 'text', group: null },
   { key: 'fecha_toma',       label: 'Fecha Toma',     type: 'date',    group: null },
   { key: 'fecha_envio',      label: 'Fecha Envío',    type: 'date',    group: null },
   { key: 'sarampion_igm',    label: 'IgM',            type: 'igm_igg', group: 'sarampion' },
@@ -199,7 +197,7 @@ export default function LabSampleMatrix({ field, value, onChange }) {
               {/* General columns (no group) */}
               <th className="border border-gray-200 px-2 py-1 text-igss-700 font-medium text-center whitespace-nowrap bg-igss-50"
                   rowSpan={2}>
-                N° Muestra
+                Orden de laboratorio
               </th>
               <th className="border border-gray-200 px-2 py-1 text-igss-700 font-medium text-center whitespace-nowrap bg-igss-50"
                   rowSpan={2}>

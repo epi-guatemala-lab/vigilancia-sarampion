@@ -4,18 +4,39 @@ const STORAGE_KEY = 'sarampion_form_data'
 const SUBMITTED_KEY = 'sarampion_submitted_records'
 
 /**
+ * Devuelve la fecha de hoy en zona horaria America/Guatemala (UTC-6 sin DST),
+ * en formato YYYY-MM-DD listo para inputs type=date.
+ */
+function hoyGuatemala() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Guatemala',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date())
+    return parts // en-CA ya devuelve YYYY-MM-DD
+  } catch {
+    const d = new Date()
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+}
+
+/**
  * Hook para manejar el estado global del formulario
  * con persistencia en localStorage
  */
 export function useFormState(initialData = {}) {
   const [formData, setFormData] = useState(() => {
+    const defaults = { fecha_notificacion: hoyGuatemala(), ...initialData }
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
-      if (!saved) return initialData
+      if (!saved) return defaults
       const parsed = JSON.parse(saved)
       // Si el objeto guardado está vacío o tiene datos de un envío reciente
       // (afiliación que ya se marcó como submitted), empezar limpio
-      if (!parsed || Object.keys(parsed).length === 0) return initialData
+      if (!parsed || Object.keys(parsed).length === 0) return defaults
       // Verificar si estos datos ya fueron enviados (safety net)
       const submitted = JSON.parse(localStorage.getItem(SUBMITTED_KEY) || '[]')
       const afil = parsed.afiliacion
@@ -25,12 +46,14 @@ export function useFormState(initialData = {}) {
         const wasSubmitted = submitted.some(r => r.key === key && Date.now() - r.timestamp < 86400000)
         if (wasSubmitted) {
           localStorage.removeItem(STORAGE_KEY)
-          return initialData
+          return defaults
         }
       }
-      return { ...initialData, ...parsed }
+      // Si el parsed no tiene fecha_notificacion, inyectar hoy
+      if (!parsed.fecha_notificacion) parsed.fecha_notificacion = hoyGuatemala()
+      return { ...defaults, ...parsed }
     } catch {
-      return initialData
+      return defaults
     }
   })
 
@@ -57,7 +80,7 @@ export function useFormState(initialData = {}) {
   }, [])
 
   const resetForm = useCallback(() => {
-    setFormData({})
+    setFormData({ fecha_notificacion: hoyGuatemala() })
     localStorage.removeItem(STORAGE_KEY)
   }, [])
 

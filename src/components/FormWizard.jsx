@@ -7,9 +7,10 @@ import { useFormState } from '../hooks/useFormState.js'
 import { useConditionalFields } from '../hooks/useConditionalFields.js'
 import { cleanHiddenFieldData } from '../config/conditionalLogic.js'
 import { useGoogleSheets } from '../hooks/useGoogleSheets.js'
-import { validatePage, validateCrossFieldDates } from '../utils/validation.js'
+import { validatePage, validateCrossFieldDates, validateCrossFieldDatesForPage } from '../utils/validation.js'
 import { getEpiWeek } from '../utils/formatters.js'
 import { pageLabels, formFields, diagnosticosMap, getMunicipios } from '../config/formSchema.js'
+import { unidadesMedicas } from '../config/unidadesMedicas.js'
 
 export default function FormWizard() {
   const [currentStep, setCurrentStep] = useState(1)
@@ -231,6 +232,23 @@ export default function FormWizard() {
       updateField('distrito_salud_mspas', '')
     }
 
+    // Auto-fill MSPAS: al elegir unidad médica IGSS, pre-llenar el departamento MSPAS
+    // El municipio MSPAS queda manual (nombre de unidad no mapea 1:1 a municipio).
+    if (fieldId === 'unidad_medica' && value) {
+      const match = unidadesMedicas.find((u) => u.nombre === value)
+      if (match && match.departamento) {
+        // Solo sobreescribir si el MSPAS aún no fue tocado por el usuario
+        if (!formData.area_salud_mspas) {
+          updateMultipleFields({ area_salud_mspas: match.departamento, distrito_salud_mspas: '' })
+        }
+      }
+    }
+
+    // Limpiar motivo_no_recoleccion* al cambiar recolecto_muestra=SI
+    if (fieldId === 'recolecto_muestra' && value === 'SI') {
+      updateMultipleFields({ motivo_no_recoleccion: '', motivo_no_recoleccion_otro: '' })
+    }
+
     // Cascading resets: departamento → municipio → poblado
     if (fieldId === 'departamento_residencia') {
       updateMultipleFields({ municipio_residencia: '', poblado: '' })
@@ -290,6 +308,23 @@ export default function FormWizard() {
       const el = document.getElementById(firstErrorId)
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
+    }
+
+    // Advertencias cruzadas de fechas — solo las aplicables a esta pestaña
+    const pageFieldIds = currentFields.map((f) => f.id)
+    const pageWarnings = validateCrossFieldDatesForPage(formData, pageFieldIds)
+    if (pageWarnings.length > 0) {
+      setDateWarnings(pageWarnings)
+      // Mostrar banner rojo inline y hacer scroll al tope; usuario lee y decide
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      const proceed = window.confirm(
+        'Se detectaron inconsistencias en fechas de esta pestaña:\n\n' +
+        pageWarnings.map((w, i) => `${i + 1}. ${w}`).join('\n') +
+        '\n\n¿Desea continuar a la siguiente pestaña?'
+      )
+      if (!proceed) return
+    } else {
+      setDateWarnings([])
     }
 
     setErrors({})
@@ -414,9 +449,9 @@ export default function FormWizard() {
       )}
 
       {dateWarnings.length > 0 && (
-        <div className="mb-5 bg-yellow-50 border border-yellow-200/60 rounded-xl p-4 text-sm text-yellow-800 shadow-sm">
+        <div className="mb-5 bg-red-50 border border-red-300 rounded-xl p-4 text-sm text-red-800 shadow-sm">
           <div className="flex items-center gap-2 mb-2 font-semibold">
-            <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
             </svg>
             Advertencias de fechas

@@ -15,14 +15,25 @@ const messages = {
   dpi: 'El DPI debe tener 13 dígitos',
 }
 
-export function validateField(field, value) {
+export function validateField(field, value, formData = {}) {
   const errors = []
 
-  // Campo requerido
-  if (field.required) {
-    if (value === undefined || value === null || String(value).trim() === '') {
-      return [messages.required]
+  // Campo requerido (estático) o condicionalmente requerido
+  const isEmpty = (value === undefined || value === null || String(value).trim() === '')
+  let dynamicallyRequired = false
+  let requiredMessage = messages.required
+  if (typeof field.requiredIf === 'function') {
+    try {
+      if (field.requiredIf(formData)) {
+        dynamicallyRequired = true
+        if (field.requiredIfMessage) requiredMessage = field.requiredIfMessage
+      }
+    } catch {
+      /* ignore */
     }
+  }
+  if ((field.required || dynamicallyRequired) && isEmpty) {
+    return [requiredMessage]
   }
 
   // Si no es requerido y está vacío, no validar más
@@ -86,6 +97,20 @@ export function validateField(field, value) {
     }
   }
 
+  // Validación por tipo (documento de identificación)
+  if (rules.byType === 'identificacion') {
+    const tipo = formData.tipo_identificacion
+    if (tipo === 'DPI') {
+      if (!/^\d{13}$/.test(strValue)) {
+        errors.push('El DPI debe tener exactamente 13 dígitos numéricos')
+      }
+    } else if (tipo === 'PASAPORTE') {
+      if (!/^[A-Za-z0-9]{9,12}$/.test(strValue)) {
+        errors.push('El pasaporte debe tener entre 9 y 12 caracteres alfanuméricos')
+      }
+    }
+  }
+
   return errors
 }
 
@@ -97,7 +122,7 @@ export function validatePage(fields, formData) {
   let isValid = true
 
   for (const field of fields) {
-    const fieldErrors = validateField(field, formData[field.id])
+    const fieldErrors = validateField(field, formData[field.id], formData)
     if (fieldErrors.length > 0) {
       errors[field.id] = fieldErrors
       isValid = false
@@ -131,6 +156,10 @@ export function validateCrossFieldDates(formData) {
   const fechaSalida = parse('viaje_fecha_salida')
   const fechaEntrada = parse('viaje_fecha_entrada')
 
+  // Hoy (zona local; suficiente para no-future)
+  const hoy = new Date()
+  hoy.setHours(23, 59, 59, 999)
+
   if (fechaSintomas && fechaNotificacion && fechaSintomas > fechaNotificacion) {
     warnings.push('La fecha de inicio de síntomas es posterior a la fecha de notificación.')
   }
@@ -139,6 +168,23 @@ export function validateCrossFieldDates(formData) {
   }
   if (fechaErupcion && fechaNotificacion && fechaErupcion > fechaNotificacion) {
     warnings.push('La fecha de inicio de erupción es posterior a la fecha de notificación.')
+  }
+  // Erupción y fiebre deben ser ≥ fecha inicio síntomas
+  if (fechaErupcion && fechaSintomas && fechaErupcion < fechaSintomas) {
+    warnings.push('La fecha de inicio de erupción es anterior a la fecha de inicio de síntomas.')
+  }
+  if (fechaFiebre && fechaSintomas && fechaFiebre < fechaSintomas) {
+    warnings.push('La fecha de inicio de fiebre es anterior a la fecha de inicio de síntomas.')
+  }
+  // No pueden ser futuras
+  if (fechaErupcion && fechaErupcion > hoy) {
+    warnings.push('La fecha de inicio de erupción no puede ser posterior al día de hoy.')
+  }
+  if (fechaFiebre && fechaFiebre > hoy) {
+    warnings.push('La fecha de inicio de fiebre no puede ser posterior al día de hoy.')
+  }
+  if (fechaSintomas && fechaSintomas > hoy) {
+    warnings.push('La fecha de inicio de síntomas no puede ser posterior al día de hoy.')
   }
   if (fechaHosp && fechaSintomas && fechaHosp < fechaSintomas) {
     warnings.push('La fecha de hospitalización es anterior a la fecha de inicio de síntomas.')
@@ -157,4 +203,35 @@ export function validateCrossFieldDates(formData) {
   }
 
   return warnings
+}
+
+/**
+ * Subset de validateCrossFieldDates que solo ejecuta las reglas
+ * cuyos dos campos involucrados están presentes en `pageFieldIds`.
+ * Útil para mostrar advertencias al navegar entre pestañas.
+ */
+export function validateCrossFieldDatesForPage(formData, pageFieldIds) {
+  const all = validateCrossFieldDates(formData)
+  // Como mapa simple: warnings que mencionen un campo de esta pagina
+  // Usamos regex de keywords por warning.
+  const ids = new Set(pageFieldIds)
+  const keywords = {
+    'fecha_inicio_sintomas': ['síntomas'],
+    'fecha_notificacion': ['notificación'],
+    'fecha_inicio_fiebre': ['fiebre'],
+    'fecha_inicio_erupcion': ['erupción'],
+    'hosp_fecha': ['hospitalización'],
+    'fecha_egreso': ['egreso'],
+    'fecha_defuncion': ['defunción'],
+    'fecha_nacimiento': ['nacimiento'],
+    'viaje_fecha_salida': ['salida del viaje'],
+    'viaje_fecha_entrada': ['entrada/retorno'],
+  }
+  return all.filter((w) => {
+    for (const id of ids) {
+      const kws = keywords[id] || []
+      if (kws.some((kw) => w.toLowerCase().includes(kw.toLowerCase()))) return true
+    }
+    return false
+  })
 }

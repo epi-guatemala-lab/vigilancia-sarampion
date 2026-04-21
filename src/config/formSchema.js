@@ -20,6 +20,7 @@ import { ocupacionesOptions } from './mspasOcupaciones.js'
 import { departamentos, getMunicipios } from './mspasMunicipios.js'
 import { getPoblados } from './mspasPoblados.js'
 import { getSubgerencias } from './igssOrganizacion.js'
+import { paisesMundoUnicos } from './paises.js'
 
 export const formTitle = 'Ficha de Investigación Epidemiológica'
 export const formSubtitle = 'Sarampión / Rubéola — IGSS Epidemiología'
@@ -351,7 +352,7 @@ export const formFields = [
     required: false,
     placeholder: 'Número de DPI, pasaporte u otro',
     colSpan: 'half',
-    validation: { maxLength: 30 },
+    validation: { maxLength: 30, byType: 'identificacion' },
   },
   {
     id: 'nombres',
@@ -913,7 +914,7 @@ export const formFields = [
     label: 'VIH / SIDA',
     type: 'radio',
     page: 4,
-    required: false,
+    required: true,
     options: ['SI', 'NO'],
     conditional: { dependsOn: 'tiene_antecedentes_medicos', showWhen: 'SI' },
     colSpan: 'half',
@@ -923,7 +924,7 @@ export const formFields = [
     label: 'Cáncer / Neoplasia',
     type: 'radio',
     page: 4,
-    required: false,
+    required: true,
     options: ['SI', 'NO'],
     conditional: { dependsOn: 'tiene_antecedentes_medicos', showWhen: 'SI' },
     colSpan: 'half',
@@ -1048,7 +1049,7 @@ export const formFields = [
   },
   {
     id: 'signo_exantema',
-    label: 'Exantema',
+    label: 'Exantema Maculopapular (No vesicular)',
     type: 'radio',
     page: 5,
     required: true,
@@ -1186,16 +1187,6 @@ export const formFields = [
     hidden: true,
   },
   {
-    id: 'fecha_defuncion',
-    label: 'Fecha de Defunción',
-    type: 'date',
-    page: 5,
-    required: true,
-    conditional: { dependsOn: 'condicion_egreso', showWhen: 'MUERTO' },
-    colSpan: 'half',
-    validation: { noFuture: true },
-  },
-  {
     id: 'medico_certifica_defuncion',
     label: 'Médico que Certifica Defunción',
     type: 'text',
@@ -1330,7 +1321,7 @@ export const formFields = [
     label: 'Tuvo contacto con un caso sospechoso o confirmado entre 7-23 días antes del inicio del exantema/rash',
     type: 'radio',
     page: 6,
-    required: false,
+    required: true,
     options: ['SI', 'NO', 'DESCONOCIDO'],
     colSpan: 'full',
   },
@@ -1339,7 +1330,7 @@ export const formFields = [
     label: 'Hubo algún caso sospechoso en la comunidad o municipio antes de este caso, en los últimos 3 meses',
     type: 'radio',
     page: 6,
-    required: false,
+    required: true,
     options: ['SI', 'NO', 'DESCONOCIDO'],
     colSpan: 'full',
   },
@@ -1348,7 +1339,7 @@ export const formFields = [
     label: 'Viajó durante los 7-23 días previos al inicio de la erupción',
     type: 'radio',
     page: 6,
-    required: false,
+    required: true,
     options: ['SI', 'NO'],
     colSpan: 'full',
   },
@@ -1361,25 +1352,20 @@ export const formFields = [
     page: 6,
     required: false,
     searchable: true,
-    options: [
-      'GUATEMALA',
-      // Centroamérica
-      'MÉXICO', 'HONDURAS', 'EL SALVADOR', 'BELICE', 'NICARAGUA', 'COSTA RICA', 'PANAMÁ',
-      // Caribe
-      'REPÚBLICA DOMINICANA', 'HAITÍ', 'CUBA', 'JAMAICA', 'PUERTO RICO',
-      // Sudamérica
-      'COLOMBIA', 'VENEZUELA', 'BRASIL', 'ARGENTINA', 'PERÚ', 'CHILE', 'ECUADOR', 'BOLIVIA', 'URUGUAY', 'PARAGUAY',
-      // Norteamérica
-      'ESTADOS UNIDOS', 'CANADÁ',
-      // Europa
-      'ESPAÑA', 'FRANCIA', 'ITALIA', 'ALEMANIA', 'REINO UNIDO',
-      // Asia
-      'CHINA', 'INDIA', 'JAPÓN', 'COREA DEL SUR',
-      // Otro
-      'OTRO',
-    ],
+    options: paisesMundoUnicos,
     conditional: { dependsOn: 'viajo_7_23_previo', showWhen: 'SI' },
     colSpan: 'half',
+  },
+  {
+    id: 'viaje_pais_otro',
+    label: 'Especifique país',
+    type: 'text',
+    page: 6,
+    required: false,
+    placeholder: 'Nombre del país',
+    conditional: { dependsOn: 'viaje_pais', showWhen: 'OTRO' },
+    colSpan: 'half',
+    validation: { maxLength: 80 },
   },
   {
     id: 'viaje_departamento',
@@ -1389,7 +1375,7 @@ export const formFields = [
     required: false,
     searchable: true,
     options: departamentosGuatemala,
-    conditional: { dependsOn: 'viajo_7_23_previo', showWhen: 'SI' },
+    conditional: { dependsOn: 'viaje_pais', showWhen: 'GUATEMALA' },
     colSpan: 'half',
   },
   {
@@ -1401,8 +1387,25 @@ export const formFields = [
     searchable: true,
     options: [], // Se llena dinámicamente según viaje_departamento
     cascadeFrom: 'viaje_departamento',
-    conditional: { dependsOn: 'viajo_7_23_previo', showWhen: 'SI' },
+    conditional: { dependsOn: 'viaje_pais', showWhen: 'GUATEMALA' },
     colSpan: 'half',
+  },
+  {
+    id: 'viaje_ciudad_destino',
+    label: 'Ciudad / Estado / Región de destino',
+    type: 'text',
+    page: 6,
+    required: false,
+    placeholder: 'Ej: Cancún, Quintana Roo / Miami, Florida / Madrid',
+    helpText: 'Especifique la ciudad, estado o región visitada dentro del país',
+    conditional: {
+      dependsOn: 'viaje_pais',
+      // Aparece para cualquier país seleccionado EXCEPTO GUATEMALA
+      // (Guatemala usa cascade depto→municipio arriba).
+      showWhenNot: ['GUATEMALA', ''],
+    },
+    colSpan: 'full',
+    validation: { maxLength: 120 },
   },
   {
     id: 'viaje_fecha_salida',
@@ -1473,7 +1476,7 @@ export const formFields = [
     label: '¿Tuvo contacto con una embarazada?',
     type: 'radio',
     page: 6,
-    required: false,
+    required: true,
     options: ['SI', 'NO', 'DESCONOCIDO'],
     colSpan: 'full',
   },
@@ -1597,13 +1600,18 @@ export const formFields = [
     type: 'radio',
     page: 7,
     required: false,
+    requiredIf: (fd) => {
+      const anios = Number(fd.edad_anios)
+      return !isNaN(anios) && anios < 5
+    },
+    requiredIfMessage: 'Obligatorio para menores de 5 años',
     options: ['SI', 'NO', 'DESCONOCIDO'],
     colSpan: 'half',
     sectionTitle: 'Vitamina A',
   },
   {
     id: 'vitamina_a_dosis',
-    label: 'Número de Dosis de Vitamina A',
+    label: 'Número de Dosis de Vitamina A recibidas',
     type: 'select',
     page: 7,
     required: false,
@@ -1869,15 +1877,39 @@ export const formFields = [
   // Formato 2026 — campos adicionales laboratorio
   {
     id: 'motivo_no_3_muestras',
-    label: 'Motivo por el que no se tomaron 3 muestras',
+    label: 'Motivo por el que no se tomaron las 3 muestras',
+    type: 'select',
+    page: 8,
+    required: false,
+    options: [
+      'No corresponde a grupo prioritario',
+      'Por nexo epidemiológico',
+      'Paciente con diagnóstico clínico',
+      'Otro',
+    ],
+    helpText: 'Solo llenar si NO se tomaron las 3 muestras (suero, hisopado y orina)',
+    conditional: {
+      dependsOn: 'recolecto_muestra',
+      showWhen: 'SI',
+      additionalCheck: (fd) => {
+        const s = fd.muestra_suero === 'SI'
+        const h = fd.muestra_hisopado === 'SI'
+        const o = fd.muestra_orina === 'SI'
+        return !(s && h && o)
+      },
+    },
+    colSpan: 'full',
+    sectionTitle: 'Formato 2026',
+  },
+  {
+    id: 'motivo_no_3_muestras_otro',
+    label: 'Especifique otro motivo',
     type: 'text',
     page: 8,
     required: false,
-    placeholder: 'Explique el motivo si NO se tomaron las 3 muestras (suero, hisopado y orina)',
-    helpText: 'Solo llenar si NO se tomaron las 3 muestras (suero, hisopado y orina)',
-    conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
+    placeholder: 'Describa el motivo',
+    conditional: { dependsOn: 'motivo_no_3_muestras', showWhen: 'Otro' },
     colSpan: 'full',
-    sectionTitle: 'Formato 2026',
     validation: { maxLength: 500 },
   },
   {
@@ -1892,7 +1924,7 @@ export const formFields = [
     helpText: 'Ingrese los resultados de cada muestra tomada',
   },
 
-  // Secuenciación
+  // Secuenciación (oculta en frontend — se mantiene en BD para compatibilidad)
   {
     id: 'secuenciacion_resultado',
     label: 'Resultado de Secuenciación',
@@ -1902,6 +1934,7 @@ export const formFields = [
     options: ['B3', 'D4', 'D8', 'H1', '1E', '2B', 'Pendiente', 'No aplica', 'Otro'],
     colSpan: 'half',
     sectionTitle: 'Secuenciación',
+    hidden: true,
   },
   {
     id: 'secuenciacion_fecha',
@@ -1911,6 +1944,7 @@ export const formFields = [
     required: false,
     colSpan: 'half',
     validation: { noFuture: true },
+    hidden: true,
   },
 
   // Muestras Rechazadas (Boleta de Rechazo - Laboratorio Nacional de Salud)
@@ -2021,8 +2055,6 @@ export const formFields = [
     options: [
       'SOSPECHOSO',
       'CONFIRMADO SARAMPIÓN',
-      'DESCARTADO',
-      'PENDIENTE',
       'NO CUMPLE DEFINICIÓN DE CASO',
     ],
     helpText: 'Clasificación del caso según protocolo MSPAS 2026',
@@ -2062,21 +2094,16 @@ export const formFields = [
   },
   {
     id: 'criterio_descarte',
-    label: 'Criterio de Descarte',
+    label: 'Criterio para descartar',
     type: 'select',
     page: 9,
     required: false,
     options: [
-      'Laboratorial',
-      'Reacción Vacunal',
-      'Dengue',
-      'Parvovirus B19',
-      'Herpes 6',
-      'Reacción Alérgica',
-      'Otro Diagnóstico',
+      'Laboratorio',
+      'Reacción por vacuna',
       'Clínico',
     ],
-    conditional: { dependsOn: 'clasificacion_caso', showWhen: 'DESCARTADO' },
+    helpText: 'Si corresponde: indicar el criterio por el cual se descarta el caso',
     colSpan: 'half',
   },
   {
@@ -2190,6 +2217,16 @@ export const formFields = [
     options: ['Recuperado', 'Con Secuelas', 'Fallecido', 'Desconocido'],
     colSpan: 'half',
     sectionTitle: 'Condición Final',
+  },
+  {
+    id: 'fecha_defuncion',
+    label: 'Fecha de Fallecimiento',
+    type: 'date',
+    page: 9,
+    required: true,
+    conditional: { dependsOn: 'condicion_final_paciente', showWhen: 'Fallecido' },
+    colSpan: 'half',
+    validation: { noFuture: true },
   },
   {
     id: 'causa_muerte_certificado',

@@ -29,6 +29,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from config import ALLOWED_ORIGINS, API_SECRET_KEY, PORT, RATE_LIMIT_SECONDS, MAX_UPLOAD_SIZE_MB
 from database import (
     init_db, insert_registro, get_registros, get_count, check_duplicate,
+    find_duplicate_21_dias,
     get_registro_by_id, update_registro, delete_registro, bulk_insert_registros,
     init_audit_table, log_changes, get_audit_trail, search_registros,
     COLUMNS, EDITABLE_COLUMNS,
@@ -269,6 +270,28 @@ async def crear_registro(request: Request):
             status_code=409,
             detail=f"Ya existe un registro para afiliación {afiliacion} con fecha {fecha}",
         )
+
+    # Período sarampión (21 días): rechazar si ya existe un registro del mismo
+    # afiliado cuya fecha de inicio de síntomas (o notificación si falta) está
+    # dentro de ±21 días de la entregada. Evita que el mismo caso se notifique
+    # dos veces cuando el paciente vuelve días después.
+    fis = sanitize_value(data.get("fecha_inicio_sintomas", ""))
+    if afiliacion:
+        dup21 = find_duplicate_21_dias(
+            numero_afiliado=afiliacion,
+            fecha_inicio_sintomas=fis,
+            fecha_notificacion=fecha,
+        )
+        if dup21:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Período sarampión (21 días): ya existe el registro "
+                    f"{dup21.get('registro_id')} para este afiliado con fecha "
+                    f"cercana ({dup21.get('fecha_inicio_sintomas') or dup21.get('fecha_notificacion')}). "
+                    f"Si corresponde a un caso distinto, ajuste la fecha de inicio de síntomas."
+                ),
+            )
 
     # Validate that at least a name is provided
     _nombres = sanitize_value(data.get("nombres", ""))
