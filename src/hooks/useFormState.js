@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { getEpiWeek } from '../utils/formatters.js'
 
 const STORAGE_KEY = 'sarampion_form_data'
 const SUBMITTED_KEY = 'sarampion_submitted_records'
@@ -24,12 +25,27 @@ function hoyGuatemala() {
 }
 
 /**
+ * Defaults iniciales del formulario. Incluye la fecha de notificación de hoy
+ * (zona Guatemala) y la semana epidemiológica correspondiente — ambas deben
+ * inyectarse JUNTAS porque semana_epidemiologica es required pero readOnly:
+ * sin el pre-cálculo, el formulario bloquea el avance en page 1.
+ */
+function buildInitialDefaults() {
+  const fecha = hoyGuatemala()
+  const semana = getEpiWeek(fecha)
+  return {
+    fecha_notificacion: fecha,
+    semana_epidemiologica: semana ? String(semana) : '',
+  }
+}
+
+/**
  * Hook para manejar el estado global del formulario
  * con persistencia en localStorage
  */
 export function useFormState(initialData = {}) {
   const [formData, setFormData] = useState(() => {
-    const defaults = { fecha_notificacion: hoyGuatemala(), ...initialData }
+    const defaults = { ...buildInitialDefaults(), ...initialData }
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (!saved) return defaults
@@ -51,6 +67,13 @@ export function useFormState(initialData = {}) {
       }
       // Si el parsed no tiene fecha_notificacion, inyectar hoy
       if (!parsed.fecha_notificacion) parsed.fecha_notificacion = hoyGuatemala()
+      // Safety net: si falta la semana epi pero sí hay fecha, calcularla.
+      // Cubre sesiones previas anteriores al fix (localStorage con fecha pero
+      // sin semana, o copia-pega desde otra sesión).
+      if (parsed.fecha_notificacion && !parsed.semana_epidemiologica) {
+        const w = getEpiWeek(parsed.fecha_notificacion)
+        if (w) parsed.semana_epidemiologica = String(w)
+      }
       return { ...defaults, ...parsed }
     } catch {
       return defaults
