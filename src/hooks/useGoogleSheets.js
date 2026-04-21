@@ -57,7 +57,20 @@ export function useGoogleSheets() {
     } catch (error) {
       console.error('Error al enviar:', error)
 
-      // Si falla el envío online, guardar como pendiente para reintento
+      // Error de validación/negocio (409 duplicado, 400 inválido, 429 rate limit)
+      // → NO guardar como pendiente ni reintentar. Mostrar el mensaje del backend tal cual.
+      if (error && error.isValidation) {
+        setSubmitError(error.detail || error.message || 'El servidor rechazó el registro.')
+        return {
+          success: false,
+          registro_id: prepared.registro_id,
+          validation: true,
+          status: error.status,
+          error: error.detail || error.message,
+        }
+      }
+
+      // Error de red / servidor caído → guardar pendiente para reintento
       savePendingSubmission(prepared)
       setSubmitError(
         'No se pudo enviar al servidor. Los datos se guardaron localmente y se reintentará automáticamente al reconectarse. ' +

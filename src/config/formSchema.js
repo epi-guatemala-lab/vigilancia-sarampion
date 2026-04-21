@@ -1400,8 +1400,9 @@ export const formFields = [
     helpText: 'Especifique la ciudad, estado o región visitada dentro del país',
     conditional: {
       dependsOn: 'viaje_pais',
-      // Aparece para cualquier país seleccionado EXCEPTO GUATEMALA
-      // (Guatemala usa cascade depto→municipio arriba).
+      // Aparece para cualquier país seleccionado EXCEPTO GUATEMALA (usa cascade
+      // depto→municipio arriba). Con OTRO también se muestra para que el usuario
+      // pueda indicar país (viaje_pais_otro) Y ciudad/región.
       showWhenNot: ['GUATEMALA', ''],
     },
     colSpan: 'full',
@@ -1601,7 +1602,11 @@ export const formFields = [
     page: 7,
     required: false,
     requiredIf: (fd) => {
-      const anios = Number(fd.edad_anios)
+      // Solo requerido si hay edad registrada Y es < 5 años.
+      // Vacío o no-numérico → no bloquear el avance.
+      const raw = fd.edad_anios
+      if (raw === undefined || raw === null || String(raw).trim() === '') return false
+      const anios = Number(raw)
       return !isNaN(anios) && anios < 5
     },
     requiredIfMessage: 'Obligatorio para menores de 5 años',
@@ -1657,6 +1662,8 @@ export const formFields = [
     type: 'text',
     page: 8,
     required: false,
+    requiredIf: (fd) => fd.motivo_no_recoleccion === 'Otra razón',
+    requiredIfMessage: 'Debe especificar el motivo cuando selecciona "Otra razón"',
     placeholder: 'Describa el motivo',
     conditional: { dependsOn: 'motivo_no_recoleccion', showWhen: 'Otra razón' },
     colSpan: 'half',
@@ -1907,6 +1914,8 @@ export const formFields = [
     type: 'text',
     page: 8,
     required: false,
+    requiredIf: (fd) => fd.motivo_no_3_muestras === 'Otro',
+    requiredIfMessage: 'Debe especificar el motivo cuando selecciona "Otro"',
     placeholder: 'Describa el motivo',
     conditional: { dependsOn: 'motivo_no_3_muestras', showWhen: 'Otro' },
     colSpan: 'full',

@@ -5,6 +5,19 @@
 import { sheetsConfig } from '../config/googleSheets.js'
 
 /**
+ * Error que representa validación de negocio (no red). No se debe reintentar.
+ */
+export class ValidationError extends Error {
+  constructor(status, detail) {
+    super(detail)
+    this.name = 'ValidationError'
+    this.status = status
+    this.detail = detail
+    this.isValidation = true
+  }
+}
+
+/**
  * Envía datos al backend FastAPI (Opción A - recomendada)
  */
 async function sendViaApi(data) {
@@ -18,7 +31,12 @@ async function sendViaApi(data) {
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
-    throw new Error(err.detail || `Error ${response.status}`)
+    const detail = err.detail || `Error ${response.status}`
+    // 4xx = error de validación/negocio → no reintentar
+    if (response.status >= 400 && response.status < 500) {
+      throw new ValidationError(response.status, detail)
+    }
+    throw new Error(detail)
   }
 
   return await response.json()
@@ -87,6 +105,10 @@ export async function submitToSheets(data) {
       }
     } catch (error) {
       lastError = error
+      // Validación de negocio (409 duplicado, 400 inválido, etc.) — no reintentar
+      if (error && error.isValidation) {
+        throw error
+      }
       if (attempt < retryAttempts) {
         await new Promise(r => setTimeout(r, retryDelay * attempt))
       }

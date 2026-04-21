@@ -140,12 +140,39 @@ export default function FormWizard() {
       }
     }
 
+    // Cascading reset al cambiar viaje_pais:
+    //  - si NO es Guatemala, limpiar depto/municipio (catálogo GT)
+    //  - si es Guatemala, limpiar viaje_pais_otro y viaje_ciudad_destino
+    //  - si no es OTRO, limpiar viaje_pais_otro
+    if (fieldId === 'viaje_pais') {
+      const resets = {}
+      if (value !== 'GUATEMALA') {
+        resets.viaje_departamento = ''
+        resets.viaje_municipio = ''
+      }
+      if (value === 'GUATEMALA') {
+        resets.viaje_pais_otro = ''
+        resets.viaje_ciudad_destino = ''
+      }
+      if (value !== 'OTRO') {
+        resets.viaje_pais_otro = ''
+      }
+      if (Object.keys(resets).length > 0) updateMultipleFields(resets)
+    }
+
     // Auto-infer destino_viaje from structured travel fields
-    if (['viaje_pais', 'viaje_departamento', 'viaje_municipio'].includes(fieldId)) {
-      const pais = fieldId === 'viaje_pais' ? value : (formData.viaje_pais || '')
+    if (['viaje_pais', 'viaje_departamento', 'viaje_municipio', 'viaje_ciudad_destino', 'viaje_pais_otro'].includes(fieldId)) {
+      let pais = fieldId === 'viaje_pais' ? value : (formData.viaje_pais || '')
+      // Si el usuario eligió OTRO, preferir el texto libre como "país"
+      if (pais === 'OTRO') {
+        pais = fieldId === 'viaje_pais_otro' ? value : (formData.viaje_pais_otro || 'OTRO')
+      }
       const depto = fieldId === 'viaje_departamento' ? value : (formData.viaje_departamento || '')
       const muni = fieldId === 'viaje_municipio' ? value : (formData.viaje_municipio || '')
-      const destino = [muni, depto, pais].filter(Boolean).join(', ')
+      const ciudad = fieldId === 'viaje_ciudad_destino' ? value : (formData.viaje_ciudad_destino || '')
+      // Si el país es Guatemala: usar muni/depto. Si es exterior: usar ciudad + pais.
+      const pieces = pais === 'GUATEMALA' ? [muni, depto, pais] : [ciudad, pais]
+      const destino = pieces.filter(Boolean).join(', ')
       if (destino) updateField('destino_viaje', destino)
     }
 
@@ -226,21 +253,30 @@ export default function FormWizard() {
       }
       if (egresoMap[value] !== undefined) updateField('condicion_egreso', egresoMap[value])
     }
+    // Sync inverso: condicion_egreso='MUERTO' → condicion_final_paciente='Fallecido'
+    // (el campo condicion_egreso puede llenarse por import/carga aunque esté hidden
+    // en la UI, así que mantenemos ambas direcciones sincronizadas)
+    if (fieldId === 'condicion_egreso' && value === 'MUERTO'
+        && formData.condicion_final_paciente !== 'Fallecido') {
+      updateField('condicion_final_paciente', 'Fallecido')
+    }
 
     // Cascading resets: area_salud_mspas → distrito_salud_mspas
     if (fieldId === 'area_salud_mspas') {
       updateField('distrito_salud_mspas', '')
     }
 
-    // Auto-fill MSPAS: al elegir unidad médica IGSS, pre-llenar el departamento MSPAS
+    // Auto-fill MSPAS: al elegir unidad médica IGSS, pre-llenar el departamento MSPAS.
     // El municipio MSPAS queda manual (nombre de unidad no mapea 1:1 a municipio).
+    // Siempre sobreescribe para reflejar el departamento real de la unidad actual;
+    // el usuario puede editarlo manualmente después si la dirección difiere.
     if (fieldId === 'unidad_medica' && value) {
       const match = unidadesMedicas.find((u) => u.nombre === value)
       if (match && match.departamento) {
-        // Solo sobreescribir si el MSPAS aún no fue tocado por el usuario
-        if (!formData.area_salud_mspas) {
-          updateMultipleFields({ area_salud_mspas: match.departamento, distrito_salud_mspas: '' })
-        }
+        updateMultipleFields({
+          area_salud_mspas: match.departamento,
+          distrito_salud_mspas: '',
+        })
       }
     }
 

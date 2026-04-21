@@ -192,8 +192,10 @@ COLUMNS = [
     "fecha_aislamiento",
     # Sección 5: Factores de Riesgo (nuevos)
     "viaje_pais",
+    "viaje_pais_otro",
     "viaje_departamento",
     "viaje_municipio",
+    "viaje_ciudad_destino",
     "viaje_fecha_salida",
     "viaje_fecha_entrada",
     "familiar_viajo_exterior",
@@ -213,6 +215,7 @@ COLUMNS = [
     # Sección 7: Laboratorio (nuevos — detallado formato 2026)
     "lab_muestras_json",
     "motivo_no_3_muestras",
+    "motivo_no_3_muestras_otro",
     "secuenciacion_resultado",
     "secuenciacion_fecha",
     # Muestras Rechazadas (Boleta de Rechazo - LNS)
