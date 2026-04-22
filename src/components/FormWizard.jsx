@@ -10,7 +10,8 @@ import { useGoogleSheets } from '../hooks/useGoogleSheets.js'
 import { validatePage, validateCrossFieldDates, validateCrossFieldDatesForPage } from '../utils/validation.js'
 import { getEpiWeek } from '../utils/formatters.js'
 import { pageLabels, formFields, diagnosticosMap, getMunicipios } from '../config/formSchema.js'
-import { unidadesMedicas } from '../config/unidadesMedicas.js'
+import { unidadesMedicas as STATIC_UNIDADES } from '../config/unidadesMedicas.js'
+import { useUnidadesPublic } from '../hooks/useUnidadesPublic.js'
 
 export default function FormWizard() {
   const [currentStep, setCurrentStep] = useState(1)
@@ -46,9 +47,28 @@ export default function FormWizard() {
     setSubmitError,
   } = useGoogleSheets()
 
+  // Cargar unidades dinámicas del backend (fallback a estático mientras carga o si falla)
+  const { unidades: dynUnidades } = useUnidadesPublic()
+  const unidadesMedicas = dynUnidades && dynUnidades.length ? dynUnidades : STATIC_UNIDADES
+  const unidadesNombresDyn = unidadesMedicas.map((u) => u.nombre)
+
   const totalSteps = visiblePages.length
   const currentPageNum = visiblePages[currentStep - 1]
-  const currentFields = visibleFieldsByPage[currentPageNum] || []
+  const rawFields = visibleFieldsByPage[currentPageNum] || []
+  // Inyectar options dinámicas en fields select que originalmente usaban unidadesMedicasNombres
+  const currentFields = rawFields.map((f) => {
+    if (f.id === 'unidad_medica') {
+      return { ...f, options: unidadesNombresDyn }
+    }
+    if (f.id === 'unidad_medica_trabaja' || f.id === 'hospital_deriva') {
+      // Algunos campos agregan 'OTRA' / 'OTRO HOSPITAL' al final
+      const extras = (f.options || []).filter(
+        (o) => !unidadesNombresDyn.includes(o),
+      )
+      return { ...f, options: [...unidadesNombresDyn, ...extras] }
+    }
+    return f
+  })
   const isLastStep = currentStep === totalSteps
 
   const handleFieldChange = useCallback((fieldId, value) => {
