@@ -85,6 +85,7 @@ export const unidadesMedicas = [
   { nombre: "CONSULTORIO LA LIBERTAD, PETÉN", departamento: "PETÉN" },
   { nombre: "CONSULTORIO POPTÚN, PETÉN", departamento: "PETÉN" },
   { nombre: "CONSULTORIO SAYAXCHÉ, PETÉN", departamento: "PETÉN" },
+  { nombre: "SALA ANEXA HOSPITAL NACIONAL SAN BENITO, PETÉN", departamento: "PETÉN" },
   { nombre: "CONSULTORIO NEBAJ, QUICHÉ", departamento: "QUICHÉ" },
   { nombre: "UNIDAD INTEGRAL DE EL QUETZAL, SAN MARCOS", departamento: "SAN MARCOS" },
   { nombre: "UNIDAD INTEGRAL DE IXCHIGUÁN, SAN MARCOS", departamento: "SAN MARCOS" },
