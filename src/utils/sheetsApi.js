@@ -156,10 +156,10 @@ export async function retryPendingSubmissions() {
       for (let i = 0; i < pending.length; i++) {
         const item = pending[i]
         try {
-          // Espaciado entre items > rate limit del backend (1 req/seg por IP)
-          // para que el reintento de N pendientes no caiga en 429.
+          // Espaciado mínimo entre items para no saturar el backend con
+          // ráfagas (200ms). El backend ya no tiene rate limit por IP.
           if (i > 0) {
-            await new Promise(r => setTimeout(r, 1100))
+            await new Promise(r => setTimeout(r, 200))
           }
           await submitToSheets(item.data)
           removePendingSubmission(item.id)
