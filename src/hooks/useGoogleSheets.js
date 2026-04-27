@@ -73,8 +73,9 @@ export function useGoogleSheets() {
       // Error de red / servidor caído → guardar pendiente para reintento
       savePendingSubmission(prepared)
       setSubmitError(
-        'No se pudo enviar al servidor. Los datos se guardaron localmente y se reintentará automáticamente al reconectarse. ' +
-        'NO cierre el navegador hasta que se confirme el envío.'
+        'No se pudo enviar al servidor. Los datos se guardaron localmente. ' +
+        'El sistema reintentará automáticamente cada minuto, al volver a tener foco en la pestaña, ' +
+        'y al reconectarse. NO cierre el navegador hasta que el contador de pendientes llegue a 0.'
       )
       return { success: false, registro_id: prepared.registro_id, pending: true, error: error.message }
 

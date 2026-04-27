@@ -140,20 +140,31 @@ export function removePendingSubmission(id) {
   localStorage.setItem('sarampion_pending', JSON.stringify(pending))
 }
 
+// Mutex: evita que dos llamadas concurrentes (setInterval + evento online +
+// focus) dupliquen POSTs del mismo item antes de que el primero lo borre.
+let _retryInFlight = null
+
 export async function retryPendingSubmissions() {
-  const pending = getPendingSubmissions()
-  for (let i = 0; i < pending.length; i++) {
-    const item = pending[i]
+  if (_retryInFlight) return _retryInFlight
+  _retryInFlight = (async () => {
     try {
-      // Exponential backoff between retries: 2s, 4s, 8s... (avoids rate limit)
-      if (i > 0) {
-        const delay = Math.min(2000 * Math.pow(2, i - 1), 30000)
-        await new Promise(r => setTimeout(r, delay))
+      const pending = getPendingSubmissions()
+      for (let i = 0; i < pending.length; i++) {
+        const item = pending[i]
+        try {
+          // Espaciado pequeño entre items para no saturar el backend (200ms)
+          if (i > 0) {
+            await new Promise(r => setTimeout(r, 200))
+          }
+          await submitToSheets(item.data)
+          removePendingSubmission(item.id)
+        } catch {
+          // Falla → se queda en cola, el siguiente tick lo reintenta
+        }
       }
-      await submitToSheets(item.data)
-      removePendingSubmission(item.id)
-    } catch {
-      // Se reintentará después
+    } finally {
+      _retryInFlight = null
     }
-  }
+  })()
+  return _retryInFlight
 }
