@@ -32,7 +32,11 @@ async function sendViaApi(data) {
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
     const detail = err.detail || `Error ${response.status}`
-    // 4xx = error de validación/negocio → no reintentar
+    // 429 (rate limit) NO es validación: es transitorio → reintentar
+    if (response.status === 429) {
+      throw new Error(detail)
+    }
+    // 4xx restantes = error de validación/negocio → no reintentar
     if (response.status >= 400 && response.status < 500) {
       throw new ValidationError(response.status, detail)
     }
@@ -152,9 +156,10 @@ export async function retryPendingSubmissions() {
       for (let i = 0; i < pending.length; i++) {
         const item = pending[i]
         try {
-          // Espaciado pequeño entre items para no saturar el backend (200ms)
+          // Espaciado entre items > rate limit del backend (1 req/seg por IP)
+          // para que el reintento de N pendientes no caiga en 429.
           if (i > 0) {
-            await new Promise(r => setTimeout(r, 200))
+            await new Promise(r => setTimeout(r, 1100))
           }
           await submitToSheets(item.data)
           removePendingSubmission(item.id)
