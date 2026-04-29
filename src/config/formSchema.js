@@ -155,7 +155,7 @@ export const formFields = [
     page: 1,
     required: true,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'fecha_registro_diagnostico',
@@ -164,7 +164,7 @@ export const formFields = [
     page: 1,
     required: false,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'semana_epidemiologica',
@@ -282,7 +282,7 @@ export const formFields = [
     page: 1,
     required: false,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
     hidden: true,
   },
   {
@@ -292,7 +292,7 @@ export const formFields = [
     page: 1,
     required: false,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
     hidden: true,
   },
   {
@@ -391,7 +391,7 @@ export const formFields = [
     page: 2,
     required: true,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, flexibleParse: true },
     sectionTitle: 'Edad',
   },
   {
@@ -705,7 +705,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'vacuna_embarazada', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, flexibleParse: true },
     hidden: true,
   },
 
@@ -766,7 +766,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'vacunado', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, flexibleParse: true },
   },
 
   // SR
@@ -789,7 +789,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'vacunado', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, flexibleParse: true },
   },
 
   // SPRV
@@ -812,7 +812,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'vacunado', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, flexibleParse: true },
   },
 
   // Campos legacy (compatibilidad retroactiva — ocultos en UI pero almacenados)
@@ -852,7 +852,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'vacunado', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, flexibleParse: true },
     hidden: true,
   },
   {
@@ -962,7 +962,7 @@ export const formFields = [
     page: 5,
     required: true,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
     sectionTitle: 'Conocimiento del Caso',
   },
   {
@@ -972,7 +972,7 @@ export const formFields = [
     page: 5,
     required: false,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
     hidden: true,
   },
 
@@ -984,7 +984,7 @@ export const formFields = [
     page: 5,
     required: true,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
     sectionTitle: 'Circunstancias de Exposición',
   },
   {
@@ -1021,7 +1021,7 @@ export const formFields = [
     page: 5,
     required: false,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'temperatura_celsius',
@@ -1151,7 +1151,7 @@ export const formFields = [
     required: true,
     conditional: { dependsOn: 'hospitalizado', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'no_registro_medico',
@@ -1183,7 +1183,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'hospitalizado', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
     hidden: true,
   },
   {
@@ -1310,7 +1310,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'aislamiento_respiratorio', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
 
   // ═══════════════════════════════════════════════════
@@ -1416,7 +1416,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'viajo_7_23_previo', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, flexibleParse: true },
   },
   {
     id: 'viaje_fecha_entrada',
@@ -1426,7 +1426,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'viajo_7_23_previo', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, flexibleParse: true },
   },
   {
     id: 'familiar_viajo_exterior',
@@ -1446,7 +1446,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'familiar_viajo_exterior', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
 
   // Campo legacy (compatibilidad retroactiva)
@@ -1686,7 +1686,7 @@ export const formFields = [
     required: true,
     conditional: { dependsOn: 'muestra_suero', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'muestra_hisopado',
@@ -1706,7 +1706,7 @@ export const formFields = [
     required: true,
     conditional: { dependsOn: 'muestra_hisopado', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'muestra_orina',
@@ -1726,7 +1726,7 @@ export const formFields = [
     required: true,
     conditional: { dependsOn: 'muestra_orina', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'muestra_otra',
@@ -1756,7 +1756,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'muestra_otra', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'antigeno_prueba',
@@ -1799,7 +1799,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
     hidden: true,
   },
   {
@@ -1810,7 +1810,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'recolecto_muestra', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
     hidden: true,
   },
   // Resultados detallados (mantener compatibilidad)
@@ -1952,7 +1952,7 @@ export const formFields = [
     page: 8,
     required: false,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
     hidden: true,
   },
 
@@ -1986,7 +1986,7 @@ export const formFields = [
     required: false,
     conditional: { dependsOn: 'muestra_rechazada', showWhen: 'SI' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'muestra_rechazada_criterio',
@@ -2204,7 +2204,7 @@ export const formFields = [
     page: 9,
     required: false,
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'responsable_clasificacion',
@@ -2235,7 +2235,7 @@ export const formFields = [
     required: true,
     conditional: { dependsOn: 'condicion_final_paciente', showWhen: 'Fallecido' },
     colSpan: 'half',
-    validation: { noFuture: true },
+    validation: { noFuture: true, yearMin: 2024, yearMax: 2027, flexibleParse: true },
   },
   {
     id: 'causa_muerte_certificado',

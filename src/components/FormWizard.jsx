@@ -7,7 +7,7 @@ import { useFormState } from '../hooks/useFormState.js'
 import { useConditionalFields } from '../hooks/useConditionalFields.js'
 import { cleanHiddenFieldData } from '../config/conditionalLogic.js'
 import { useGoogleSheets } from '../hooks/useGoogleSheets.js'
-import { validatePage, validateCrossFieldDates, validateCrossFieldDatesForPage } from '../utils/validation.js'
+import { validatePage, validateCrossFieldDates, validateCrossFieldDatesForPage, validarCoherenciaFechas } from '../utils/validation.js'
 import { getEpiWeek } from '../utils/formatters.js'
 import { pageLabels, formFields, diagnosticosMap, getMunicipios } from '../config/formSchema.js'
 import { unidadesMedicas as STATIC_UNIDADES } from '../config/unidadesMedicas.js'
@@ -366,12 +366,22 @@ export default function FormWizard() {
       return
     }
 
-    // Advertencias cruzadas de fechas — solo las aplicables a esta pestaña
+    // Coherencia de fechas: HARD bloquea, SOFT pide confirmación
+    const { hard: hardErrors, soft: softWarnings } = validarCoherenciaFechas(formData)
+    if (hardErrors.length > 0) {
+      setSubmitError(
+        'No se puede continuar — corrija estas inconsistencias:\n\n• ' +
+        hardErrors.join('\n• ')
+      )
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
+    // Advertencias cruzadas SOFT — solo las aplicables a esta pestaña
     const pageFieldIds = currentFields.map((f) => f.id)
     const pageWarnings = validateCrossFieldDatesForPage(formData, pageFieldIds)
     if (pageWarnings.length > 0) {
       setDateWarnings(pageWarnings)
-      // Mostrar banner rojo inline y hacer scroll al tope; usuario lee y decide
       window.scrollTo({ top: 0, behavior: 'smooth' })
       const proceed = window.confirm(
         'Se detectaron inconsistencias en fechas de esta pestaña:\n\n' +
@@ -388,7 +398,7 @@ export default function FormWizard() {
       setCurrentStep(prev => prev + 1)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
-  }, [currentFields, formData, currentStep, totalSteps])
+  }, [currentFields, formData, currentStep, totalSteps, setSubmitError])
 
   const handlePrev = useCallback(() => {
     if (currentStep > 1) {
@@ -405,13 +415,21 @@ export default function FormWizard() {
       return
     }
 
-    // Cross-field date validation (warnings, not blocking)
-    const warnings = validateCrossFieldDates(formData)
-    if (warnings.length > 0) {
-      setDateWarnings(warnings)
+    // Coherencia de fechas: HARD bloquea total, SOFT pide confirmación
+    const { hard: hardErrors, soft: softWarnings } = validarCoherenciaFechas(formData)
+    if (hardErrors.length > 0) {
+      setSubmitError(
+        'No se puede enviar el registro — corrija estas inconsistencias:\n\n• ' +
+        hardErrors.join('\n• ')
+      )
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+    if (softWarnings.length > 0) {
+      setDateWarnings(softWarnings)
       const proceed = window.confirm(
         'Se detectaron posibles inconsistencias en fechas:\n\n' +
-        warnings.map((w, i) => `${i + 1}. ${w}`).join('\n') +
+        softWarnings.map((w, i) => `${i + 1}. ${w}`).join('\n') +
         '\n\n¿Desea continuar con el envío?'
       )
       if (!proceed) return
