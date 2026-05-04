@@ -8,7 +8,7 @@ export default function ErrorAlert({ message, onDismiss }) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       </div>
-      <p className="flex-1 text-sm text-igss-red-dark pt-1">{message}</p>
+      <p className="flex-1 text-sm text-igss-red-dark pt-1 whitespace-pre-line leading-relaxed">{message}</p>
       {onDismiss && (
         <button
           onClick={onDismiss}

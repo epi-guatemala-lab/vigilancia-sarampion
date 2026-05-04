@@ -11,6 +11,36 @@ export const AÑO_MIN_CASO = 2024
 export const DIAS_NOTIF_SINTOMAS_HARD = 180
 export const DIAS_NOTIF_SINTOMAS_SOFT = 90
 
+// Mapa de ubicación de cada campo de fecha en el wizard.
+// Mantener sincronizado con `page` en formSchema.js y pageLabels.
+const FIELD_LOC = {
+  fecha_notificacion:    { paso: 1, seccion: 'Datos Generales',          campo: 'Fecha de Notificación' },
+  fecha_nacimiento:      { paso: 2, seccion: 'Datos del Paciente',       campo: 'Fecha de Nacimiento' },
+  edad_anios:            { paso: 2, seccion: 'Datos del Paciente',       campo: 'Edad' },
+  fecha_inicio_sintomas: { paso: 5, seccion: 'Datos Clínicos',           campo: 'Fecha Inicio Síntomas' },
+  fecha_inicio_fiebre:   { paso: 5, seccion: 'Datos Clínicos',           campo: 'Fecha Inicio Fiebre' },
+  fecha_inicio_erupcion: { paso: 5, seccion: 'Datos Clínicos',           campo: 'Fecha Inicio Erupción' },
+  hosp_fecha:            { paso: 5, seccion: 'Datos Clínicos',           campo: 'Fecha de Hospitalización' },
+  fecha_egreso:          { paso: 5, seccion: 'Datos Clínicos',           campo: 'Fecha de Egreso' },
+  viaje_fecha_salida:    { paso: 6, seccion: 'Factores de Riesgo',       campo: 'Fecha de Salida del Viaje' },
+  viaje_fecha_entrada:   { paso: 6, seccion: 'Factores de Riesgo',       campo: 'Fecha de Regreso del Viaje' },
+  fecha_defuncion:       { paso: 9, seccion: 'Clasificación y Datos IGSS', campo: 'Fecha de Fallecimiento' },
+}
+
+// Devuelve "Fecha de Notificación (Paso 1 — Datos Generales)" para un campo
+function loc(fieldId) {
+  const l = FIELD_LOC[fieldId]
+  return l ? `${l.campo} (Paso ${l.paso} — ${l.seccion})` : fieldId
+}
+
+// Formatea una Date como DD/MM/YYYY (formato visible en el formulario)
+function fmtFecha(d) {
+  if (!d || !(d instanceof Date) || isNaN(d.getTime())) return ''
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  return `${dd}/${mm}/${d.getFullYear()}`
+}
+
 const messages = {
   required: 'Este campo es obligatorio',
   minLength: (n) => `Debe tener al menos ${n} caracteres`,
@@ -296,45 +326,45 @@ export function validateCrossFieldDates(formData) {
   hoy.setHours(23, 59, 59, 999)
 
   if (fechaSintomas && fechaNotificacion && fechaSintomas > fechaNotificacion) {
-    warnings.push('La fecha de inicio de síntomas es posterior a la fecha de notificación.')
+    warnings.push(`${loc('fecha_inicio_sintomas')} (${fmtFecha(fechaSintomas)}) es posterior a ${loc('fecha_notificacion')} (${fmtFecha(fechaNotificacion)}).`)
   }
   if (fechaFiebre && fechaNotificacion && fechaFiebre > fechaNotificacion) {
-    warnings.push('La fecha de inicio de fiebre es posterior a la fecha de notificación.')
+    warnings.push(`${loc('fecha_inicio_fiebre')} (${fmtFecha(fechaFiebre)}) es posterior a ${loc('fecha_notificacion')} (${fmtFecha(fechaNotificacion)}).`)
   }
   if (fechaErupcion && fechaNotificacion && fechaErupcion > fechaNotificacion) {
-    warnings.push('La fecha de inicio de erupción es posterior a la fecha de notificación.')
+    warnings.push(`${loc('fecha_inicio_erupcion')} (${fmtFecha(fechaErupcion)}) es posterior a ${loc('fecha_notificacion')} (${fmtFecha(fechaNotificacion)}).`)
   }
   // Erupción y fiebre deben ser ≥ fecha inicio síntomas
   if (fechaErupcion && fechaSintomas && fechaErupcion < fechaSintomas) {
-    warnings.push('La fecha de inicio de erupción es anterior a la fecha de inicio de síntomas.')
+    warnings.push(`${loc('fecha_inicio_erupcion')} (${fmtFecha(fechaErupcion)}) es anterior a ${loc('fecha_inicio_sintomas')} (${fmtFecha(fechaSintomas)}).`)
   }
   if (fechaFiebre && fechaSintomas && fechaFiebre < fechaSintomas) {
-    warnings.push('La fecha de inicio de fiebre es anterior a la fecha de inicio de síntomas.')
+    warnings.push(`${loc('fecha_inicio_fiebre')} (${fmtFecha(fechaFiebre)}) es anterior a ${loc('fecha_inicio_sintomas')} (${fmtFecha(fechaSintomas)}).`)
   }
   // No pueden ser futuras
   if (fechaErupcion && fechaErupcion > hoy) {
-    warnings.push('La fecha de inicio de erupción no puede ser posterior al día de hoy.')
+    warnings.push(`${loc('fecha_inicio_erupcion')} (${fmtFecha(fechaErupcion)}) no puede ser posterior al día de hoy.`)
   }
   if (fechaFiebre && fechaFiebre > hoy) {
-    warnings.push('La fecha de inicio de fiebre no puede ser posterior al día de hoy.')
+    warnings.push(`${loc('fecha_inicio_fiebre')} (${fmtFecha(fechaFiebre)}) no puede ser posterior al día de hoy.`)
   }
   if (fechaSintomas && fechaSintomas > hoy) {
-    warnings.push('La fecha de inicio de síntomas no puede ser posterior al día de hoy.')
+    warnings.push(`${loc('fecha_inicio_sintomas')} (${fmtFecha(fechaSintomas)}) no puede ser posterior al día de hoy.`)
   }
   if (fechaHosp && fechaSintomas && fechaHosp < fechaSintomas) {
-    warnings.push('La fecha de hospitalización es anterior a la fecha de inicio de síntomas.')
+    warnings.push(`${loc('hosp_fecha')} (${fmtFecha(fechaHosp)}) es anterior a ${loc('fecha_inicio_sintomas')} (${fmtFecha(fechaSintomas)}).`)
   }
   if (fechaEgreso && fechaHosp && fechaEgreso < fechaHosp) {
-    warnings.push('La fecha de egreso es anterior a la fecha de hospitalización.')
+    warnings.push(`${loc('fecha_egreso')} (${fmtFecha(fechaEgreso)}) es anterior a ${loc('hosp_fecha')} (${fmtFecha(fechaHosp)}).`)
   }
   if (fechaDefuncion && fechaSintomas && fechaDefuncion < fechaSintomas) {
-    warnings.push('La fecha de defunción es anterior a la fecha de inicio de síntomas.')
+    warnings.push(`${loc('fecha_defuncion')} (${fmtFecha(fechaDefuncion)}) es anterior a ${loc('fecha_inicio_sintomas')} (${fmtFecha(fechaSintomas)}).`)
   }
   if (fechaNacimiento && fechaNotificacion && fechaNacimiento >= fechaNotificacion) {
-    warnings.push('La fecha de nacimiento no es anterior a la fecha de notificación.')
+    warnings.push(`${loc('fecha_nacimiento')} (${fmtFecha(fechaNacimiento)}) no es anterior a ${loc('fecha_notificacion')} (${fmtFecha(fechaNotificacion)}).`)
   }
   if (fechaSalida && fechaEntrada && fechaSalida > fechaEntrada) {
-    warnings.push('La fecha de salida del viaje es posterior a la fecha de entrada/retorno.')
+    warnings.push(`${loc('viaje_fecha_salida')} (${fmtFecha(fechaSalida)}) es posterior a ${loc('viaje_fecha_entrada')} (${fmtFecha(fechaEntrada)}).`)
   }
 
   return warnings
@@ -357,8 +387,8 @@ export function validarCoherenciaFechas(formData) {
   // HARD: notificación anterior a síntomas (inversión cronológica)
   if (fis && fnotif && fnotif < fis) {
     hard.push(
-      'La fecha de notificación es anterior a la fecha de inicio de síntomas. ' +
-      'La notificación no puede ocurrir antes de los síntomas.'
+      `${loc('fecha_notificacion')} es ${fmtFecha(fnotif)}, anterior a ${loc('fecha_inicio_sintomas')} (${fmtFecha(fis)}). ` +
+      `Solución: vaya al Paso 1 (Datos Generales) y cambie "Fecha de Notificación" a una fecha igual o posterior a ${fmtFecha(fis)}.`
     )
   }
 
@@ -367,23 +397,29 @@ export function validarCoherenciaFechas(formData) {
     const diff = Math.round((fnotif - fis) / 86400000)
     if (diff > DIAS_NOTIF_SINTOMAS_HARD) {
       hard.push(
-        `Diferencia entre notificación y síntomas = ${diff} días ` +
-        `(>${DIAS_NOTIF_SINTOMAS_HARD}, probable error de captura)`
+        `Diferencia entre ${loc('fecha_notificacion')} (${fmtFecha(fnotif)}) y ${loc('fecha_inicio_sintomas')} (${fmtFecha(fis)}) = ${diff} días ` +
+        `(>${DIAS_NOTIF_SINTOMAS_HARD}, probable error de captura). Verifique ambas fechas.`
       )
     } else if (diff > DIAS_NOTIF_SINTOMAS_SOFT) {
       soft.push(
-        `Diferencia entre notificación y síntomas = ${diff} días ` +
-        `(>${DIAS_NOTIF_SINTOMAS_SOFT}, verificar)`
+        `Diferencia entre ${loc('fecha_notificacion')} (${fmtFecha(fnotif)}) y ${loc('fecha_inicio_sintomas')} (${fmtFecha(fis)}) = ${diff} días ` +
+        `(>${DIAS_NOTIF_SINTOMAS_SOFT}, verificar).`
       )
     }
   }
 
   // HARD: fecha de nacimiento posterior a fecha del caso (paciente "no nacido")
   if (fnac && fis && fnac > fis) {
-    hard.push('La fecha de nacimiento es posterior a la fecha de inicio de síntomas')
+    hard.push(
+      `${loc('fecha_nacimiento')} (${fmtFecha(fnac)}) es posterior a ${loc('fecha_inicio_sintomas')} (${fmtFecha(fis)}). ` +
+      `Vaya al Paso 2 (Datos del Paciente) y verifique la fecha de nacimiento.`
+    )
   }
   if (fnac && fnotif && fnac > fnotif) {
-    hard.push('La fecha de nacimiento es posterior a la fecha de notificación')
+    hard.push(
+      `${loc('fecha_nacimiento')} (${fmtFecha(fnac)}) es posterior a ${loc('fecha_notificacion')} (${fmtFecha(fnotif)}). ` +
+      `Verifique ambas fechas.`
+    )
   }
 
   // Coherencia edad declarada vs calculada (SOFT)
@@ -393,8 +429,8 @@ export function validarCoherenciaFechas(formData) {
     const edadCalc = Math.floor((ref - fnac) / (365.25 * 86400000))
     if (Math.abs(edadCalc - edadDeclarada) > 2) {
       soft.push(
-        `Edad declarada (${edadDeclarada}) difiere de la calculada (${edadCalc}) ` +
-        `desde la fecha de nacimiento`
+        `${loc('edad_anios')} declarada (${edadDeclarada} años) difiere de la calculada desde ${loc('fecha_nacimiento')} (${edadCalc} años). ` +
+        `Diferencia >2 años — verifique en el Paso 2.`
       )
     }
   }

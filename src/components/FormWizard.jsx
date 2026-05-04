@@ -408,6 +408,19 @@ export default function FormWizard() {
     }
   }, [currentStep])
 
+  // Saltar a un paso anterior desde el ProgressBar (solo hacia atrás).
+  // Hacia adelante se mantiene con "Siguiente" para preservar la validación
+  // por página y los warnings cruzados.
+  const handleStepClick = useCallback((targetStep) => {
+    if (targetStep >= 1 && targetStep < currentStep) {
+      setErrors({})
+      setSubmitError(null)
+      setDateWarnings([])
+      setCurrentStep(targetStep)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [currentStep, setSubmitError])
+
   const handleSubmit = useCallback(async () => {
     const { isValid, errors: pageErrors } = validatePage(currentFields, formData)
     if (!isValid) {
@@ -502,6 +515,7 @@ export default function FormWizard() {
         totalSteps={totalSteps}
         pageLabels={pageLabels}
         visiblePages={visiblePages}
+        onStepClick={handleStepClick}
       />
 
       <ErrorAlert
