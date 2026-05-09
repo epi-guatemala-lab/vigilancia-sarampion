@@ -286,16 +286,20 @@ export default function FormWizard() {
       updateField('distrito_salud_mspas', '')
     }
 
-    // Auto-fill MSPAS: al elegir unidad médica IGSS, pre-llenar el departamento MSPAS.
-    // El municipio MSPAS queda manual (nombre de unidad no mapea 1:1 a municipio).
-    // Siempre sobreescribe para reflejar el departamento real de la unidad actual;
-    // el usuario puede editarlo manualmente después si la dirección difiere.
+    // Auto-fill ubicación física de la unidad notificadora (mayo 2026):
+    // Al elegir la unidad médica IGSS, el backend ya tiene mapeada la
+    // ubicación física (depto + municipio canónico GoData). Auto-llenamos
+    // ambos campos en read-only para que el usuario vea la ubicación que
+    // el sistema usará al reportar a MSPAS/GoData.
+    // Bug fix: antes el usuario llenaba "Ubicación MSPAS" manualmente y a
+    // veces ponía la del paciente, no de la unidad — generando DMS errados
+    // (ej. HGE reportado como Villa Canales).
     if (fieldId === 'unidad_medica' && value) {
       const match = unidadesMedicas.find((u) => u.nombre === value)
-      if (match && match.departamento) {
+      if (match) {
         updateMultipleFields({
-          area_salud_mspas: match.departamento,
-          distrito_salud_mspas: '',
+          area_salud_mspas: match.departamento || '',
+          distrito_salud_mspas: match.municipio_canonico || '',
         })
       }
     }

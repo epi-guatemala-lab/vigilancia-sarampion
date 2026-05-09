@@ -12,7 +12,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { unidadesMedicas as STATIC_UNIDADES } from '../config/unidadesMedicas.js'
 
-const STORAGE_KEY = 'igss_unidades_public_v1'
+// v2 (mayo 2026): incluye municipio_canonico/zona/direccion_completa.
+// Invalidar v1 cache para que clientes con cache viejo recarguen.
+const STORAGE_KEY = 'igss_unidades_public_v2'
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000   // 24h
 const API_URL_DEFAULT = '/sarampion/api/unidades/public'
 
@@ -38,14 +40,21 @@ function _writeCache(data) {
 }
 
 function _normalizeFromApi(raw) {
-  // La API responde {data: [{codigo, nombre, departamento, tipo}, ...]}
-  // El form espera [{nombre, departamento}]
+  // La API responde {data: [{codigo, nombre, departamento, tipo,
+  //   municipio_canonico, zona, direccion_completa}, ...]}
   const list = Array.isArray(raw?.data) ? raw.data : []
   return list.map((u) => ({
     nombre: u.nombre,
     departamento: u.departamento,
     codigo: u.codigo,
     tipo: u.tipo,
+    // Auto-fill ubicación física unidad notificadora (mayo 2026):
+    // estos vienen del backend (portal_auth.unidades). El form usa
+    // municipio_canonico para auto-llenar distrito_salud_mspas y
+    // mostrar al usuario en formato read-only la ubicación exacta.
+    municipio_canonico: u.municipio_canonico || null,
+    zona: u.zona || null,
+    direccion_completa: u.direccion_completa || null,
   }))
 }
 
