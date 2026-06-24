@@ -45,23 +45,44 @@ export function getEpiWeek(dateStr) {
  *   XXXXX: Correlativo basado en timestamp
  *   ABCD: Código verificador de 4 caracteres
  */
-export function generateRegistroId() {
-  const now = new Date()
-  const year = now.getFullYear()
-
-  // Correlativo: segundos desde inicio del año (máx ~31M, 5 dígitos)
-  const startOfYear = new Date(year, 0, 1)
-  const secondsSinceYear = Math.floor((now - startOfYear) / 1000)
-  const correlativo = String(secondsSinceYear).padStart(7, '0')
-
-  // Código verificador: 4 caracteres alfanuméricos aleatorios
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // sin I,O,0,1 para evitar confusión
-  let codigo = ''
-  for (let i = 0; i < 4; i++) {
-    codigo += chars.charAt(Math.floor(Math.random() * chars.length))
+function _uuid() {
+  // crypto.randomUUID en navegadores modernos (contexto seguro). Fallback con
+  // getRandomValues por si el navegador no lo expone.
+  try {
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID()
+    }
+    const b = new Uint8Array(16)
+    globalThis.crypto.getRandomValues(b)
+    b[6] = (b[6] & 0x0f) | 0x40
+    b[8] = (b[8] & 0x3f) | 0x80
+    const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('')
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+  } catch {
+    // Último recurso (no criptográfico) — solo si todo lo anterior falla.
+    return `${Date.now().toString(16)}-${Math.floor(Math.random() * 1e16).toString(16)}`
   }
+}
 
-  return `IGSS-SAR-${year}-${correlativo}-${codigo}`
+/**
+ * Clave de idempotencia ESTABLE por envío. Se genera una vez al preparar el
+ * envío y se conserva entre reintentos de la cola offline para que el backend
+ * deduplique sin crear duplicados. NO se reusa entre pacientes distintos.
+ */
+export function generateClientSubmissionUuid() {
+  return _uuid()
+}
+
+/**
+ * registro_id provisional del cliente (alta entropía). Solo se usa para mostrar
+ * la constancia si no hay respuesta del servidor; el id DEFINITIVO lo asigna el
+ * backend (server-authoritative). El esquema viejo (segundos + 4 chars con
+ * Math.random + reuso de drafts en localStorage) causaba colisiones que
+ * descartaban pacientes en silencio (incidente jun 2026) — por eso ahora va UUID.
+ */
+export function generateRegistroId() {
+  const year = new Date().getFullYear()
+  return `IGSS-SAR-${year}-${_uuid().toUpperCase()}`
 }
 
 /**
@@ -104,6 +125,9 @@ export function prepareSubmissionData(formData, fields) {
 
   // Agregar campos automáticos
   prepared.registro_id = generateRegistroId()
+  // Clave de idempotencia estable por envío (sobrevive a reintentos de la cola
+  // offline). El backend la usa para deduplicar sin crear duplicados.
+  prepared.client_submission_uuid = generateClientSubmissionUuid()
   prepared.timestamp_envio = getTimestamp()
 
   // Copiar y formatear datos del formulario
