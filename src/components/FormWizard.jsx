@@ -7,7 +7,7 @@ import { useFormState } from '../hooks/useFormState.js'
 import { useConditionalFields } from '../hooks/useConditionalFields.js'
 import { cleanHiddenFieldData } from '../config/conditionalLogic.js'
 import { useGoogleSheets } from '../hooks/useGoogleSheets.js'
-import { validatePage, validateCrossFieldDates, validateCrossFieldDatesForPage, validarCoherenciaFechas } from '../utils/validation.js'
+import { validatePage, validateCrossFieldDates, validateCrossFieldDatesForPage, validarCoherenciaFechas, validarConsistenciaNexo } from '../utils/validation.js'
 import { getEpiWeek } from '../utils/formatters.js'
 import { pageLabels, formFields, diagnosticosMap, getMunicipios } from '../config/formSchema.js'
 import { unidadesMedicas as STATIC_UNIDADES } from '../config/unidadesMedicas.js'
@@ -267,6 +267,8 @@ export default function FormWizard() {
 
     // Auto-infer condicion_egreso from condicion_final_paciente (EPIWEB compat)
     if (fieldId === 'condicion_final_paciente') {
+      // 'Con Secuelas' se conserva como key por compat con datos legacy que
+      // aún puedan traer ese valor por import/carga (la opción se ocultó del UI).
       const egresoMap = {
         'Recuperado': 'MEJORADO', 'Con Secuelas': 'MEJORADO',
         'Fallecido': 'MUERTO', 'Desconocido': ''
@@ -442,6 +444,21 @@ export default function FormWizard() {
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
+
+    // Consistencia epidemiológica "por nexo" — HARD, bloquea el envío.
+    // Solo se valida aquí (no en handleNext): los campos de motivo de muestra
+    // están en el Paso 8 y la clasificación en el Paso 9 (última página); validar
+    // al avanzar atraparía al usuario antes de poder llenar la clasificación.
+    const { hard: nexoHard } = validarConsistenciaNexo(formData)
+    if (nexoHard.length > 0) {
+      setSubmitError(
+        'No se puede enviar el registro — corrija esta inconsistencia:\n\n• ' +
+        nexoHard.join('\n• ')
+      )
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
     if (softWarnings.length > 0) {
       setDateWarnings(softWarnings)
       const proceed = window.confirm(

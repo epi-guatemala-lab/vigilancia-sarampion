@@ -2100,20 +2100,10 @@ export const formFields = [
     colSpan: 'half',
     helpText: 'Datos validados con Laboratorio Nacional de Salud (LNS)',
   },
-  {
-    id: 'criterio_descarte',
-    label: 'Criterio para descartar',
-    type: 'select',
-    page: 9,
-    required: false,
-    options: [
-      'Laboratorio',
-      'Reacción por vacuna',
-      'Clínico',
-    ],
-    helpText: 'Si corresponde: indicar el criterio por el cual se descarta el caso',
-    colSpan: 'half',
-  },
+  // NOTA: 'criterio_descarte' se removió del formulario (jul-2026). El descarte
+  // de casos ahora se realiza desde la plataforma (visor/admin), no en captura.
+  // La columna se conserva en la BD y el reverse-map GoData→BD sigue intacto
+  // para casos legacy; el backend acepta el campo ausente (es opcional).
   {
     id: 'fuente_infeccion',
     label: 'Fuente de Infección',
@@ -2222,7 +2212,9 @@ export const formFields = [
     type: 'select',
     page: 9,
     required: false,
-    options: ['Recuperado', 'Con Secuelas', 'Fallecido', 'Desconocido'],
+    // 'Con Secuelas' se ocultó (jul-2026): generaba confusión en captura. El
+    // lookup de BD/GoData conserva la categoría para casos legacy.
+    options: ['Recuperado', 'Fallecido', 'Desconocido'],
     colSpan: 'half',
     sectionTitle: 'Condición Final',
   },

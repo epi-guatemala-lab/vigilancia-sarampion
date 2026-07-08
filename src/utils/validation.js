@@ -477,3 +477,52 @@ export function validateCrossFieldDatesForPage(formData, pageFieldIds) {
     return false
   })
 }
+
+/**
+ * Consistencia epidemiológica "por nexo".
+ *
+ * Si el motivo por el que NO se recolectó la muestra (`motivo_no_recoleccion`)
+ * o por el que NO se tomaron las 3 muestras (`motivo_no_3_muestras`) es
+ * "por nexo epidemiológico", entonces el caso se está sustentando por nexo, y
+ * la Clasificación del Caso (Paso 9) DEBE ser CONFIRMADO SARAMPIÓN con
+ * Criterio de Confirmación = "Nexo Epidemiológico". De lo contrario el registro
+ * afirma "no tomé muestra porque es por nexo" pero no clasifica el nexo → estado
+ * epidemiológicamente inconsistente que no debe permitirse enviar.
+ *
+ * Terminología MSPAS: un caso por nexo es PROBABLE (no confirmado por laboratorio).
+ *
+ * OJO con las 3 capitalizaciones distintas de "nexo" en el schema:
+ *   motivo_no_recoleccion → 'Por Nexo epidemiológico'
+ *   motivo_no_3_muestras  → 'Por nexo epidemiológico'
+ *   criterio_confirmacion → 'Nexo Epidemiológico'
+ * Se normaliza a minúsculas para blindar la comparación.
+ *
+ * @returns {{hard: string[], soft: string[]}}
+ */
+export function validarConsistenciaNexo(formData) {
+  const hard = []
+  const soft = []
+
+  const norm = (v) => String(v ?? '').trim().toLowerCase()
+
+  const muestraPorNexo =
+    norm(formData.motivo_no_recoleccion) === 'por nexo epidemiológico' ||
+    norm(formData.motivo_no_3_muestras) === 'por nexo epidemiológico'
+
+  if (!muestraPorNexo) return { hard, soft }
+
+  const clasifOK = norm(formData.clasificacion_caso) === 'confirmado sarampión'
+  const criterioOK = norm(formData.criterio_confirmacion) === 'nexo epidemiológico'
+
+  if (!clasifOK || !criterioOK) {
+    hard.push(
+      'Indicó "Por nexo epidemiológico" como motivo de la muestra, pero el caso no está ' +
+      'clasificado como confirmado por nexo. Un caso probable por nexo debe clasificarse así. ' +
+      'Solución: vaya al Paso 9 (Clasificación y Datos IGSS) y seleccione ' +
+      '"Clasificación del Caso" = CONFIRMADO SARAMPIÓN y "Criterio de Confirmación" = ' +
+      'Nexo Epidemiológico; o bien cambie el motivo de la muestra.'
+    )
+  }
+
+  return { hard, soft }
+}
