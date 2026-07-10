@@ -3,6 +3,7 @@ import Header from './components/layout/Header.jsx'
 import Footer from './components/layout/Footer.jsx'
 import FormWizard from './components/FormWizard.jsx'
 import { retryPendingSubmissions, getPendingSubmissions } from './utils/sheetsApi.js'
+import { useVersionCheck } from './hooks/useVersionCheck.js'
 
 const RETRY_INTERVAL_MS = 60_000  // reintento periódico de pendientes
 const PENDING_REFRESH_MS = 5_000  // refresco del contador en footer
@@ -10,6 +11,10 @@ const PENDING_REFRESH_MS = 5_000  // refresco del contador en footer
 export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [pendingCount, setPendingCount] = useState(() => getPendingSubmissions().length)
+
+  // Auto-recarga si hay un build nuevo desplegado (solo con la pestaña en segundo
+  // plano, para no interrumpir capturas). Evita el envío con bundle viejo en caché.
+  useVersionCheck()
 
   const refreshPendingCount = useCallback(() => {
     setPendingCount(getPendingSubmissions().length)
