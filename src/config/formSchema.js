@@ -2166,26 +2166,12 @@ export const formFields = [
     colSpan: 'full',
     validation: { maxLength: 300 },
   },
-  {
-    id: 'caso_analizado_por',
-    label: 'Caso Analizado por',
-    type: 'select',
-    page: 9,
-    required: false,
-    options: ['CONAPI', 'DEGR', 'Comisión Nacional', 'Otros'],
-    colSpan: 'half',
-  },
-  {
-    id: 'caso_analizado_por_otro',
-    label: 'Especifique quién analizó el caso',
-    type: 'text',
-    page: 9,
-    required: false,
-    placeholder: 'Especifique',
-    conditional: { dependsOn: 'caso_analizado_por', showWhen: 'Otros' },
-    colSpan: 'half',
-    validation: { maxLength: 150 },
-  },
+  // NOTA: 'caso_analizado_por' (CONAPI/DEGR/Comisión Nacional/Otros) y su
+  // 'caso_analizado_por_otro' se removieron del formulario (jul-2026). Es una
+  // atribución de nivel análisis que corresponde al equipo de epidemiología/
+  // plataforma, NO a la unidad que captura; los médicos la llenaban por error
+  // (p.ej. "Comisión Nacional"). Las columnas se conservan en BD y el mapeo
+  // GoData sigue intacto para casos legacy; el backend acepta el campo ausente.
   {
     id: 'fecha_clasificacion_final',
     label: 'Fecha de Clasificación Final',
